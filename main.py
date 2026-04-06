@@ -544,18 +544,27 @@ class MainWindow(QMainWindow):
 
     def show_news(self):
         msg = ("<b>⚡ ComicOptimizer 2.0: Il Grande Salto!</b><br><br>"
-               "La tua collezione di fumetti non è mai stata così in forma.<br><br>"
-               "&nbsp;&nbsp;🆕 <b>Benvenuti PDF!</b> Converti i tuoi PDF in .cbz con un clic.<br>"
-               "&nbsp;&nbsp;🚀 <b>Turbo Mode:</b> Motore più veloce e leggero.<br>"
-               "&nbsp;&nbsp;🎯 <b>Ordine Totale:</b> Gestione fluida senza blocchi.")
+               "La tua collezione di fumetti non è mai stata così in forma. Ecco cosa c'è di nuovo:<br><br>"
+               "&nbsp;&nbsp;🆕 <b>Benvenuti PDF!</b> Converti i tuoi PDF in agili file .cbz con un solo clic.<br>"
+               "&nbsp;&nbsp;🚀 <b>Turbo Mode:</b> Motore interno riscritto per essere più veloce, stabile e leggero.<br>"
+               "&nbsp;&nbsp;🎯 <b>Ordine Totale:</b> Nuova gestione asincrona dei file per un'esperienza fluida e senza blocchi.<br>"
+               "&nbsp;&nbsp;💎 <b>Qualità WebP:</b> Ottimizzazione spaziale estrema senza compromessi visivi.<br><br>"
+               "Mettiti comodo, al disordine ci pensiamo noi.")
         QMessageBox.information(self, "Novità v2.0", msg)
 
     def show_credits(self):
-        msg = "<b>Creatore:</b> Michele Shuren Bancheri<br><br>Sviluppato per amore dei fumetti."
+        msg = ("<b>Creatore, Designer e Beta Tester (mio malgrado):</b> Michele Shuren Bancheri<br><br>"
+               "Ho sviluppato ComicOptimizer perché la mia collezione di fumetti era un disastro e la mia pazienza era finita.<br><br>"
+               "<b>Ringraziamenti Speciali:</b><br>&nbsp;&nbsp;• <b>A mia moglie Keyla Damaer</b>.<br>"
+               "&nbsp;&nbsp;• <b>A me stesso:</b> Per non aver mollato al decimo errore di PyQt6.<br>"
+               "&nbsp;&nbsp;• <b>A Gemini 3 Flash Preview:</b> Per aver risposto alle mie domande esistenziali sul codice alle tre di notte.<br>"
+               "&nbsp;&nbsp;• <b>Al mio PC:</b> Per non essere esploso mentre compilavo e testavo centinaia di versioni.")
         QMessageBox.information(self, "Credits", msg)
 
     def show_privacy(self):
-        msg = "<b>Privacy 100% Locale</b><br><br>I tuoi file non lasciano mai il tuo computer."
+        msg = ("<b>Informativa sulla Privacy (100% Locale)</b><br><br><b>Sicurezza Integrale: I tuoi file non lasciano mai il PC.</b><br><br>"
+               "La riservatezza dei tuoi dati e della tua collezione è la nostra priorità assoluta. ComicOptimizer è progettato secondo il principio della privacy-by-design.<br><br>"
+               "La tua libreria rimane sotto il tuo controllo.")
         QMessageBox.information(self, "Privacy", msg)
 
     def handle_selection(self, card, mod):
