@@ -376,6 +376,9 @@ class NoWheelSpinBox(QSpinBox):
 
 # --- WORKERS ---
 
+_ARCHIVE_EXTS = ('.cbz', '.cbr', '.zip', '.rar', '.pdf')
+_IMAGE_EXTS   = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tiff', '.tif', '.avif')
+
 class ImportWorker(QThread):
     progress = pyqtSignal(int, int)
     finished = pyqtSignal(list)
@@ -385,15 +388,15 @@ class ImportWorker(QThread):
         self.raw_paths = raw_paths
 
     def run(self):
-        valid = []
+        valid        = []
         all_to_check = []
         for p in self.raw_paths:
             if os.path.isdir(p):
                 for r, _, fs in os.walk(p):
                     for f in fs:
-                        if f.lower().endswith(('.cbz', '.cbr', '.zip', '.rar', '.pdf')):
+                        if f.lower().endswith(_ARCHIVE_EXTS):
                             all_to_check.append(os.path.join(r, f))
-            elif p.lower().endswith(('.cbz', '.cbr', '.zip', '.rar', '.pdf')):
+            elif p.lower().endswith(_ARCHIVE_EXTS):
                 all_to_check.append(p)
         total = len(all_to_check)
         for i, p in enumerate(all_to_check):
@@ -471,7 +474,7 @@ class ProcessingWorker(QThread):
 
     def __init__(self, tasks, to_webp=False):
         super().__init__()
-        self.tasks = tasks
+        self.tasks   = tasks
         self.to_webp = to_webp
         self._is_running = True
         self._stop_after_current = False
@@ -851,7 +854,7 @@ class BatchPrepWorker(QThread):
                 os.path.join(r, f)
                 for r, _, fs in os.walk(tmp)
                 for f in fs
-                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
+                if f.lower().endswith(_IMAGE_EXTS)
                 and not is_junk_file(os.path.join(r, f))
             ]
             extracted.sort(key=get_natural_sort_key)
@@ -878,9 +881,18 @@ class BatchPrepWorker(QThread):
         log.info(f"BatchPrep completato: {len(tasks)}/{total} file pronti per l'elaborazione")
         self.ready.emit(tasks, self.to_webp)
 
+# --- LAYOUT COSTANTI ---
+# Usate sia da ComicCard che da MainWindow per calcolare la larghezza adattiva
+CARD_W       = 195   # larghezza fissa di ogni card
+CARD_H       = 385   # altezza fissa di ogni card
+CARD_SPACING = 15    # spacing tra card nella griglia
+CARD_MARGIN  = 15    # margine esterno della griglia
+COLS_DEFAULT = 4     # colonne all'avvio
+COLS_MAX     = 7     # massimo assoluto di colonne
+
 # --- UI ---
 
-# FIX #9: dizionario status come costante di modulo (non riallocato a ogni chiamata)
+# dizionario status come costante di modulo
 _STATUS_MAP = {
     0: ("DA SISTEMARE", "#b71c1c", "white"),
     1: ("OK",           "#1b5e20", "#a5d6a7"),
@@ -998,6 +1010,7 @@ class AdvancedEditor(QDialog):
         self.file_path    = file_path
         self.temp_dir     = temp_dir
         self.page_widgets = []
+        self._added_paths = set()   # path delle immagini aggiunte in questa sessione
         self.setWindowTitle(f"Editor: {os.path.basename(file_path)}")
         self.setMinimumSize(1100, 850)
 
@@ -1033,36 +1046,84 @@ class AdvancedEditor(QDialog):
             self.add_page(p, i + 1)
         self.refresh()
 
-    def add_page(self, p, pos):
+    def _dominant_format(self):
+        """
+        Determina il formato prevalente tra le immagini originali (non aggiunte).
+        Restituisce 'webp' o 'jpg'. In caso di parità o dubbio, restituisce 'jpg'.
+        """
+        webp_count = 0
+        jpg_count  = 0
+        for w in self.page_widgets:
+            if w.path in self._added_paths:
+                continue   # ignora le nuove aggiunte per il conteggio
+            ext = os.path.splitext(w.path)[1].lower()
+            if ext == '.webp':
+                webp_count += 1
+            elif ext in ('.jpg', '.jpeg'):
+                jpg_count += 1
+        return 'webp' if webp_count > jpg_count else 'jpg'
+
+    def add_page(self, p, pos, is_new=False):
         w = QFrame()
-        w.setFixedSize(160, 280)
+        w.setFixedSize(160, 310)
         w.setStyleSheet("background: #333; border-radius: 5px;")
         l = QVBoxLayout(w)
+        l.setContentsMargins(4, 4, 4, 4)
+        l.setSpacing(3)
+
         btn_del = QPushButton("X")
         btn_del.setFixedSize(20, 20)
         btn_del.setStyleSheet("background:red; color:white; font-size:9px;")
         btn_del.clicked.connect(lambda: (self.page_widgets.remove(w), w.deleteLater(), self.refresh()))
         l.addWidget(btn_del, alignment=Qt.AlignmentFlag.AlignRight)
-        img  = QLabel()
+
+        img = QLabel()
         img.setFixedSize(140, 175)
-        pix  = QPixmap(p)
+        pix = QPixmap(p)
         img.setPixmap(pix.scaled(140, 175, Qt.AspectRatioMode.KeepAspectRatio))
         l.addWidget(img, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Banda colorata con il nome del file
+        ext  = os.path.splitext(p)[1].lower()
+        name = os.path.basename(p)
+        if ext == '.webp':
+            badge_bg, badge_fg = "#1b5e20", "#a5d6a7"   # verde
+        elif ext in ('.jpg', '.jpeg'):
+            badge_bg, badge_fg = "#f9a825", "#000"       # giallo
+        else:
+            badge_bg, badge_fg = "#b71c1c", "#fff"       # rosso
+
+        name_lbl = QLabel(name)
+        name_lbl.setWordWrap(True)
+        name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name_lbl.setFixedWidth(152)
+        name_lbl.setStyleSheet(
+            f"background: {badge_bg}; color: {badge_fg}; "
+            "font-size: 8px; font-weight: bold; "
+            "padding: 2px 3px; border-radius: 3px;"
+        )
+        l.addWidget(name_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
+
         sp = NoWheelSpinBox()
         sp.setRange(1, 9999)
         sp.setValue(pos)
         sp.editingFinished.connect(lambda: self.reorder(w))
         l.addWidget(sp)
-        w.path = p
-        w.spin = sp
+
+        w.path    = p
+        w.spin    = sp
+        w.is_new  = is_new   # flag: aggiunta in questa sessione
         self.page_widgets.append(w)
 
     def add_ext(self):
-        fs, _ = QFileDialog.getOpenFileNames(self, "Aggiungi", "", "Immagini (*.jpg *.png *.webp)")
+        """Accetta tutte le estensioni immagine comuni."""
+        exts = "Immagini (*.jpg *.jpeg *.png *.webp *.bmp *.gif *.tiff *.tif *.avif)"
+        fs, _ = QFileDialog.getOpenFileNames(self, "Aggiungi immagini", "", exts)
         for f in fs:
             dst = os.path.join(self.temp_dir, f"ext_{os.path.basename(f)}")
             shutil.copy2(f, dst)
-            self.add_page(dst, len(self.page_widgets) + 1)
+            self._added_paths.add(dst)
+            self.add_page(dst, len(self.page_widgets) + 1, is_new=True)
         self.refresh()
 
     def reorder(self, moved_w):
@@ -1090,26 +1151,63 @@ class AdvancedEditor(QDialog):
         super().keyPressEvent(e)
 
     def get_paths(self):
-        return [w.path for w in self.page_widgets]
+        """
+        Restituisce i path finali. Le immagini aggiunte nella sessione
+        vengono convertite nel formato prevalente delle immagini originali
+        (jpg o webp) prima di essere restituite.
+        """
+        if not self._added_paths:
+            return [w.path for w in self.page_widgets]
+
+        fmt = self._dominant_format()
+        result = []
+        for w in self.page_widgets:
+            p = w.path
+            if p in self._added_paths:
+                ext_now = os.path.splitext(p)[1].lower()
+                target_ext = f".{fmt}"
+                if ext_now != target_ext:
+                    # Converti nel formato prevalente
+                    converted = os.path.join(
+                        self.temp_dir,
+                        os.path.splitext(os.path.basename(p))[0] + f"_conv{target_ext}"
+                    )
+                    try:
+                        with Image.open(p) as img:
+                            if img.mode in ("RGBA", "P", "LA"):
+                                img = img.convert("RGB")
+                            if fmt == 'webp':
+                                img.save(converted, "WEBP", quality=85)
+                            else:
+                                img.save(converted, "JPEG", quality=92, optimize=True)
+                        log.info(f"Editor: convertita '{os.path.basename(p)}' → "
+                                 f"'{os.path.basename(converted)}' (formato prevalente: {fmt})")
+                        p = converted
+                    except Exception as e:
+                        log.error(f"Editor: conversione fallita per '{p}': {e}")
+                        # usa il file originale se la conversione fallisce
+            result.append(p)
+        return result
 
 # --- MAIN WINDOW ---
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ComicOptimizer v2.1.5")
-        self.setMinimumSize(1200, 800)   # FIX #13: dimensione minima invece di fissa
+        self.setWindowTitle("ComicOptimizer v2.5.00")
         self.setAcceptDrops(True)
         self.cards           = {}
         self.last_clicked    = None
-        # FIX #4: lock per proteggere active_threads da accessi concorrenti
         self._threads_lock   = threading.Lock()
         self._active_threads = set()
         self.current_worker  = None
         self.skip_trash_confirm = False
-        self._log_window = LogWindow(self)   # finestra log (lazy, non mostrata subito)
+        self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
+
+        # Dimensione iniziale: 4 card di larghezza
+        self._apply_window_width(COLS_DEFAULT)
 
         frasi = [
             "Il mio processore scalpita...",
@@ -1158,6 +1256,38 @@ class MainWindow(QMainWindow):
         else:
             self._log_window.show()
             self._log_window.raise_()
+
+    # --- Larghezza adattiva ---
+
+    def _win_width_for_cols(self, cols):
+        """Calcola la larghezza della finestra per esattamente `cols` colonne di card."""
+        return (cols * CARD_W
+                + (cols + 1) * CARD_SPACING
+                + 2 * CARD_MARGIN
+                + 2)   # bordi finestra
+
+    def _cols_for_count(self, n):
+        """
+        Restituisce il numero di colonne ottimale per `n` card.
+        - Minimo COLS_DEFAULT (4) se ci sono almeno 4 card
+        - Massimo COLS_MAX (7), indipendentemente dalla risoluzione
+        """
+        if n <= 0:
+            return COLS_DEFAULT
+        cols = min(n, COLS_MAX)
+        cols = max(cols, min(n, COLS_DEFAULT))
+        return cols
+
+    def _apply_window_width(self, cols):
+        """Ridimensiona la finestra alla larghezza giusta per `cols` colonne."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        w = min(self._win_width_for_cols(cols), screen.width())
+        h = self.height() if self.isVisible() else min(800, screen.height())
+        self.setFixedWidth(w)
+        self.setMinimumHeight(600)
+        self.setMaximumHeight(screen.height())
+        if not self.isVisible():
+            self.resize(w, h)
 
     def check_deps(self):
         m = []
@@ -1288,7 +1418,7 @@ class MainWindow(QMainWindow):
 
         footer = QHBoxLayout()
         ls = "color: #FFB300; font-weight: bold; font-size: 13px; background: none; border: none;"
-        self.n_btn = QPushButton("Novità v2.0")
+        self.n_btn = QPushButton("Novità v2.5")
         self.n_btn.setStyleSheet(ls)
         self.n_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.n_btn.clicked.connect(self.show_news)
@@ -1394,7 +1524,7 @@ class MainWindow(QMainWindow):
 
     def start_processing(self, tasks, to_webp=False):
         self.set_working(True, "Ottimizzazione...")
-        self.current_worker = ProcessingWorker(tasks, to_webp)
+        self.current_worker = ProcessingWorker(tasks, to_webp=to_webp)
         self.current_worker.status_msg.connect(self.status_msg.setText)
         self.current_worker.progress_max.connect(self.pbar.setMaximum)
         self.current_worker.progress_val.connect(self.pbar.setValue)
@@ -1579,6 +1709,7 @@ class MainWindow(QMainWindow):
             self._discard_thread(l)
             dlg = AdvancedEditor(p, t, i, self)
             if dlg.exec():
+                # get_paths() converte già le immagini aggiunte nel formato prevalente
                 self.start_processing([(p, dlg.get_paths(), t)], to_webp=False)
             else:
                 shutil.rmtree(t, ignore_errors=True)
@@ -1647,12 +1778,18 @@ class MainWindow(QMainWindow):
         self.btn_trash_dupes.setVisible(False)
 
     def refresh_grid(self):
+        # Svuota la griglia
         for i in reversed(range(self.grid_l.count())):
             w = self.grid_l.itemAt(i).widget()
             if w:
                 w.setParent(None)
+
+        n    = len(self.cards)
+        cols = self._cols_for_count(n) if n > 0 else COLS_DEFAULT
+        self._apply_window_width(cols)
+
         for i, p in enumerate(sorted(self.cards.keys(), key=get_natural_sort_key)):
-            self.grid_l.addWidget(self.cards[p], i // 6, i % 6)
+            self.grid_l.addWidget(self.cards[p], i // cols, i % cols)
 
     def rem(self, p):
         if p in self.cards:
@@ -1690,15 +1827,21 @@ class MainWindow(QMainWindow):
 
 # FIX #5: QApplication creata solo in __main__, non a livello di modulo
 if __name__ == "__main__":
-    app_id = 'comicoptimizer'
-    app    = QApplication(sys.argv)
-    app.setDesktopFileName(app_id)
+    app = QApplication(sys.argv)
+
+    # setDesktopFileName va chiamato solo quando si gira come AppImage
+    # (o con un .desktop file effettivamente installato), altrimenti
+    # causa l'errore "Could not register app ID" sul portal D-Bus di freedesktop.
+    _appdir = os.environ.get('APPDIR', '')
+    if _appdir:
+        # Dentro AppImage: usa il nome del .desktop file incluso nel bundle
+        app.setDesktopFileName('comicoptimizer')
 
     if sys.platform == 'win32':
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('comicoptimizer')
 
-    base_path = os.environ.get('APPDIR', os.path.dirname(os.path.abspath(__file__)))
+    base_path = _appdir or os.path.dirname(os.path.abspath(__file__))
     icon_path = os.path.join(base_path, "comicoptimizer.png")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
