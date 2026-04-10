@@ -1266,17 +1266,27 @@ class MainWindow(QMainWindow):
                 + 2 * CARD_MARGIN
                 + 2)   # bordi finestra
 
+    # ~ def _cols_for_count(self, n):
+        # ~ """
+        # ~ Restituisce il numero di colonne ottimale per `n` card.
+        # ~ - Minimo COLS_DEFAULT (4) se ci sono almeno 4 card
+        # ~ - Massimo COLS_MAX (7), indipendentemente dalla risoluzione
+        # ~ """
+        # ~ if n <= 0:
+            # ~ return COLS_DEFAULT
+        # ~ cols = min(n, COLS_MAX)
+        # ~ cols = max(cols, min(n, COLS_DEFAULT))
+        # ~ return cols
     def _cols_for_count(self, n):
         """
         Restituisce il numero di colonne ottimale per `n` card.
-        - Minimo COLS_DEFAULT (4) se ci sono almeno 4 card
-        - Massimo COLS_MAX (7), indipendentemente dalla risoluzione
+        - Minimo fisso: COLS_DEFAULT (4)
+        - Massimo fisso: COLS_MAX (7)
         """
-        if n <= 0:
-            return COLS_DEFAULT
-        cols = min(n, COLS_MAX)
-        cols = max(cols, min(n, COLS_DEFAULT))
-        return cols
+        # Se n è piccolo (0,1,2,3), restituisce 4.
+        # Se n è tra 4 e 7, restituisce n.
+        # Se n è superiore a 7, restituisce 7.
+        return max(COLS_DEFAULT, min(n, COLS_MAX))
 
     def _apply_window_width(self, cols):
         """Ridimensiona la finestra alla larghezza giusta per `cols` colonne."""
