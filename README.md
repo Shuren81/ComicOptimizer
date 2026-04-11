@@ -1,4 +1,4 @@
-### 📚 ComicOptimizer v2.1.5
+### 📚 ComicOptimizer v2.5.4
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
