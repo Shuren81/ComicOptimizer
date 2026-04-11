@@ -46,7 +46,7 @@ Installa le librerie necessarie tramite pip:
 
 ```bash
 
-pip install PyQt6 Pillow pymupdf
+pip install PyQt6 Pillow pymupdf send2trash
 ```
 
 ### 🛠️ Utilizzo Rapido
