@@ -238,6 +238,42 @@ def is_junk_file(path):
     return name.startswith("._") or name.lower() == ".ds_store" or "__macosx" in path.lower()
 
 # FIX #6: parsing 7z con formato stabile (-slt) invece di offset fisso line[53:]
+# --- RILEVAMENTO FORMATO REALE (magic bytes) ---
+
+# Firme dei formati archivio (primi byte del file)
+_MAGIC = {
+    b'Rar!\x1a\x07':   'rar',   # RAR (v1.5+)
+    b'Rar!\x1a\x07\x01': 'rar', # RAR5
+    b'PK\x03\x04':     'zip',   # ZIP / CBZ
+    b'PK\x05\x06':     'zip',   # ZIP vuoto
+    b'PK\x07\x08':     'zip',   # ZIP multi-volume
+    b'\x25\x50\x44\x46': 'pdf', # PDF (%PDF)
+    b'7z\xbc\xaf\x27\x1c': '7z',
+}
+
+def detect_real_format(path):
+    """
+    Legge i primi 8 byte del file e restituisce il formato reale:
+    'rar', 'zip', 'pdf', '7z' oppure None se sconosciuto.
+    Non si fida dell'estensione.
+    """
+    try:
+        with open(path, 'rb') as f:
+            header = f.read(8)
+        for sig, fmt in _MAGIC.items():
+            if header[:len(sig)] == sig:
+                return fmt
+    except Exception as e:
+        log.debug(f"detect_real_format: impossibile leggere '{path}': {e}")
+    return None
+
+def _format_mismatch_log(path, declared_ext, real_fmt):
+    """Logga un avviso quando estensione e formato reale non coincidono."""
+    log.warning(
+        f"Estensione/formato non coincidono: '{os.path.basename(path)}' "
+        f"ha estensione '{declared_ext}' ma è un file {real_fmt.upper()}"
+    )
+
 def _parse_7z_list(path):
     """Usa '7z l -ba -slt' per un output strutturato e affidabile."""
     imgs = []
@@ -259,30 +295,78 @@ def _parse_7z_list(path):
     return imgs
 
 def get_archive_file_list(path):
-    imgs = []
-    ext = os.path.splitext(path)[1].lower()
-    if ext == '.pdf':
+    """
+    Elenca le immagini dentro l'archivio usando il formato REALE (magic bytes).
+    Gestisce il caso di estensione errata (es. .cbz che è un RAR).
+    """
+    real_fmt     = detect_real_format(path)
+    declared_ext = os.path.splitext(path)[1].lower()
+
+    # PDF
+    if declared_ext == '.pdf' or real_fmt == 'pdf':
         if not HAS_PDF:
             return []
         try:
-            doc = fitz.open(path)
+            doc  = fitz.open(path)
             imgs = [f"p{i:04d}" for i in range(len(doc))]
             doc.close()
             return imgs
         except Exception as e:
             log.warning(f"Errore apertura PDF '{path}': {e}")
             return []
-    # Prova unrar
+
+    # Formato effettivo: usa il reale se disponibile, altrimenti l'estensione
+    effective_fmt = real_fmt or ('zip' if declared_ext in ('.cbz', '.zip') else 'rar')
+
+    if effective_fmt == 'zip':
+        # ZIP: listing nativo Python
+        try:
+            with zipfile.ZipFile(path, 'r') as z:
+                imgs = [
+                    n for n in z.namelist()
+                    if n.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
+                    and not is_junk_file(n)
+                ]
+            imgs.sort(key=get_natural_sort_key)
+            return imgs
+        except zipfile.BadZipFile:
+            # Potrebbe essere un RAR con estensione sbagliata
+            log.warning(f"get_archive_file_list: '{os.path.basename(path)}' non è un ZIP, "
+                        f"provo unrar/7z (real_fmt={real_fmt})")
+            # Ricade nel ramo RAR sotto
+            effective_fmt = 'rar'
+
+    if effective_fmt in ('rar', '7z'):
+        imgs = []
+        # Prova unrar lb
+        try:
+            res = subprocess.run(['unrar', 'lb', path],
+                                 capture_output=True, text=True, timeout=10)
+            if res.returncode == 0:
+                imgs = [
+                    f.strip() for f in res.stdout.splitlines()
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
+                    and not is_junk_file(f)
+                ]
+        except Exception as e:
+            log.debug(f"unrar lb fallito su '{path}': {e}")
+        # Fallback 7z
+        if not imgs:
+            imgs = _parse_7z_list(path)
+        imgs.sort(key=get_natural_sort_key)
+        return imgs
+
+    # Formato sconosciuto: prova entrambi
+    imgs = []
     try:
-        res = subprocess.run(['unrar', 'lb', path], capture_output=True, text=True, timeout=10)
+        res = subprocess.run(['unrar', 'lb', path],
+                             capture_output=True, text=True, timeout=10)
         if res.returncode == 0:
-            imgs = [
-                f.strip() for f in res.stdout.splitlines()
-                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) and not is_junk_file(f)
-            ]
-    except Exception as e:
-        log.debug(f"unrar lb fallito su '{path}': {e}")
-    # Fallback 7z con parsing strutturato
+            imgs = [f.strip() for f in res.stdout.splitlines()
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
+                    and not is_junk_file(f)]
+    except Exception:
+        pass
     if not imgs:
         imgs = _parse_7z_list(path)
     imgs.sort(key=get_natural_sort_key)
@@ -290,53 +374,80 @@ def get_archive_file_list(path):
 
 def check_integrity(path):
     """
-    Verifica l'integrità dell'archivio.
-    Per i RAR/CBR usa prima 'unrar t' (più affidabile), poi 7z come fallback.
-    Per ZIP/CBZ usa direttamente zipfile (nessuna dipendenza esterna).
+    Verifica l'integrità dell'archivio usando il formato REALE (magic bytes),
+    non l'estensione dichiarata. Questo gestisce correttamente i casi come
+    un .cbz che è in realtà un RAR, o un .cbr che è in realtà uno ZIP.
     """
-    lower = path.lower()
-    if lower.endswith('.pdf'):
+    real_fmt = detect_real_format(path)
+    declared_ext = os.path.splitext(path)[1].lower()
+
+    # PDF: verifica presenza di PyMuPDF indipendentemente dall'estensione
+    if declared_ext == '.pdf' or real_fmt == 'pdf':
         return HAS_PDF
 
-    # ZIP/CBZ: verifica nativa Python, nessun processo esterno
-    if lower.endswith(('.cbz', '.zip')):
+    # Avvisa se l'estensione non corrisponde al contenuto reale
+    if real_fmt:
+        declared_is_zip = declared_ext in ('.cbz', '.zip')
+        declared_is_rar = declared_ext in ('.cbr', '.rar')
+        if (declared_is_zip and real_fmt == 'rar') or \
+           (declared_is_rar and real_fmt == 'zip'):
+            _format_mismatch_log(path, declared_ext, real_fmt)
+
+    # Sceglie il tool in base al formato REALE, non all'estensione
+    effective_fmt = real_fmt or ('zip' if declared_ext in ('.cbz', '.zip') else 'rar')
+
+    if effective_fmt == 'zip':
         try:
             with zipfile.ZipFile(path, 'r') as z:
                 bad = z.testzip()
                 if bad:
-                    log.warning(f"check_integrity: file corrotto nel zip '{bad}' in '{path}'")
+                    log.warning(f"check_integrity: file corrotto '{bad}' in '{path}'")
                 return bad is None
+        except zipfile.BadZipFile:
+            log.warning(f"check_integrity: '{os.path.basename(path)}' non è un ZIP valido "
+                        f"(real_fmt={real_fmt})")
+            return False
         except Exception as e:
             log.warning(f"check_integrity zip errore '{path}': {e}")
             return False
 
-    # RAR/CBR: prova unrar t prima (più affidabile per tutti i formati RAR)
-    if lower.endswith(('.cbr', '.rar')):
+    if effective_fmt in ('rar', '7z'):
+        # Prova unrar t per i RAR
+        if effective_fmt == 'rar':
+            try:
+                res = subprocess.run(
+                    ['unrar', 't', '-y', path],
+                    capture_output=True, timeout=60
+                )
+                if res.returncode == 0:
+                    return True
+                log.debug(f"unrar t fallito (rc={res.returncode}) su '{path}', provo 7z...")
+            except FileNotFoundError:
+                log.debug("unrar non trovato, uso 7z per il test di integrità")
+            except subprocess.TimeoutExpired:
+                log.warning(f"check_integrity unrar timeout su '{path}'")
+                return False
+            except Exception as e:
+                log.debug(f"unrar t eccezione su '{path}': {e}")
+
+        # Fallback / 7z nativo: 7z t
         try:
-            res = subprocess.run(
-                ['unrar', 't', '-y', path],
-                capture_output=True, timeout=60
-            )
-            if res.returncode == 0:
-                return True
-            log.debug(f"unrar t fallito (rc={res.returncode}) su '{path}', provo 7z...")
-        except FileNotFoundError:
-            log.debug("unrar non trovato, uso 7z per il test di integrità")
+            res = subprocess.run(['7z', 't', path], capture_output=True, timeout=60)
+            return res.returncode == 0
         except subprocess.TimeoutExpired:
-            log.warning(f"check_integrity unrar timeout su '{path}'")
+            log.warning(f"check_integrity 7z timeout su '{path}'")
             return False
         except Exception as e:
-            log.debug(f"unrar t eccezione su '{path}': {e}")
+            log.warning(f"check_integrity 7z errore su '{path}': {e}")
+            return False
 
-    # Fallback generico: 7z t
+    # Formato sconosciuto: prova 7z come ultimo tentativo
+    log.debug(f"check_integrity: formato sconosciuto per '{path}', provo 7z t")
     try:
         res = subprocess.run(['7z', 't', path], capture_output=True, timeout=60)
         return res.returncode == 0
-    except subprocess.TimeoutExpired:
-        log.warning(f"check_integrity 7z timeout su '{path}'")
-        return False
     except Exception as e:
-        log.warning(f"check_integrity 7z errore su '{path}': {e}")
+        log.warning(f"check_integrity fallback 7z errore '{path}': {e}")
         return False
 
 # --- COMPONENTS ---
@@ -437,18 +548,19 @@ class AnalysisWorker(QThread):
                         results[loser] = 4
                         dupes_count += 1
 
-        # BUG FIX: assegna status a TUTTI i file integri (non solo danneggiati/duplicati).
-        # Senza questo, le card non aggiornano mai il colore dopo la conversione.
-        # check_status è leggero (solo lettura zip header) quindi sicuro da chiamare qui.
+        # Assegna status a TUTTI i file integri usando il formato REALE
         for p in self.paths:
             if p not in results:
-                # Determina status in base al tipo e al contenuto
-                lower = p.lower()
-                if lower.endswith('.pdf'):
-                    results[p] = 0   # PDF: sempre "da sistemare" (convertibile)
-                elif lower.endswith(('.cbr', '.rar')):
-                    results[p] = 0   # RAR: ancora da convertire
-                elif lower.endswith(('.cbz', '.zip')):
+                real_fmt     = detect_real_format(p)
+                declared_ext = os.path.splitext(p)[1].lower()
+                if declared_ext == '.pdf' or real_fmt == 'pdf':
+                    results[p] = 0   # PDF: da convertire
+                elif real_fmt == 'rar' or (real_fmt is None and declared_ext in ('.cbr', '.rar')):
+                    results[p] = 0   # RAR reale: da convertire in CBZ
+                elif real_fmt == 'rar' and declared_ext in ('.cbz', '.zip'):
+                    # CBZ che è in realtà un RAR → da sistemare
+                    results[p] = 0
+                elif real_fmt == 'zip' or (real_fmt is None and declared_ext in ('.cbz', '.zip')):
                     try:
                         with zipfile.ZipFile(p, 'r') as z:
                             imgs = [n for n in z.namelist()
@@ -619,8 +731,10 @@ class ThumbWorker(QThread):
             log.debug(f"ThumbWorker: nessuna immagine trovata in '{self.path}'")
             return
         with tempfile.TemporaryDirectory() as tmp:
-            lower = self.path.lower()
-            if lower.endswith('.pdf'):
+            real_fmt = detect_real_format(self.path)
+            lower    = self.path.lower()
+
+            if lower.endswith('.pdf') or real_fmt == 'pdf':
                 try:
                     doc   = fitz.open(self.path)
                     page  = doc.load_page(0)
@@ -631,18 +745,24 @@ class ThumbWorker(QThread):
                 except Exception as e:
                     log.warning(f"ThumbWorker PDF error '{self.path}': {e}")
                     return
-            elif lower.endswith(('.cbz', '.zip')):
-                # ZIP: estrazione nativa Python, veloce e affidabile
+            elif real_fmt == 'zip' or (real_fmt is None and lower.endswith(('.cbz', '.zip'))):
+                # ZIP reale: estrazione nativa Python
                 try:
                     first = imgs[0]
                     with zipfile.ZipFile(self.path, 'r') as z:
                         z.extract(first, tmp)
+                except zipfile.BadZipFile:
+                    log.warning(f"ThumbWorker: '{os.path.basename(self.path)}' non è un ZIP "
+                                f"(real={real_fmt}), provo unrar/7z")
+                    real_fmt = 'rar'   # forza il ramo RAR
                 except Exception as e:
                     log.warning(f"ThumbWorker ZIP error '{self.path}': {e}")
                     return
-            else:
-                # RAR/CBR: prova unrar e (appiattisce sottocartelle), poi 7z e
-                first = imgs[0]
+
+            if real_fmt in ('rar', '7z') or \
+               (real_fmt is None and not lower.endswith(('.cbz', '.zip', '.pdf'))):
+                # RAR/CBR o formato sconosciuto: unrar e poi 7z e
+                first     = imgs[0]
                 extracted = False
                 try:
                     res = subprocess.run(
@@ -651,7 +771,7 @@ class ThumbWorker(QThread):
                     )
                     extracted = bool(os.listdir(tmp))
                     if not extracted:
-                        log.debug(f"ThumbWorker unrar non ha estratto '{first}' da '{self.path}'")
+                        log.debug(f"ThumbWorker unrar non ha estratto '{first}'")
                 except Exception as e:
                     log.debug(f"ThumbWorker unrar error: {e}")
                 if not extracted:
@@ -662,8 +782,8 @@ class ThumbWorker(QThread):
                         )
                         extracted = bool(os.listdir(tmp))
                         if not extracted:
-                            log.warning(f"ThumbWorker 7z: nessun file estratto per "
-                                        f"'{first}' da '{self.path}' (rc={res.returncode})")
+                            log.warning(f"ThumbWorker 7z: nessun file estratto "
+                                        f"(rc={res.returncode})")
                     except Exception as e:
                         log.warning(f"ThumbWorker 7z error '{self.path}': {e}")
 
@@ -691,9 +811,10 @@ class LoadingWorker(QThread):
         self.path = path
 
     def run(self):
-        tmp     = tempfile.mkdtemp()
-        ext     = os.path.splitext(self.path)[1].lower()
-        success = False
+        tmp      = tempfile.mkdtemp()
+        ext      = os.path.splitext(self.path)[1].lower()
+        real_fmt = detect_real_format(self.path)
+        success  = False
         img_list = get_archive_file_list(self.path)
         total    = len(img_list)
 
@@ -702,30 +823,40 @@ class LoadingWorker(QThread):
             self.error.emit("Archivio vuoto.")
             return
 
-        if ext == '.pdf' and HAS_PDF:
-            try:
-                doc = fitz.open(self.path)
-                for i in range(total):
-                    page = doc.load_page(i)
-                    pix  = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
-                    pix.save(os.path.join(tmp, f"{i + 1:04d}.png"))
-                    self.progress.emit(i + 1, total)
-                doc.close()
-                success = True
-            except Exception as e:
-                log.error(f"LoadingWorker PDF '{self.path}': {e}")
-                success = False
-        else:
-            try:
-                if self.path.lower().endswith(('.cbz', '.zip')):
-                    # ZIP: estrazione nativa Python
-                    with zipfile.ZipFile(self.path, 'r') as z:
-                        for i, img_name in enumerate(img_list):
-                            z.extract(img_name, tmp)
-                            self.progress.emit(i + 1, total)
+        if ext == '.pdf' or real_fmt == 'pdf':
+            if HAS_PDF:
+                try:
+                    doc = fitz.open(self.path)
+                    for i in range(total):
+                        page = doc.load_page(i)
+                        pix  = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                        pix.save(os.path.join(tmp, f"{i + 1:04d}.png"))
+                        self.progress.emit(i + 1, total)
+                    doc.close()
                     success = True
-                else:
-                    # RAR/CBR: unrar x prima, poi 7z x come fallback
+                except Exception as e:
+                    log.error(f"LoadingWorker PDF '{self.path}': {e}")
+                    success = False
+        else:
+            # Usa formato reale per decidere il tool
+            use_zip = (real_fmt == 'zip') or (real_fmt is None and ext in ('.cbz', '.zip'))
+            try:
+                if use_zip:
+                    try:
+                        with zipfile.ZipFile(self.path, 'r') as z:
+                            for i, img_name in enumerate(img_list):
+                                z.extract(img_name, tmp)
+                                self.progress.emit(i + 1, total)
+                        success = True
+                        log.info(f"LoadingWorker ZIP OK: '{os.path.basename(self.path)}'")
+                    except zipfile.BadZipFile:
+                        log.warning(f"LoadingWorker: '{os.path.basename(self.path)}' "
+                                    f"non è un ZIP valido (real={real_fmt}), provo unrar/7z")
+                        use_zip = False  # ricade nel ramo RAR/7z sotto
+
+                if not use_zip:
+                    if real_fmt and real_fmt != ext.lstrip('.'):
+                        _format_mismatch_log(self.path, ext, real_fmt)
                     extracted_ok = False
                     try:
                         res = subprocess.run(
@@ -755,7 +886,6 @@ class LoadingWorker(QThread):
                             log.error(f"LoadingWorker 7z x rc={res.returncode}: "
                                       f"{res.stderr.decode(errors='replace')[:200]}")
 
-                    # Emetti progress manuale dato che abbiamo estratto tutto in una volta
                     for i in range(total):
                         self.progress.emit(i + 1, total)
                     success = extracted_ok
@@ -792,24 +922,71 @@ class BatchPrepWorker(QThread):
         total = len(self.paths)
         for i, p in enumerate(self.paths):
             tmp = tempfile.mkdtemp()
-            ext = os.path.splitext(p)[1].lower()
-            log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' → '{tmp}'")
+            ext      = os.path.splitext(p)[1].lower()
+            real_fmt = detect_real_format(p)
+            log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' "
+                     f"(ext={ext}, real={real_fmt}) → '{tmp}'")
             try:
-                if ext == '.pdf' and HAS_PDF:
-                    doc = fitz.open(p)
-                    for j in range(len(doc)):
-                        page = doc.load_page(j)
-                        pix  = page.get_pixmap(matrix=fitz.Matrix(1.8, 1.8))
-                        pix.save(os.path.join(tmp, f"{j + 1:04d}.png"))
-                    doc.close()
-                    log.info(f"  PDF: estratte {len(doc.pages) if hasattr(doc,'pages') else '?'} pagine")
-                elif ext in ('.cbz', '.zip'):
-                    # ZIP: estrazione nativa Python, affidabile al 100%
-                    with zipfile.ZipFile(p, 'r') as z:
-                        z.extractall(tmp)
-                    log.info(f"  ZIP: extractall completato")
+                if ext == '.pdf' or real_fmt == 'pdf':
+                    if HAS_PDF:
+                        doc = fitz.open(p)
+                        for j in range(len(doc)):
+                            page = doc.load_page(j)
+                            pix  = page.get_pixmap(matrix=fitz.Matrix(1.8, 1.8))
+                            pix.save(os.path.join(tmp, f"{j + 1:04d}.png"))
+                        doc.close()
+                        log.info(f"  PDF: estratte pagine")
+                    else:
+                        log.error("  PDF: PyMuPDF non disponibile")
+                elif real_fmt == 'zip' or (real_fmt is None and ext in ('.cbz', '.zip')):
+                    # ZIP reale (o presunto): estrazione nativa Python
+                    zip_ok = False
+                    try:
+                        with zipfile.ZipFile(p, 'r') as z:
+                            z.extractall(tmp)
+                        log.info(f"  ZIP: extractall completato")
+                        zip_ok = True
+                    except zipfile.BadZipFile:
+                        log.warning(f"  ZIP fallito — file è realmente {real_fmt or 'sconosciuto'}, "
+                                    f"provo unrar/7z")
+                    except Exception as e:
+                        log.error(f"  ZIP extractall errore: {e}")
+
+                    if not zip_ok:
+                        # Fallback RAR/7z per file con estensione sbagliata
+                        _format_mismatch_log(p, ext, real_fmt or '?')
+                        success = False
+                        try:
+                            res = subprocess.run(
+                                ['unrar', 'x', '-y', p, tmp + "/"],
+                                capture_output=True, timeout=300
+                            )
+                            if res.returncode == 0:
+                                success = True
+                                log.info(f"  unrar x (fallback): OK")
+                            else:
+                                log.warning(f"  unrar x (fallback): rc={res.returncode}")
+                        except FileNotFoundError:
+                            log.warning("  unrar non trovato, uso 7z x")
+                        except Exception as e:
+                            log.warning(f"  unrar x fallback eccezione: {e}")
+                        if not success:
+                            try:
+                                res = subprocess.run(
+                                    ['7z', 'x', '-y', f'-o{tmp}', p],
+                                    capture_output=True, timeout=300
+                                )
+                                if res.returncode == 0:
+                                    log.info(f"  7z x (fallback): OK")
+                                else:
+                                    log.error(f"  7z x (fallback): rc={res.returncode}")
+                            except Exception as e:
+                                log.error(f"  7z x fallback eccezione: {e}")
                 else:
-                    # RAR/CBR: prova unrar x prima (più affidabile), poi 7z x come fallback
+                    # RAR reale, o ZIP con estensione errata che ha fallito sopra,
+                    # o formato sconosciuto: prova unrar x poi 7z x
+                    if real_fmt and real_fmt != ext.lstrip('.') and real_fmt in ('rar', 'zip'):
+                        _format_mismatch_log(p, ext, real_fmt)
                     success = False
                     try:
                         res = subprocess.run(
@@ -1202,6 +1379,7 @@ class MainWindow(QMainWindow):
         self._active_threads = set()
         self.current_worker  = None
         self.skip_trash_confirm = False
+        self.keep_log        = False   # default: cancella il log alla chiusura
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -1241,6 +1419,34 @@ class MainWindow(QMainWindow):
         for t in threads:
             t.quit()
             t.wait(2000)
+
+        # Gestione file di log alla chiusura
+        _log_path = "comicoptimizer.log"
+        log.info("ComicOptimizer chiuso.")
+
+        # Rimuovi l'handler Qt dal logger PRIMA che Qt distrugga l'oggetto C++.
+        # Senza questo, logging.shutdown() (chiamato da atexit) prova ad accedere
+        # all'handler dopo la distruzione e genera RuntimeError.
+        try:
+            log.removeHandler(_qt_log_handler)
+            logging.getLogger().removeHandler(_qt_log_handler)
+        except Exception:
+            pass
+
+        # Cancella il file di log se l'utente non vuole mantenerlo
+        if not self.chk_keep_log.isChecked():
+            try:
+                # Chiudi prima il FileHandler per rilasciare il file
+                for h in logging.getLogger().handlers[:] + log.handlers[:]:
+                    if isinstance(h, logging.FileHandler):
+                        h.close()
+                        logging.getLogger().removeHandler(h)
+                        log.removeHandler(h)
+                if os.path.exists(_log_path):
+                    os.remove(_log_path)
+            except Exception:
+                pass
+
         event.accept()
 
     def keyPressEvent(self, e):
@@ -1444,6 +1650,18 @@ class MainWindow(QMainWindow):
         self.log_btn.setStyleSheet("color: #90caf9; font-weight: bold; font-size: 13px; background: none; border: none;")
         self.log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.log_btn.clicked.connect(self._toggle_log)
+
+        self.chk_keep_log = QCheckBox("Mantieni log")
+        self.chk_keep_log.setChecked(False)
+        self.chk_keep_log.setToolTip(
+            "Se spuntato, il file comicoptimizer.log viene conservato alla chiusura.\n"
+            "Se non spuntato, viene eliminato automaticamente."
+        )
+        self.chk_keep_log.setStyleSheet(
+            "QCheckBox { color: #888; font-size: 11px; }"
+            "QCheckBox::indicator { width: 13px; height: 13px; }"
+        )
+
         footer.addWidget(self.n_btn)
         footer.addStretch()
         footer.addWidget(self.c_btn)
@@ -1451,6 +1669,8 @@ class MainWindow(QMainWindow):
         footer.addWidget(self.p_btn)
         footer.addStretch()
         footer.addWidget(self.log_btn)
+        footer.addSpacing(8)
+        footer.addWidget(self.chk_keep_log)
         layout.addLayout(footer)
 
     def set_working(self, working, msg="In corso...", val=0, total=0):
@@ -1632,7 +1852,9 @@ class MainWindow(QMainWindow):
                 added += 1
         log.info(f"Importati {added} file ({len(paths)} totali scansionati).")
         self.refresh_grid()
-        self.run_analysis(True)
+        # L'analisi automatica post-import è stata rimossa: check_status() assegna
+        # già lo stato corretto a ogni card durante l'import. L'utente può lanciare
+        # manualmente l'analisi (che include la ricerca duplicati) con il tasto ANALIZZA.
 
     # FIX #2: trash cross-platform con feedback in caso di errore
     def trash_file(self, p):
@@ -1749,10 +1971,16 @@ class MainWindow(QMainWindow):
                 self.current_worker.stop_later()
 
     def check_status(self, p):
-        if p.lower().endswith('.pdf'):
+        real_fmt = detect_real_format(p)
+        ext      = os.path.splitext(p)[1].lower()
+        # PDF o RAR (anche con estensione .cbz) → da sistemare
+        if ext == '.pdf' or real_fmt == 'pdf':
             return 0
-        if not p.lower().endswith('.cbz'):
+        if real_fmt == 'rar' or (real_fmt is None and ext in ('.cbr', '.rar')):
             return 0
+        if real_fmt == 'rar' and ext in ('.cbz', '.zip'):
+            return 0   # CBZ con contenuto RAR — mismatch
+        # ZIP reale o presunto
         try:
             with zipfile.ZipFile(p, 'r') as z:
                 imgs = [n for n in z.namelist() if n.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
