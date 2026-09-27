@@ -1,8 +1,20 @@
-### 📚 ComicOptimizer v2.1.5
+### 📚 ComicOptimizer v2.6.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
+
+### 🆕 Novità della v2.6.0
+
+* **Originali al sicuro:** il nuovo CBZ viene verificato (integrità e numero di pagine) prima di toccare l'originale, che viene spostato nel cestino invece di essere cancellato.
+* **Nessuna pagina persa:** le pagine molto leggere (bianche, crediti, WebP semplici) non vengono più scartate.
+* **Metadati conservati:** il file ComicInfo.xml resta nell'archivio (utile per Komga, Kavita, YACReader...).
+* **Conversione WebP su più core:** molto più veloce sulle raccolte grandi. Le pagine già in WebP non vengono ricompresse e, se il WebP pesa più dell'originale, la pagina resta com'è.
+* **PDF migliori:** le pagine-scansione vengono estratte nella qualità originale; le altre vengono renderizzate in JPEG (molto più leggero del vecchio PNG).
+* **Duplicati per contenuto:** riconosciuti anche con nomi diversi.
+* **Fine lavoro:** riepilogo con spazio risparmiato e tempo impiegato, notifica di sistema e suono (disattivabili con "🔔 Avvisi").
+
+Il dettaglio completo è in [CHANGELOG.md](CHANGELOG.md).
 
 ### 🚀 Cosa c'è di nuovo nella v2.0+
 
@@ -24,11 +36,21 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 
 ### 🧠 Intelligenza e Controllo
 
-* **Analisi Duplicati:** Algoritmo che confronta metadati e conteggio pagine per identificare doppioni inutili.
+* **Analisi Duplicati:** Riconosce come doppioni i file con lo stesso nome (es. .cbr e .cbz) e gli archivi con contenuto identico (stesso numero di pagine e stesse dimensioni delle immagini), anche se hanno nomi diversi.
 * **Advanced Editor:** Un editor visuale integrato per riordinare pagine, eliminare scansioni errate o aggiungere nuove immagini a un archivio esistente.
-* **Integrazione di Sistema:** Gestione sicura degli scarti tramite gio trash, ottimizzata specificamente per Linux Mint.
+* **Integrazione di Sistema:** Duplicati e originali sostituiti finiscono nel cestino di sistema (send2trash, con gio trash come riserva su Linux).
 
-### 📦 Installazione e Requisiti
+### 🪟 Windows
+
+Scarica lo zip **ComicOptimizer-…-windows.zip** dalla pagina [Releases](https://github.com/Shuren81/ComicOptimizer/releases), estrai la cartella e avvia `ComicOptimizer.exe`. 7-Zip è già incluso, non serve installare nulla.
+
+Al primo avvio Windows può mostrare l'avviso "Windows ha protetto il PC" perché l'eseguibile non è firmato: clicca **Ulteriori informazioni → Esegui comunque**.
+
+Il log su Windows si trova in `%LOCALAPPDATA%\ComicOptimizer\comicoptimizer.log`.
+
+L'eseguibile viene compilato automaticamente da GitHub Actions (`.github/workflows/build-windows.yml`) ad ogni nuova Release.
+
+### 📦 Installazione e Requisiti (Linux / da sorgente)
 
 **1. Dipendenze di Sistema (Linux/Ubuntu/Mint)**
 
@@ -46,7 +68,7 @@ Installa le librerie necessarie tramite pip:
 
 ```bash
 
-pip install PyQt6 Pillow pymupdf
+pip install PyQt6 Pillow pymupdf send2trash
 ```
 
 ### 🛠️ Utilizzo Rapido
@@ -61,7 +83,7 @@ pip install PyQt6 Pillow pymupdf
 
 **100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC.
 
-**Resilienza:** Gestione sicura dei processi: se interrompi un'operazione, i tuoi file originali rimangono intatti fino alla corretta creazione del nuovo archivio.
+**Resilienza:** Se interrompi un'operazione, i tuoi file originali rimangono intatti: vengono spostati nel cestino solo dopo che il nuovo archivio è stato creato e verificato. Le cartelle temporanee vengono sempre ripulite.
 
 
 ### ✍️ Note dell'Autore

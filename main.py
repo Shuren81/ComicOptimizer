@@ -10,35 +10,80 @@ import re
 import random
 import logging
 import threading
+import time
+import multiprocessing
+import xml.etree.ElementTree as ET
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from PIL import Image
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QLabel, QFileDialog, QHBoxLayout,
                              QScrollArea, QGridLayout, QFrame, QDialog,
                              QStackedWidget, QSpinBox, QMessageBox, QProgressBar,
-                             QCheckBox)
+                             QCheckBox, QSystemTrayIcon, QStyle)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QWaitCondition, QMutex, QMutexLocker
 from PyQt6.QtGui import QPixmap, QColor, QPalette, QIcon
 
+# --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
+APP_VERSION = "2.6.0"
+
+# --- COSTANTI ELABORAZIONE ---
+WEBP_QUALITY  = 85       # qualità WebP (0-100)
+WEBP_MAX_SIDE = 16383    # limite del formato WebP per lato
+PDF_ZOOM      = 2.0      # zoom per le pagine PDF che vanno renderizzate (~144 dpi)
+TMP_PREFIX    = "comicopt_"   # prefisso cartelle temporanee (per la pulizia)
+APP_ICON_PATH = ""       # impostato all'avvio, usato dalle notifiche di sistema
+
+# --- PERCORSI ---
+IS_FROZEN = getattr(sys, "frozen", False)          # True dentro l'eseguibile (PyInstaller)
+IS_WIN    = sys.platform == "win32"
+# Cartella delle risorse incluse (icona, 7z.exe): _MEIPASS nell'exe, altrimenti accanto allo script
+RES_DIR   = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
+def _log_file_path():
+    """
+    Su Windows e nell'eseguibile il log va in %LOCALAPPDATA%\\ComicOptimizer:
+    la cartella corrente potrebbe essere Program Files (non scrivibile).
+    Da sorgente su Linux resta accanto a dove si lancia lo script, come prima.
+    """
+    if IS_WIN or IS_FROZEN:
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        folder = os.path.join(base, "ComicOptimizer")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            return os.path.join(folder, "comicoptimizer.log")
+        except OSError:
+            pass
+    return "comicoptimizer.log"
+
+LOG_PATH = _log_file_path()
+
 # --- LOGGING ---
+_log_handlers = [logging.FileHandler(LOG_PATH, encoding="utf-8")]
+if sys.stderr:   # nell'exe senza console sys.stderr è None
+    _log_handlers.insert(0, logging.StreamHandler())
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("comicoptimizer.log", encoding="utf-8"),
-    ]
+    handlers=_log_handlers,
 )
 log = logging.getLogger("ComicOptimizer")
+# Le librerie esterne scrivono nel log solo avvisi ed errori, non i loro messaggi di debug
+for _lib in ("PIL", "urllib3"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
 
 # Handler che emette ogni riga di log come segnale Qt (per la finestra di log in-app)
 from PyQt6.QtCore import QObject, pyqtSignal as _pyqtSignal
 
-class _QtLogHandler(logging.Handler, QObject):
+class _LogEmitter(QObject):
     new_record = _pyqtSignal(str)
 
+class _QtLogHandler(logging.Handler):
+    # Il segnale Qt sta in un QObject separato: così l'handler resta un oggetto
+    # Python puro e logging.shutdown() alla chiusura non va in errore.
     def __init__(self):
         logging.Handler.__init__(self)
-        QObject.__init__(self)
+        self._emitter  = _LogEmitter()
+        self.new_record = self._emitter.new_record
         self.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                                             datefmt="%H:%M:%S"))
 
@@ -167,11 +212,17 @@ class LogWindow(QDialog):
             super().keyPressEvent(e)
 
 # --- IMPORT PDF (opzionale) ---
+# "fitz" è deprecato nelle versioni recenti di PyMuPDF: si usa "pymupdf"
+# e si ripiega su "fitz" solo per le versioni vecchie.
 try:
-    import fitz
+    import pymupdf as fitz
     HAS_PDF = True
 except ImportError:
-    HAS_PDF = False
+    try:
+        import fitz
+        HAS_PDF = True
+    except ImportError:
+        HAS_PDF = False
 
 # --- TRASH HELPER (cross-platform) FIX #2 ---
 def _trash_file_cross_platform(path):
@@ -185,7 +236,10 @@ def _trash_file_cross_platform(path):
         return True
     except ImportError:
         pass
-    if sys.platform == "linux":
+    except Exception as e:
+        # Prima un errore qui mandava in crash l'app (eccezione non gestita in uno slot Qt)
+        log.warning(f"send2trash non riuscito su '{path}': {e} — provo il metodo di sistema")
+    if sys.platform.startswith("linux"):
         try:
             res = subprocess.run(['gio', 'trash', path], capture_output=True, timeout=10)
             if res.returncode == 0:
@@ -228,7 +282,55 @@ def _trash_file_cross_platform(path):
             return False
     return False
 
+# --- PROGRAMMI ESTERNI (7z, unrar) ---
+
+_TOOL_CACHE = {}
+
+def find_tool(name):
+    """
+    Trova 7z/unrar: prima quello incluso nell'exe (cartella bin), poi il PATH,
+    poi (su Windows) le cartelle di installazione standard. None se assente.
+    """
+    if name in _TOOL_CACHE:
+        return _TOOL_CACHE[name]
+    exe = name + (".exe" if IS_WIN else "")
+    candidates = [os.path.join(RES_DIR, "bin", exe)]
+    found = shutil.which(name)
+    if found:
+        candidates.append(found)
+    if IS_WIN:
+        for env in ("ProgramFiles", "ProgramFiles(x86)"):
+            base = os.environ.get(env)
+            if base:
+                candidates.append(os.path.join(base, "7-Zip" if name == "7z" else "WinRAR",
+                                               "7z.exe" if name == "7z" else "UnRAR.exe"))
+    path = next((c for c in candidates if c and os.path.isfile(c)), None)
+    _TOOL_CACHE[name] = path
+    return path
+
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+def run_tool(cmd, **kw):
+    """
+    Come subprocess.run, ma cmd[0] ('7z' o 'unrar') viene risolto con find_tool
+    e su Windows non si apre nessuna finestra di console.
+    Solleva FileNotFoundError se il programma non c'è (gestito dai chiamanti).
+    """
+    exe = find_tool(cmd[0])
+    if not exe:
+        raise FileNotFoundError(cmd[0])
+    args = list(cmd[1:])
+    if IS_WIN and cmd[0] == "7z" and args and args[0] == "l":
+        args.insert(1, "-sccUTF-8")   # nomi con accenti corretti nell'elenco
+    if IS_WIN:
+        kw.setdefault("creationflags", _NO_WINDOW)
+    return subprocess.run([exe] + args, **kw)
+
 # --- UTILITY ---
+
+# Estensioni delle pagine: UNA sola lista usata ovunque (prima erano due liste
+# diverse e le GIF/BMP/TIFF venivano impacchettate ma non contate).
+_PAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.avif')
 
 def get_natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
@@ -236,6 +338,71 @@ def get_natural_sort_key(s):
 def is_junk_file(path):
     name = os.path.basename(path)
     return name.startswith("._") or name.lower() == ".ds_store" or "__macosx" in path.lower()
+
+def is_page_file(name):
+    return name.lower().endswith(_PAGE_EXTS) and not is_junk_file(name)
+
+def is_comicinfo(name):
+    return os.path.basename(name).lower() == "comicinfo.xml"
+
+def make_temp_dir():
+    return tempfile.mkdtemp(prefix=TMP_PREFIX)
+
+def cleanup_stale_temp(max_age_hours=6):
+    """Rimuove le cartelle temporanee rimaste da sessioni chiuse male."""
+    base = tempfile.gettempdir()
+    limit = time.time() - max_age_hours * 3600
+    removed = 0
+    try:
+        for name in os.listdir(base):
+            full = os.path.join(base, name)
+            if name.startswith(TMP_PREFIX) and os.path.isdir(full):
+                try:
+                    if os.path.getmtime(full) < limit:
+                        shutil.rmtree(full, ignore_errors=True)
+                        removed += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    if removed:
+        log.info(f"Pulizia avvio: rimosse {removed} cartelle temporanee orfane.")
+
+def list_page_files(folder):
+    """Tutte le pagine (immagini) sotto `folder`, in ordine naturale."""
+    pages = [
+        os.path.join(r, f)
+        for r, _, fs in os.walk(folder)
+        for f in fs
+        if is_page_file(os.path.join(r, f))
+    ]
+    pages.sort(key=get_natural_sort_key)
+    return pages
+
+def find_comicinfo(folder):
+    """Cerca ComicInfo.xml (qualsiasi maiuscolo/minuscolo) nella cartella estratta."""
+    for r, _, fs in os.walk(folder):
+        for f in fs:
+            if is_comicinfo(f) and not is_junk_file(os.path.join(r, f)):
+                return os.path.join(r, f)
+    return None
+
+def fmt_size(n):
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(n) < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") else f"{n:.1f} {unit}".replace(".", ",")
+        n /= 1024
+
+def fmt_duration(sec):
+    sec = int(sec)
+    if sec < 60:
+        return f"{sec} s"
+    m, s = divmod(sec, 60)
+    if m < 60:
+        return f"{m} min {s} s"
+    h, m = divmod(m, 60)
+    return f"{h} h {m} min"
 
 # FIX #6: parsing 7z con formato stabile (-slt) invece di offset fisso line[53:]
 # --- RILEVAMENTO FORMATO REALE (magic bytes) ---
@@ -274,25 +441,64 @@ def _format_mismatch_log(path, declared_ext, real_fmt):
         f"ha estensione '{declared_ext}' ma è un file {real_fmt.upper()}"
     )
 
-def _parse_7z_list(path):
-    """Usa '7z l -ba -slt' per un output strutturato e affidabile."""
-    imgs = []
+def _parse_7z_entries(path):
+    """
+    Usa '7z l -ba -slt' (output strutturato) e restituisce [(nome, dimensione)]
+    delle sole pagine.
+    """
+    entries = []
     try:
-        res = subprocess.run(
+        res = run_tool(
             ['7z', 'l', '-ba', '-slt', path],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=30,
+            encoding='utf-8', errors='replace'
         )
         if res.returncode != 0:
-            return imgs
-        for line in res.stdout.splitlines():
+            return entries
+        name, size = None, 0
+        for line in res.stdout.splitlines() + [""]:
             line = line.strip()
-            if line.lower().startswith("path = "):
-                name = line[7:].strip()
-                if name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) and not is_junk_file(name):
-                    imgs.append(name)
+            low = line.lower()
+            if low.startswith("path = "):
+                if name is not None and is_page_file(name):
+                    entries.append((name, size))
+                name, size = line[7:].strip(), 0
+            elif low.startswith("size = "):
+                try:
+                    size = int(line[7:].strip())
+                except ValueError:
+                    size = 0
+        if name is not None and is_page_file(name):
+            entries.append((name, size))
     except Exception as e:
         log.warning(f"7z list fallito su '{path}': {e}")
-    return imgs
+    return entries
+
+def _parse_7z_list(path):
+    return [n for n, _ in _parse_7z_entries(path)]
+
+def get_archive_signature(path):
+    """
+    "Impronta" del contenuto: numero di pagine + dimensioni di ogni pagina.
+    Due archivi con la stessa impronta contengono (in pratica) le stesse immagini,
+    anche se hanno nomi diversi. None per PDF o archivi illeggibili.
+    """
+    real_fmt = detect_real_format(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.pdf' or real_fmt == 'pdf':
+        return None
+    sizes = []
+    if real_fmt == 'zip' or (real_fmt is None and ext in ('.cbz', '.zip')):
+        try:
+            with zipfile.ZipFile(path, 'r') as z:
+                sizes = [i.file_size for i in z.infolist() if is_page_file(i.filename)]
+        except Exception:
+            sizes = []
+    if not sizes:
+        sizes = [s for _, s in _parse_7z_entries(path)]
+    if not sizes or all(s == 0 for s in sizes):
+        return None
+    return (len(sizes), tuple(sorted(sizes)))
 
 def get_archive_file_list(path):
     """
@@ -322,11 +528,7 @@ def get_archive_file_list(path):
         # ZIP: listing nativo Python
         try:
             with zipfile.ZipFile(path, 'r') as z:
-                imgs = [
-                    n for n in z.namelist()
-                    if n.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
-                    and not is_junk_file(n)
-                ]
+                imgs = [n for n in z.namelist() if is_page_file(n)]
             imgs.sort(key=get_natural_sort_key)
             return imgs
         except zipfile.BadZipFile:
@@ -340,14 +542,10 @@ def get_archive_file_list(path):
         imgs = []
         # Prova unrar lb
         try:
-            res = subprocess.run(['unrar', 'lb', path],
+            res = run_tool(['unrar', 'lb', path],
                                  capture_output=True, text=True, timeout=10)
             if res.returncode == 0:
-                imgs = [
-                    f.strip() for f in res.stdout.splitlines()
-                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
-                    and not is_junk_file(f)
-                ]
+                imgs = [f.strip() for f in res.stdout.splitlines() if is_page_file(f.strip())]
         except Exception as e:
             log.debug(f"unrar lb fallito su '{path}': {e}")
         # Fallback 7z
@@ -359,12 +557,10 @@ def get_archive_file_list(path):
     # Formato sconosciuto: prova entrambi
     imgs = []
     try:
-        res = subprocess.run(['unrar', 'lb', path],
+        res = run_tool(['unrar', 'lb', path],
                              capture_output=True, text=True, timeout=10)
         if res.returncode == 0:
-            imgs = [f.strip() for f in res.stdout.splitlines()
-                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
-                    and not is_junk_file(f)]
+            imgs = [f.strip() for f in res.stdout.splitlines() if is_page_file(f.strip())]
     except Exception:
         pass
     if not imgs:
@@ -415,7 +611,7 @@ def check_integrity(path):
         # Prova unrar t per i RAR
         if effective_fmt == 'rar':
             try:
-                res = subprocess.run(
+                res = run_tool(
                     ['unrar', 't', '-y', path],
                     capture_output=True, timeout=60
                 )
@@ -432,7 +628,7 @@ def check_integrity(path):
 
         # Fallback / 7z nativo: 7z t
         try:
-            res = subprocess.run(['7z', 't', path], capture_output=True, timeout=60)
+            res = run_tool(['7z', 't', path], capture_output=True, timeout=60)
             return res.returncode == 0
         except subprocess.TimeoutExpired:
             log.warning(f"check_integrity 7z timeout su '{path}'")
@@ -444,11 +640,287 @@ def check_integrity(path):
     # Formato sconosciuto: prova 7z come ultimo tentativo
     log.debug(f"check_integrity: formato sconosciuto per '{path}', provo 7z t")
     try:
-        res = subprocess.run(['7z', 't', path], capture_output=True, timeout=60)
+        res = run_tool(['7z', 't', path], capture_output=True, timeout=60)
         return res.returncode == 0
     except Exception as e:
         log.warning(f"check_integrity fallback 7z errore '{path}': {e}")
         return False
+
+# --- ESTRAZIONE ARCHIVI ---
+
+def _extract_with_tools(path, dest):
+    """Estrae tutto con unrar, e se fallisce con 7z. True se uno dei due riesce."""
+    try:
+        res = run_tool(['unrar', 'x', '-y', path, dest + os.sep],
+                             capture_output=True, timeout=600)
+        if res.returncode == 0:
+            log.info("  unrar x: OK")
+            return True
+        log.warning(f"  unrar x: rc={res.returncode}, "
+                    f"stderr={res.stderr.decode(errors='replace')[:200]}")
+    except FileNotFoundError:
+        log.debug("  unrar non trovato, uso 7z x")
+    except subprocess.TimeoutExpired:
+        log.error(f"  unrar x: TIMEOUT su '{path}'")
+    except Exception as e:
+        log.warning(f"  unrar x eccezione: {e}")
+    try:
+        res = run_tool(['7z', 'x', '-y', f'-o{dest}', path],
+                             capture_output=True, timeout=600)
+        if res.returncode == 0:
+            log.info("  7z x: OK")
+            return True
+        log.error(f"  7z x: rc={res.returncode}, "
+                  f"stderr={res.stderr.decode(errors='replace')[:200]}")
+    except subprocess.TimeoutExpired:
+        log.error(f"  7z x: TIMEOUT su '{path}'")
+    except Exception as e:
+        log.error(f"  7z x eccezione: {e}")
+    return False
+
+def extract_archive(path, dest, progress_cb=None):
+    """
+    Estrae l'intero archivio (pagine + ComicInfo.xml) in `dest`, usando il
+    formato REALE del file. Per i PDF estrae/renderizza le pagine.
+    """
+    real_fmt = detect_real_format(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.pdf' or real_fmt == 'pdf':
+        if not HAS_PDF:
+            log.error("  PDF: PyMuPDF non disponibile")
+            return False
+        return extract_pdf_pages(path, dest, progress_cb) > 0
+    if real_fmt and real_fmt != ext.lstrip('.') and not (real_fmt == 'zip' and ext == '.cbz') \
+            and not (real_fmt == 'rar' and ext == '.cbr'):
+        _format_mismatch_log(path, ext, real_fmt)
+    if real_fmt == 'zip' or (real_fmt is None and ext in ('.cbz', '.zip')):
+        try:
+            with zipfile.ZipFile(path, 'r') as z:
+                z.extractall(dest)
+            log.info("  ZIP: extractall completato")
+            return True
+        except zipfile.BadZipFile:
+            log.warning(f"  ZIP fallito — il file è {real_fmt or 'sconosciuto'}, provo unrar/7z")
+        except Exception as e:
+            log.error(f"  ZIP extractall errore: {e}")
+    return _extract_with_tools(path, dest)
+
+# --- PDF ---
+
+def _pdf_page_is_single_scan(doc, page):
+    """
+    True se la pagina è una "scansione": una sola immagine che copre quasi tutta
+    la pagina, senza testo visibile né disegni vettoriali sopra (che andrebbero
+    persi estraendo solo l'immagine, es. fumetti digitali con lettering vettoriale).
+    """
+    imgs = page.get_images(full=True)
+    if len(imgs) != 1:
+        return None
+    xref, smask = imgs[0][0], imgs[0][1]
+    if smask or page.rotation:
+        return None
+    try:
+        rects = page.get_image_rects(xref)
+        if rects:
+            r = rects[0]
+            page_area = page.rect.width * page.rect.height
+            if page_area <= 0 or (r.width * r.height) < 0.85 * page_area:
+                return None
+    except Exception:
+        pass
+    # Testo visibile? (type 3 = testo invisibile, tipico dell'OCR: si può ignorare)
+    try:
+        for span in page.get_texttrace():
+            if span.get("type", 0) != 3:
+                return None
+    except Exception:
+        if page.get_text("text").strip():
+            return None
+    try:
+        if page.get_drawings():
+            return None
+    except Exception:
+        pass
+    return xref
+
+def _pdf_extract_native(doc, page, base):
+    """Estrae l'immagine originale della pagina (qualità piena). True se riesce."""
+    xref = _pdf_page_is_single_scan(doc, page)
+    if not xref:
+        return False
+    info = doc.extract_image(xref)
+    if not info or not info.get("image"):
+        return False
+    ext = info.get("ext", "").lower()
+    data = info["image"]
+    if ext in ("jpeg", "jpg") and info.get("colorspace") != 4:
+        with open(base + ".jpg", "wb") as f:
+            f.write(data)
+        return True
+    if ext == "png":
+        with open(base + ".png", "wb") as f:
+            f.write(data)
+        return True
+    # JPEG CMYK, JPEG2000, JBIG2, TIFF...: conversione con Pillow
+    try:
+        import io
+        with Image.open(io.BytesIO(data)) as img:
+            img = _to_saveable_rgb(img)
+            if ext in ("jpeg", "jpg", "jpx"):
+                img.save(base + ".jpg", "JPEG", quality=95)
+            else:
+                img.save(base + ".png", "PNG", optimize=True)
+        return True
+    except Exception:
+        return False
+
+def _pdf_render(page, base):
+    """Renderizza la pagina e la salva in JPEG (molto più leggero del vecchio PNG)."""
+    pix = page.get_pixmap(matrix=fitz.Matrix(PDF_ZOOM, PDF_ZOOM), alpha=False)
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    img.save(base + ".jpg", "JPEG", quality=92, optimize=True)
+
+def extract_pdf_pages(path, dest, progress_cb=None):
+    """
+    Estrae le pagine di un PDF in `dest` (0001.jpg, 0002.png, ...).
+    Pagine-scansione → immagine originale; altre pagine → render JPEG.
+    Restituisce il numero di pagine scritte.
+    """
+    doc = fitz.open(path)
+    n = len(doc)
+    native = 0
+    try:
+        for i in range(n):
+            page = doc.load_page(i)
+            base = os.path.join(dest, f"{i + 1:04d}")
+            try:
+                ok = _pdf_extract_native(doc, page, base)
+            except Exception as e:
+                log.debug(f"  PDF pag. {i + 1}: estrazione nativa fallita ({e}), render")
+                ok = False
+            if ok:
+                native += 1
+            else:
+                _pdf_render(page, base)
+            if progress_cb:
+                progress_cb(i + 1, n)
+    finally:
+        doc.close()
+    log.info(f"  PDF: {native}/{n} pagine estratte in qualità originale, "
+             f"{n - native} renderizzate")
+    return n
+
+# --- ELABORAZIONE PAGINE (eseguita in processi separati, su più core) ---
+
+def _to_saveable_rgb(img):
+    """Porta qualsiasi modalità (CMYK, 16 bit, palette, alpha...) in RGB/L a 8 bit."""
+    mode = img.mode
+    if mode in ("RGB", "L"):
+        return img
+    if mode == "1":
+        return img.convert("L")
+    if mode.startswith("I;16") or mode in ("I", "F"):
+        # 16/32 bit: riscala a 8 bit invece di "tagliare" (altrimenti pagina bianca)
+        img = img.convert("I") if mode != "F" else img
+        hi = img.getextrema()[1] or 1
+        # 16 bit → dividi per 256; valori già a 8 bit restano uguali
+        scale = 1.0 if hi <= 255 else (1 / 256 if hi <= 65535 else 255.0 / hi)
+        return img.point(lambda v: v * scale).convert("L")
+    if mode in ("RGBA", "LA", "PA") or (mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, (255, 255, 255))
+        bg.paste(rgba, mask=rgba.getchannel("A"))
+        return bg
+    return img.convert("RGB")   # CMYK, YCbCr, LAB, P, ...
+
+def _prepare_page(job):
+    """
+    job = (sorgente, destinazione_senza_estensione, to_webp, qualità)
+    Restituisce (file_scritto, nota). La nota spiega perché una pagina è stata
+    lasciata nel formato originale (None se tutto normale).
+    Una pagina problematica NON fa più fallire l'intero fumetto.
+    """
+    src, dst_base, to_webp, quality = job
+    src_ext = os.path.splitext(src)[1].lower() or ".jpg"
+    keep = dst_base + src_ext
+
+    if not to_webp:
+        shutil.copy2(src, keep)
+        return keep, None
+    if src_ext == ".webp":
+        shutil.copy2(src, keep)            # già WebP: niente ricompressione
+        return keep, None
+
+    dst = dst_base + ".webp"
+    try:
+        with Image.open(src) as img:
+            if max(img.size) > WEBP_MAX_SIDE:
+                shutil.copy2(src, keep)
+                return keep, "troppo grande per WebP"
+            img.load()
+            rgb = _to_saveable_rgb(img)
+            rgb.save(dst, "WEBP", quality=quality, method=4)
+        if os.path.getsize(dst) >= os.path.getsize(src):
+            os.remove(dst)
+            shutil.copy2(src, keep)
+            return keep, "WebP più pesante dell'originale"
+        return dst, None
+    except Exception as e:
+        if os.path.exists(dst):
+            try:
+                os.remove(dst)
+            except OSError:
+                pass
+        shutil.copy2(src, keep)
+        return keep, f"conversione fallita ({e})"
+
+# --- COMICINFO / STATO CBZ ---
+
+CBZ_MARK = f"ComicOptimizer {APP_VERSION}"
+
+def build_comicinfo(path, page_count, edited=False):
+    """
+    Restituisce i byte di ComicInfo.xml da inserire nel nuovo CBZ.
+    Se il numero di pagine è cambiato (o le pagine sono state riordinate
+    nell'editor) aggiorna <PageCount> e rimuove <Pages>, che non sarebbe più valido.
+    """
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        root = ET.fromstring(raw)
+        pc = root.find("PageCount")
+        pages = root.find("Pages")
+        pc_wrong = pc is not None and (pc.text or "").strip() != str(page_count)
+        pages_wrong = pages is not None and (edited or len(pages) != page_count)
+        if not pc_wrong and not pages_wrong:
+            return raw
+        if pc_wrong:
+            pc.text = str(page_count)
+        if pages_wrong:
+            root.remove(pages)
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    except Exception as e:
+        log.warning(f"  ComicInfo.xml non analizzabile ({e}): copiato così com'è")
+        return raw
+
+def cbz_status(path):
+    """3 = convertito in WebP, 1 = CBZ valido. Solleva eccezione se non è uno ZIP."""
+    with zipfile.ZipFile(path, 'r') as z:
+        comment = z.comment or b""
+        if comment.startswith(b"ComicOptimizer") and b"webp" in comment:
+            return 3
+        imgs = [n for n in z.namelist() if is_page_file(n)]
+        return 3 if imgs and all(n.lower().endswith('.webp') for n in imgs) else 1
+
+def verify_cbz(path, expected_pages):
+    """Controlla il CBZ appena creato PRIMA di toccare l'originale."""
+    with zipfile.ZipFile(path, 'r') as z:
+        bad = z.testzip()
+        if bad:
+            raise RuntimeError(f"archivio creato corrotto ('{bad}')")
+        n = sum(1 for name in z.namelist() if is_page_file(name))
+    if n != expected_pages:
+        raise RuntimeError(f"il nuovo archivio ha {n} pagine invece di {expected_pages}")
 
 # --- COMPONENTS ---
 
@@ -488,7 +960,7 @@ class NoWheelSpinBox(QSpinBox):
 # --- WORKERS ---
 
 _ARCHIVE_EXTS = ('.cbz', '.cbr', '.zip', '.rar', '.pdf')
-_IMAGE_EXTS   = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tiff', '.tif', '.avif')
+_IMAGE_EXTS   = _PAGE_EXTS
 
 class ImportWorker(QThread):
     progress = pyqtSignal(int, int)
@@ -502,6 +974,7 @@ class ImportWorker(QThread):
         valid        = []
         all_to_check = []
         for p in self.raw_paths:
+            p = os.path.normpath(p)
             if os.path.isdir(p):
                 for r, _, fs in os.walk(p):
                     for f in fs:
@@ -528,7 +1001,8 @@ class AnalysisWorker(QThread):
 
     def run(self):
         results = {}
-        groups  = {}
+        groups  = {}     # stesso nome (es. fumetto.cbr + fumetto.cbz)
+        by_sig  = {}     # stesso contenuto (pagine identiche) anche con nomi diversi
         total   = len(self.paths)
         for i, p in enumerate(self.paths):
             is_ok = check_integrity(p)
@@ -537,16 +1011,27 @@ class AnalysisWorker(QThread):
             else:
                 target = os.path.splitext(p)[0] + ".cbz"
                 groups.setdefault(target, []).append(p)
+                sig = get_archive_signature(p)
+                if sig:
+                    by_sig.setdefault(sig, []).append(p)
             self.progress.emit(i + 1, total)
 
+        def keep_first(x):
+            # Tiene preferibilmente il .cbz che è davvero uno ZIP, poi l'ordine naturale
+            # poi il nome più corto (le copie di solito sono "… (1)", "… - Copia")
+            good_cbz = x.lower().endswith('.cbz') and detect_real_format(x) == 'zip'
+            return (0 if good_cbz else 1, len(os.path.basename(x)), get_natural_sort_key(x))
+
         dupes_count = 0
-        for t, ps in groups.items():
+        for ps in list(groups.values()) + list(by_sig.values()):
             if len(ps) > 1:
-                ps.sort(key=lambda x: 1 if x.lower().endswith('.cbz') else 0, reverse=True)
+                ps = sorted(ps, key=keep_first)
                 for loser in ps[1:]:
                     if loser not in results:
                         results[loser] = 4
                         dupes_count += 1
+                        log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
+                                  f"= '{os.path.basename(ps[0])}'")
 
         # Assegna status a TUTTI i file integri usando il formato REALE
         for p in self.paths:
@@ -562,13 +1047,7 @@ class AnalysisWorker(QThread):
                     results[p] = 0
                 elif real_fmt == 'zip' or (real_fmt is None and declared_ext in ('.cbz', '.zip')):
                     try:
-                        with zipfile.ZipFile(p, 'r') as z:
-                            imgs = [n for n in z.namelist()
-                                    if n.lower().endswith(('.jpg','.jpeg','.png','.webp'))]
-                            if imgs and all(n.lower().endswith('.webp') for n in imgs):
-                                results[p] = 3   # tutto WebP → CONVERTITO
-                            else:
-                                results[p] = 1   # CBZ con jpg/png → OK
+                        results[p] = cbz_status(p)   # 3 = CONVERTITO, 1 = OK
                     except Exception:
                         results[p] = 0
                 else:
@@ -577,16 +1056,25 @@ class AnalysisWorker(QThread):
         self.finished.emit(results, dupes_count)
 
 class ProcessingWorker(QThread):
-    progress_val  = pyqtSignal(int)
-    progress_max  = pyqtSignal(int)
-    status_msg    = pyqtSignal(str)
+    """
+    Crea i nuovi CBZ. Sequenza sicura per ogni fumetto:
+      1. pagine preparate in una cartella temporanea (WebP su più core)
+      2. CBZ scritto come .tmp e VERIFICATO (integrità + numero di pagine)
+      3. solo dopo: vecchio file nel cestino e .tmp rinominato nel file finale
+    Le cartelle temporanee di TUTTI i task vengono eliminate anche in caso
+    di interruzione o errore.
+    """
+    progress_val   = pyqtSignal(int)
+    progress_max   = pyqtSignal(int)
+    status_msg     = pyqtSignal(str)
     ask_permission = pyqtSignal(str, str, int, int)
     file_finished  = pyqtSignal(str, str, int)
-    finished       = pyqtSignal()
+    job_done       = pyqtSignal(dict)   # riepilogo (non si chiama "finished" per non
+                                        # nascondere il segnale nativo di QThread)
 
     def __init__(self, tasks, to_webp=False):
         super().__init__()
-        self.tasks   = tasks
+        self.tasks   = tasks            # lista di dict: src, images, tmp, comicinfo, edited
         self.to_webp = to_webp
         self._is_running = True
         self._stop_after_current = False
@@ -601,13 +1089,47 @@ class ProcessingWorker(QThread):
 
     def abort_now(self):
         self._is_running = False
+        # sblocca un'eventuale attesa della scelta sul conflitto
+        self.set_permission('skip')
 
     def stop_later(self):
         self._stop_after_current = True
 
     def run(self):
+        summary = {
+            'mode': 'webp' if self.to_webp else 'repair',
+            'total': len(self.tasks), 'done': 0, 'skipped': 0,
+            'errors': [], 'pages_kept': 0,
+            'size_before': 0, 'size_after': 0,
+            'aborted': False, 'start': time.time(),
+        }
+        pool = None
+        try:
+            if self.to_webp:
+                workers = max(1, (os.cpu_count() or 2) - 1)   # un core libero per l'interfaccia
+                pool = ProcessPoolExecutor(max_workers=workers,
+                                           mp_context=multiprocessing.get_context("spawn"))
+                log.info(f"Conversione WebP su {workers} processi paralleli")
+            self._run_tasks(pool, summary)
+        except Exception as e:
+            log.error(f"ProcessingWorker: errore imprevisto: {e}", exc_info=True)
+            summary['errors'].append(("(generale)", str(e)))
+        finally:
+            if pool:
+                pool.shutdown(wait=True, cancel_futures=True)
+            for task in self.tasks:
+                tmp = task.get('tmp')
+                if tmp and os.path.exists(tmp):
+                    shutil.rmtree(tmp, ignore_errors=True)
+            summary['elapsed'] = time.time() - summary['start']
+            log.info(f"ProcessingWorker completato: {summary['done']} ok, "
+                     f"{summary['skipped']} saltati, {len(summary['errors'])} errori"
+                     f"{' (INTERROTTO)' if summary['aborted'] else ''}.")
+            self.job_done.emit(summary)
+
+    def _run_tasks(self, pool, summary):
         processed = set()
-        total_p = sum(len(t[1]) for t in self.tasks)
+        total_p = sum(len(t['images']) for t in self.tasks)
         self.progress_max.emit(total_p)
         curr_p = 0
         log.info(f"ProcessingWorker avviato: {len(self.tasks)} file, "
@@ -616,10 +1138,10 @@ class ProcessingWorker(QThread):
         for task in self.tasks:
             if not self._is_running or self._stop_after_current:
                 log.info("ProcessingWorker: interrotto dall'utente.")
+                summary['aborted'] = True
                 break
-            orig_p  = task[0]
-            img_list = task[1]
-            tmp_src  = task[2] if len(task) > 2 else None
+            orig_p   = task['src']
+            img_list = task['images']
             final_p  = os.path.splitext(orig_p)[0] + ".cbz"
             log.info(f"Elaborazione: '{os.path.basename(orig_p)}' "
                      f"({len(img_list)} immagini) → '{os.path.basename(final_p)}'")
@@ -635,11 +1157,13 @@ class ProcessingWorker(QThread):
                     while self._permission_result is None:
                         self._condition.wait(self._mutex)
                 log.info(f"  Scelta conflitto: {self._permission_result}")
+                if not self._is_running:
+                    summary['aborted'] = True
+                    break
                 if self._permission_result == 'skip':
                     curr_p += len(img_list)
                     self.progress_val.emit(curr_p)
-                    if tmp_src:
-                        shutil.rmtree(tmp_src, ignore_errors=True)
+                    summary['skipped'] += 1
                     self.file_finished.emit(orig_p, orig_p, 4)
                     continue
                 if self._permission_result == 'rename':
@@ -651,10 +1175,12 @@ class ProcessingWorker(QThread):
                     log.info(f"  Rinominato in: '{os.path.basename(final_p)}'")
 
             processed.add(final_p)
-            out     = tempfile.mkdtemp()
-            tmp_zip = final_p + ".tmp"
+            out      = make_temp_dir()
+            tmp_zip  = final_p + ".tmp"
+            start_p  = curr_p
+            size_before = os.path.getsize(orig_p) if os.path.exists(orig_p) else 0
 
-            # FIX #8: rimuovi eventuali .tmp orfani prima di procedere
+            # rimuovi eventuali .tmp orfani prima di procedere
             if os.path.exists(tmp_zip):
                 try:
                     os.remove(tmp_zip)
@@ -663,58 +1189,106 @@ class ProcessingWorker(QThread):
                     log.warning(f"Impossibile rimuovere tmp orfano '{tmp_zip}': {e}")
 
             try:
-                for i, p in enumerate(img_list):
-                    if not self._is_running:
-                        log.info("ProcessingWorker: abort_now() ricevuto.")
-                        return
-                    curr_p += 1
-                    self.status_msg.emit(
-                        f"Ottimizzazione: {os.path.basename(orig_p)} ({i + 1}/{len(img_list)})"
-                    )
-                    self.progress_val.emit(curr_p)
-                    ext = ".webp" if self.to_webp else (os.path.splitext(p)[1].lower() or ".jpg")
-                    dst = os.path.join(out, f"{i + 1:04d}{ext}")
-                    if self.to_webp:
-                        with Image.open(p) as img:
-                            if img.mode in ("RGBA", "P", "LA"):
-                                img = img.convert("RGB")
-                            img.save(dst, "WEBP", quality=85)
-                    else:
-                        shutil.copy2(p, dst)
+                pages = self._build_pages(pool, img_list, out, orig_p, start_p, summary)
+                if pages is None:
+                    log.info("ProcessingWorker: abort_now() ricevuto.")
+                    summary['aborted'] = True
+                    break
 
                 with zipfile.ZipFile(tmp_zip, 'w', zipfile.ZIP_STORED) as z:
-                    for f in sorted(os.listdir(out)):
-                        fp = os.path.join(out, f)
-                        sz = os.path.getsize(fp)
-                        if sz < 5120:
-                            log.error(f"  GUARD: immagine sospetta {sz} B → '{f}' — "
-                                      f"l'estrazione potrebbe essere fallita!")
-                        z.write(fp, f)
+                    for i, fp in enumerate(pages):
+                        z.write(fp, os.path.basename(fp))
+                    ci = task.get('comicinfo')
+                    if ci and os.path.exists(ci):
+                        z.writestr("ComicInfo.xml",
+                                   build_comicinfo(ci, len(pages), task.get('edited', False)))
+                        log.info("  ComicInfo.xml conservato")
+                    mode = "webp" if self.to_webp else "repair"
+                    z.comment = f"{CBZ_MARK} {mode}".encode()
 
-                final_size_kb = os.path.getsize(tmp_zip) // 1024
-                if os.path.exists(final_p):
-                    os.remove(final_p)
-                if os.path.exists(orig_p) and os.path.normpath(orig_p) != os.path.normpath(final_p):
-                    os.remove(orig_p)
-                shutil.move(tmp_zip, final_p)
+                verify_cbz(tmp_zip, len(pages))
+                self._commit(orig_p, final_p, tmp_zip)
+
+                size_after = os.path.getsize(final_p)
+                summary['done'] += 1
+                summary['size_before'] += size_before
+                summary['size_after']  += size_after
                 result_label = "CONVERTITO (WebP)" if self.to_webp else "RIPARATO"
-                log.info(f"  ✓ {result_label}: '{os.path.basename(final_p)}' — {final_size_kb} KB")
+                log.info(f"  ✓ {result_label}: '{os.path.basename(final_p)}' — "
+                         f"{fmt_size(size_before)} → {fmt_size(size_after)}")
                 self.file_finished.emit(orig_p, final_p, 3 if self.to_webp else 2)
 
             except Exception as e:
-                log.error(f"  ✗ Errore elaborazione '{os.path.basename(orig_p)}': {e}")
+                log.error(f"  ✗ Errore elaborazione '{os.path.basename(orig_p)}': {e} "
+                          f"— originale NON modificato")
+                summary['errors'].append((os.path.basename(orig_p), str(e)))
             finally:
+                curr_p = start_p + len(img_list)
+                self.progress_val.emit(curr_p)
                 shutil.rmtree(out, ignore_errors=True)
                 if os.path.exists(tmp_zip):
                     try:
                         os.remove(tmp_zip)
                     except Exception:
                         pass
+                tmp_src = task.get('tmp')
                 if tmp_src and os.path.exists(tmp_src):
                     shutil.rmtree(tmp_src, ignore_errors=True)
 
-        log.info("ProcessingWorker completato.")
-        self.finished.emit()
+    def _build_pages(self, pool, img_list, out, orig_p, start_p, summary):
+        """Prepara le pagine numerate 0001, 0002... Restituisce None se interrotto."""
+        n    = len(img_list)
+        name = os.path.basename(orig_p)
+        jobs = [(src, os.path.join(out, f"{i + 1:04d}"), self.to_webp, WEBP_QUALITY)
+                for i, src in enumerate(img_list)]
+        results = [None] * n
+
+        if pool is None:
+            for i, job in enumerate(jobs):
+                if not self._is_running:
+                    return None
+                results[i] = _prepare_page(job)
+                self.status_msg.emit(f"Ottimizzazione: {name} ({i + 1}/{n})")
+                self.progress_val.emit(start_p + i + 1)
+        else:
+            futures = {pool.submit(_prepare_page, job): i for i, job in enumerate(jobs)}
+            done = 0
+            for fut in as_completed(futures):
+                if not self._is_running:
+                    for f in futures:
+                        f.cancel()
+                    return None
+                results[futures[fut]] = fut.result()
+                done += 1
+                self.status_msg.emit(f"Conversione WebP: {name} ({done}/{n})")
+                self.progress_val.emit(start_p + done)
+
+        notes = {}
+        for dst, note in results:
+            if note:
+                key = note.split(" (")[0]
+                notes[key] = notes.get(key, 0) + 1
+        for note, count in notes.items():
+            log.info(f"  {count} pagine lasciate nel formato originale: {note}")
+            summary['pages_kept'] += count
+        return [r[0] for r in results]
+
+    def _commit(self, orig_p, final_p, tmp_zip):
+        """Il nuovo CBZ è già verificato: ora si possono toccare i file originali."""
+        same = os.path.normpath(orig_p) == os.path.normpath(final_p)
+        if os.path.exists(final_p):
+            # file che verrà sostituito (originale .cbz o "Sovrascrivi"): nel cestino
+            if not _trash_file_cross_platform(final_p):
+                log.warning(f"  Cestino non disponibile: '{os.path.basename(final_p)}' "
+                            f"verrà sovrascritto")
+        os.replace(tmp_zip, final_p)
+        if not same and os.path.exists(orig_p):
+            if _trash_file_cross_platform(orig_p):
+                log.info(f"  Originale spostato nel cestino: '{os.path.basename(orig_p)}'")
+            else:
+                log.warning(f"  Cestino non disponibile: originale eliminato "
+                            f"'{os.path.basename(orig_p)}'")
+                os.remove(orig_p)
 
 class ThumbWorker(QThread):
     # Emette i byte raw dell'immagine invece di QPixmap
@@ -738,7 +1312,7 @@ class ThumbWorker(QThread):
                 try:
                     doc   = fitz.open(self.path)
                     page  = doc.load_page(0)
-                    pix   = page.get_pixmap()
+                    pix   = page.get_pixmap(alpha=False)
                     img_p = os.path.join(tmp, "t.png")
                     pix.save(img_p)
                     doc.close()
@@ -765,8 +1339,8 @@ class ThumbWorker(QThread):
                 first     = imgs[0]
                 extracted = False
                 try:
-                    res = subprocess.run(
-                        ['unrar', 'e', '-y', self.path, first, tmp + "/"],
+                    res = run_tool(
+                        ['unrar', 'e', '-y', self.path, first, tmp + os.sep],
                         capture_output=True, timeout=15
                     )
                     extracted = bool(os.listdir(tmp))
@@ -776,7 +1350,7 @@ class ThumbWorker(QThread):
                     log.debug(f"ThumbWorker unrar error: {e}")
                 if not extracted:
                     try:
-                        res = subprocess.run(
+                        res = run_tool(
                             ['7z', 'e', '-y', f'-o{tmp}', self.path, first],
                             capture_output=True, timeout=15
                         )
@@ -791,7 +1365,7 @@ class ThumbWorker(QThread):
             for root_dir, _, files in os.walk(tmp):
                 for f in sorted(files):
                     full = os.path.join(root_dir, f)
-                    if not is_junk_file(f) and f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    if is_page_file(full):
                         try:
                             with open(full, 'rb') as fh:
                                 data = fh.read()
@@ -811,7 +1385,7 @@ class LoadingWorker(QThread):
         self.path = path
 
     def run(self):
-        tmp      = tempfile.mkdtemp()
+        tmp      = make_temp_dir()
         ext      = os.path.splitext(self.path)[1].lower()
         real_fmt = detect_real_format(self.path)
         success  = False
@@ -826,13 +1400,8 @@ class LoadingWorker(QThread):
         if ext == '.pdf' or real_fmt == 'pdf':
             if HAS_PDF:
                 try:
-                    doc = fitz.open(self.path)
-                    for i in range(total):
-                        page = doc.load_page(i)
-                        pix  = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
-                        pix.save(os.path.join(tmp, f"{i + 1:04d}.png"))
-                        self.progress.emit(i + 1, total)
-                    doc.close()
+                    extract_pdf_pages(self.path, tmp,
+                                      lambda v, t: self.progress.emit(v, t))
                     success = True
                 except Exception as e:
                     log.error(f"LoadingWorker PDF '{self.path}': {e}")
@@ -847,6 +1416,11 @@ class LoadingWorker(QThread):
                             for i, img_name in enumerate(img_list):
                                 z.extract(img_name, tmp)
                                 self.progress.emit(i + 1, total)
+                            # conserva i metadati
+                            for n in z.namelist():
+                                if is_comicinfo(n):
+                                    z.extract(n, tmp)
+                                    break
                         success = True
                         log.info(f"LoadingWorker ZIP OK: '{os.path.basename(self.path)}'")
                     except zipfile.BadZipFile:
@@ -859,9 +1433,9 @@ class LoadingWorker(QThread):
                         _format_mismatch_log(self.path, ext, real_fmt)
                     extracted_ok = False
                     try:
-                        res = subprocess.run(
-                            ['unrar', 'x', '-y', self.path, tmp + "/"],
-                            capture_output=True, timeout=300
+                        res = run_tool(
+                            ['unrar', 'x', '-y', self.path, tmp + os.sep],
+                            capture_output=True, timeout=600
                         )
                         if res.returncode == 0:
                             extracted_ok = True
@@ -875,9 +1449,9 @@ class LoadingWorker(QThread):
                         log.warning(f"LoadingWorker unrar x eccezione: {e}")
 
                     if not extracted_ok:
-                        res = subprocess.run(
+                        res = run_tool(
                             ['7z', 'x', '-y', f'-o{tmp}', self.path],
-                            capture_output=True, timeout=300
+                            capture_output=True, timeout=600
                         )
                         if res.returncode == 0:
                             extracted_ok = True
@@ -895,20 +1469,14 @@ class LoadingWorker(QThread):
                 success = False
 
         if success:
-            extracted = [
-                os.path.join(r, f)
-                for r, _, fs in os.walk(tmp)
-                for f in fs
-                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
-                and not is_junk_file(os.path.join(r, f))
-            ]
-            extracted.sort(key=get_natural_sort_key)
+            extracted = list_page_files(tmp)
             self.finished.emit(self.path, tmp, extracted)
         else:
             shutil.rmtree(tmp, ignore_errors=True)
             self.error.emit("Errore durante l'estrazione.")
 
 class BatchPrepWorker(QThread):
+    """Estrae gli archivi e prepara i task per ProcessingWorker."""
     progress = pyqtSignal(int, int)
     ready    = pyqtSignal(list, bool)
 
@@ -921,137 +1489,43 @@ class BatchPrepWorker(QThread):
         tasks = []
         total = len(self.paths)
         for i, p in enumerate(self.paths):
-            tmp = tempfile.mkdtemp()
-            ext      = os.path.splitext(p)[1].lower()
-            real_fmt = detect_real_format(p)
-            log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' "
-                     f"(ext={ext}, real={real_fmt}) → '{tmp}'")
+            tmp = make_temp_dir()
+            log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' → '{tmp}'")
+            ok = False
             try:
-                if ext == '.pdf' or real_fmt == 'pdf':
-                    if HAS_PDF:
-                        doc = fitz.open(p)
-                        for j in range(len(doc)):
-                            page = doc.load_page(j)
-                            pix  = page.get_pixmap(matrix=fitz.Matrix(1.8, 1.8))
-                            pix.save(os.path.join(tmp, f"{j + 1:04d}.png"))
-                        doc.close()
-                        log.info(f"  PDF: estratte pagine")
-                    else:
-                        log.error("  PDF: PyMuPDF non disponibile")
-                elif real_fmt == 'zip' or (real_fmt is None and ext in ('.cbz', '.zip')):
-                    # ZIP reale (o presunto): estrazione nativa Python
-                    zip_ok = False
-                    try:
-                        with zipfile.ZipFile(p, 'r') as z:
-                            z.extractall(tmp)
-                        log.info(f"  ZIP: extractall completato")
-                        zip_ok = True
-                    except zipfile.BadZipFile:
-                        log.warning(f"  ZIP fallito — file è realmente {real_fmt or 'sconosciuto'}, "
-                                    f"provo unrar/7z")
-                    except Exception as e:
-                        log.error(f"  ZIP extractall errore: {e}")
-
-                    if not zip_ok:
-                        # Fallback RAR/7z per file con estensione sbagliata
-                        _format_mismatch_log(p, ext, real_fmt or '?')
-                        success = False
-                        try:
-                            res = subprocess.run(
-                                ['unrar', 'x', '-y', p, tmp + "/"],
-                                capture_output=True, timeout=300
-                            )
-                            if res.returncode == 0:
-                                success = True
-                                log.info(f"  unrar x (fallback): OK")
-                            else:
-                                log.warning(f"  unrar x (fallback): rc={res.returncode}")
-                        except FileNotFoundError:
-                            log.warning("  unrar non trovato, uso 7z x")
-                        except Exception as e:
-                            log.warning(f"  unrar x fallback eccezione: {e}")
-                        if not success:
-                            try:
-                                res = subprocess.run(
-                                    ['7z', 'x', '-y', f'-o{tmp}', p],
-                                    capture_output=True, timeout=300
-                                )
-                                if res.returncode == 0:
-                                    log.info(f"  7z x (fallback): OK")
-                                else:
-                                    log.error(f"  7z x (fallback): rc={res.returncode}")
-                            except Exception as e:
-                                log.error(f"  7z x fallback eccezione: {e}")
-                else:
-                    # RAR reale, o ZIP con estensione errata che ha fallito sopra,
-                    # o formato sconosciuto: prova unrar x poi 7z x
-                    if real_fmt and real_fmt != ext.lstrip('.') and real_fmt in ('rar', 'zip'):
-                        _format_mismatch_log(p, ext, real_fmt)
-                    success = False
-                    try:
-                        res = subprocess.run(
-                            ['unrar', 'x', '-y', p, tmp + "/"],
-                            capture_output=True, timeout=300
-                        )
-                        if res.returncode == 0:
-                            success = True
-                            log.info(f"  unrar x: OK (rc=0)")
-                        else:
-                            log.warning(f"  unrar x: FALLITO rc={res.returncode}, "
-                                        f"stderr={res.stderr.decode(errors='replace')[:200]}")
-                    except FileNotFoundError:
-                        log.warning("  unrar non trovato, uso 7z x")
-                    except subprocess.TimeoutExpired:
-                        log.error(f"  unrar x: TIMEOUT su '{p}'")
-                    except Exception as e:
-                        log.warning(f"  unrar x eccezione: {e}")
-
-                    if not success:
-                        try:
-                            res = subprocess.run(
-                                ['7z', 'x', '-y', f'-o{tmp}', p],
-                                capture_output=True, timeout=300
-                            )
-                            if res.returncode == 0:
-                                success = True
-                                log.info(f"  7z x: OK (rc=0)")
-                            else:
-                                log.error(f"  7z x: FALLITO rc={res.returncode}, "
-                                          f"stderr={res.stderr.decode(errors='replace')[:200]}")
-                        except subprocess.TimeoutExpired:
-                            log.error(f"  7z x: TIMEOUT su '{p}'")
-                        except Exception as e:
-                            log.error(f"  7z x eccezione: {e}")
-
+                ok = extract_archive(p, tmp)
             except Exception as e:
                 log.error(f"BatchPrepWorker eccezione su '{p}': {e}")
 
-            # Conta e valida i file estratti
-            extracted = [
-                os.path.join(r, f)
-                for r, _, fs in os.walk(tmp)
-                for f in fs
-                if f.lower().endswith(_IMAGE_EXTS)
-                and not is_junk_file(os.path.join(r, f))
-            ]
-            extracted.sort(key=get_natural_sort_key)
+            extracted = list_page_files(tmp)
+            expected  = len(get_archive_file_list(p))
 
-            # Validazione dimensioni: un'immagine reale è sempre > 5 KB
-            valid = [fp for fp in extracted if os.path.getsize(fp) > 5120]
-            if len(valid) != len(extracted):
-                log.warning(f"  {len(extracted) - len(valid)} file sospetti (< 5 KB) esclusi su {len(extracted)} totali")
-                for fp in extracted:
-                    sz = os.path.getsize(fp)
-                    if sz <= 5120:
-                        log.warning(f"    SOSPETTO {sz} B: {os.path.basename(fp)}")
-                extracted = valid
-
-            if extracted:
-                log.info(f"  ✓ {len(extracted)} immagini estratte correttamente")
-                tasks.append((p, extracted, tmp))
-            else:
+            # Controllo: TUTTE le pagine devono essere state estratte.
+            # (Sostituisce il vecchio filtro "< 5 KB" che scartava in silenzio
+            #  pagine bianche o pagine WebP leggere.)
+            if not ok or not extracted:
                 log.error(f"  ✗ Nessuna immagine estratta da '{os.path.basename(p)}' — file saltato")
                 shutil.rmtree(tmp, ignore_errors=True)
+            elif len(extracted) < expected:
+                log.error(f"  ✗ Estratte solo {len(extracted)} pagine su {expected} da "
+                          f"'{os.path.basename(p)}' — file saltato, originale intatto")
+                shutil.rmtree(tmp, ignore_errors=True)
+            else:
+                unreadable = []
+                for fp in extracted:
+                    try:
+                        with Image.open(fp) as im:
+                            im.size
+                    except Exception:
+                        unreadable.append(os.path.basename(fp))
+                if unreadable:
+                    log.warning(f"  {len(unreadable)} pagine non leggibili (conservate "
+                                f"comunque così come sono): {', '.join(unreadable[:5])}")
+                comicinfo = find_comicinfo(tmp)
+                log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
+                         f"{' + ComicInfo.xml' if comicinfo else ''}")
+                tasks.append({'src': p, 'images': extracted, 'tmp': tmp,
+                              'comicinfo': comicinfo, 'edited': False})
 
             self.progress.emit(i + 1, total)
 
@@ -1351,8 +1825,7 @@ class AdvancedEditor(QDialog):
                     )
                     try:
                         with Image.open(p) as img:
-                            if img.mode in ("RGBA", "P", "LA"):
-                                img = img.convert("RGB")
+                            img = _to_saveable_rgb(img)
                             if fmt == 'webp':
                                 img.save(converted, "WEBP", quality=85)
                             else:
@@ -1371,7 +1844,7 @@ class AdvancedEditor(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ComicOptimizer v2.5.00")
+        self.setWindowTitle(f"ComicOptimizer v{APP_VERSION}")
         self.setAcceptDrops(True)
         self.cards           = {}
         self.last_clicked    = None
@@ -1380,6 +1853,8 @@ class MainWindow(QMainWindow):
         self.current_worker  = None
         self.skip_trash_confirm = False
         self.keep_log        = False   # default: cancella il log alla chiusura
+        self._closing        = False
+        self._tray           = None    # icona di sistema, creata alla prima notifica
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -1395,7 +1870,7 @@ class MainWindow(QMainWindow):
             "Ottimizzazione? È il mio secondo nome."
         ]
         self.ironic_lbl.setText(random.choice(frasi))
-        log.info("ComicOptimizer avviato.")
+        log.info(f"ComicOptimizer v{APP_VERSION} avviato.")
 
     # --- Helpers thread-safe per active_threads ---
     @property
@@ -1412,8 +1887,13 @@ class MainWindow(QMainWindow):
 
     # FIX #14: closeEvent per terminare i thread prima di chiudere
     def closeEvent(self, event):
+        self._closing = True
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.abort_now()
+            # lascia al worker il tempo di cancellare le cartelle temporanee
+            self.current_worker.wait(15000)
+        if self._tray:
+            self._tray.hide()
         with self._threads_lock:
             threads = list(self._active_threads)
         for t in threads:
@@ -1421,7 +1901,7 @@ class MainWindow(QMainWindow):
             t.wait(2000)
 
         # Gestione file di log alla chiusura
-        _log_path = "comicoptimizer.log"
+        _log_path = LOG_PATH
         log.info("ComicOptimizer chiuso.")
 
         # Rimuovi l'handler Qt dal logger PRIMA che Qt distrugga l'oggetto C++.
@@ -1507,9 +1987,23 @@ class MainWindow(QMainWindow):
 
     def check_deps(self):
         m = []
-        if not shutil.which('7z'):
+        if IS_WIN:
+            # su Windows basta 7-Zip (incluso nell'exe): legge anche i RAR/RAR5
+            if not find_tool('7z'):
+                m.append("7-Zip")
+            if not HAS_PDF:
+                m.append("PyMuPDF")
+            if m:
+                QMessageBox.warning(
+                    self, "Dipendenze mancanti",
+                    "Mancano: " + ", ".join(m) +
+                    "\n\nInstalla 7-Zip da https://www.7-zip.org"
+                    + ("\ne PyMuPDF con: pip install pymupdf" if not HAS_PDF else "")
+                )
+            return
+        if not find_tool('7z'):
             m.append("p7zip-full")
-        if not shutil.which('unrar'):
+        if not find_tool('unrar'):
             m.append("unrar")
         if not HAS_PDF:
             m.append("python3-pymupdf")
@@ -1634,7 +2128,7 @@ class MainWindow(QMainWindow):
 
         footer = QHBoxLayout()
         ls = "color: #FFB300; font-weight: bold; font-size: 13px; background: none; border: none;"
-        self.n_btn = QPushButton("Novità v2.5")
+        self.n_btn = QPushButton(f"Novità v{APP_VERSION}")
         self.n_btn.setStyleSheet(ls)
         self.n_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.n_btn.clicked.connect(self.show_news)
@@ -1654,7 +2148,7 @@ class MainWindow(QMainWindow):
         self.chk_keep_log = QCheckBox("Mantieni log")
         self.chk_keep_log.setChecked(False)
         self.chk_keep_log.setToolTip(
-            "Se spuntato, il file comicoptimizer.log viene conservato alla chiusura.\n"
+            f"Se spuntato, il file di log viene conservato alla chiusura:\n{LOG_PATH}\n"
             "Se non spuntato, viene eliminato automaticamente."
         )
         self.chk_keep_log.setStyleSheet(
@@ -1668,7 +2162,20 @@ class MainWindow(QMainWindow):
         footer.addStretch()
         footer.addWidget(self.p_btn)
         footer.addStretch()
+        self.chk_notify = QCheckBox("🔔 Avvisi")
+        self.chk_notify.setChecked(True)
+        self.chk_notify.setToolTip(
+            "A fine lavoro mostra una notifica di sistema e riproduce un suono.\n"
+            "Il riepilogo a fine lavoro viene mostrato comunque."
+        )
+        self.chk_notify.setStyleSheet(
+            "QCheckBox { color: #888; font-size: 11px; }"
+            "QCheckBox::indicator { width: 13px; height: 13px; }"
+        )
+
         footer.addWidget(self.log_btn)
+        footer.addSpacing(8)
+        footer.addWidget(self.chk_notify)
         footer.addSpacing(8)
         footer.addWidget(self.chk_keep_log)
         layout.addLayout(footer)
@@ -1760,9 +2267,127 @@ class MainWindow(QMainWindow):
         self.current_worker.progress_val.connect(self.pbar.setValue)
         self.current_worker.ask_permission.connect(self.handle_conflict)
         self.current_worker.file_finished.connect(self.on_file_done)
-        self.current_worker.finished.connect(lambda: (self.reset_ui(), self.run_analysis(True)))
+        self.current_worker.job_done.connect(self._on_job_done)
         self._add_thread(self.current_worker)
         self.current_worker.start()
+
+    # --- Fine lavoro: riepilogo, notifica di sistema e suono ---
+
+    def _on_job_done(self, s):
+        worker = self.sender()
+        if worker:
+            self._discard_thread(worker)
+        if worker is self.current_worker:
+            self.current_worker = None
+        if self._closing:
+            return
+        self.reset_ui()
+        self.run_analysis(True)
+
+        n_err = len(s['errors'])
+        if s['aborted']:
+            icon, title = QMessageBox.Icon.Warning, "Lavoro interrotto"
+        elif n_err:
+            icon, title = QMessageBox.Icon.Warning, "Lavoro completato con errori"
+        else:
+            icon, title = QMessageBox.Icon.Information, "Lavoro completato"
+
+        verb = "convertiti in WebP" if s['mode'] == 'webp' else "riparati"
+        short = f"{s['done']} di {s['total']} fumetti {verb}"
+        if n_err:
+            short += f", {n_err} con errori"
+
+        lines = [f"<b>{title}</b><br>",
+                 f"Fumetti {verb}: <b>{s['done']}</b> su {s['total']}"]
+        if s['skipped']:
+            lines.append(f"Saltati: {s['skipped']}")
+        if s['size_before']:
+            diff = s['size_before'] - s['size_after']
+            perc = diff * 100 / s['size_before']
+            if diff >= 0:
+                lines.append(f"Spazio: {fmt_size(s['size_before'])} → {fmt_size(s['size_after'])} "
+                             f"(<b>risparmiati {fmt_size(diff)}</b>, −{perc:.0f}%)")
+                short += f" — risparmiati {fmt_size(diff)}"
+            else:
+                lines.append(f"Spazio: {fmt_size(s['size_before'])} → {fmt_size(s['size_after'])}")
+        if s['pages_kept']:
+            lines.append(f"Pagine lasciate nel formato originale: {s['pages_kept']} "
+                         f"(dettagli nel log)")
+        lines.append(f"Tempo: {fmt_duration(s['elapsed'])}")
+        if n_err:
+            lines.append("<br><b>Errori</b> (gli originali non sono stati toccati):")
+            for name, err in s['errors'][:8]:
+                lines.append(f"• {name}: {err}".replace("<", "&lt;"))
+            if n_err > 8:
+                lines.append(f"… e altri {n_err - 8} (vedi log)")
+
+        if self.chk_notify.isChecked():
+            self._notify_system(title, short, ok=not (n_err or s['aborted']))
+
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText("<br>".join(lines))
+        box.exec()
+
+    def _notify_system(self, title, body, ok=True):
+        """Notifica del sistema operativo + suono (non blocca l'interfaccia)."""
+        shown = False
+        quiet = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            if sys.platform.startswith("linux") and shutil.which("notify-send"):
+                icon = APP_ICON_PATH if APP_ICON_PATH else "dialog-information"
+                subprocess.Popen(["notify-send", "-a", "ComicOptimizer", "-i", icon,
+                                  f"ComicOptimizer — {title}", body], **quiet)
+                shown = True
+        except Exception as e:
+            log.debug(f"notify-send non riuscito: {e}")
+        if not shown and QSystemTrayIcon.isSystemTrayAvailable():
+            if self._tray is None:
+                ic = self.windowIcon()
+                if ic.isNull():
+                    ic = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+                self._tray = QSystemTrayIcon(ic, self)
+                self._tray.setToolTip("ComicOptimizer")
+                self._tray.activated.connect(lambda *_: (self.showNormal(), self.raise_(),
+                                                         self.activateWindow()))
+                self._tray.messageClicked.connect(lambda: (self.showNormal(), self.raise_(),
+                                                           self.activateWindow()))
+            self._tray.show()
+            mi = (QSystemTrayIcon.MessageIcon.Information if ok
+                  else QSystemTrayIcon.MessageIcon.Warning)
+            self._tray.showMessage(f"ComicOptimizer — {title}", body, mi, 8000)
+            shown = True
+        self._play_sound(ok, notification_shown=shown)
+        QApplication.alert(self, 0)   # evidenzia l'app nella barra delle applicazioni
+
+    def _play_sound(self, ok=True, notification_shown=False):
+        quiet = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            if sys.platform == "win32":
+                # la notifica di Windows ha già il suo suono
+                if not notification_shown:
+                    import winsound
+                    winsound.MessageBeep(winsound.MB_ICONASTERISK if ok else winsound.MB_ICONHAND)
+                return
+            if sys.platform == "darwin":
+                snd = "/System/Library/Sounds/" + ("Glass.aiff" if ok else "Basso.aiff")
+                subprocess.Popen(["afplay", snd], **quiet)
+                return
+            if shutil.which("canberra-gtk-play"):
+                subprocess.Popen(["canberra-gtk-play", "-i",
+                                  "complete" if ok else "dialog-warning"], **quiet)
+                return
+            for f in ("/usr/share/sounds/freedesktop/stereo/complete.oga",
+                      "/usr/share/sounds/freedesktop/stereo/bell.oga"):
+                if os.path.exists(f):
+                    for player in ("paplay", "pw-play"):
+                        if shutil.which(player):
+                            subprocess.Popen([player, f], **quiet)
+                            return
+        except Exception as e:
+            log.debug(f"Suono di fine lavoro non riprodotto: {e}")
+        QApplication.beep()
 
     def reset_ui(self):
         for p in list(self.cards.keys()):
@@ -1776,14 +2401,17 @@ class MainWindow(QMainWindow):
         self.set_working(False)
 
     def show_news(self):
-        msg = ("<b>⚡ ComicOptimizer 2.0: Il Grande Salto!</b><br><br>"
-               "La tua collezione di fumetti non è mai stata così in forma. Ecco cosa c'è di nuovo:<br><br>"
-               "&nbsp;&nbsp;🆕 <b>Benvenuti PDF!</b> Converti i tuoi PDF in agili file .cbz con un solo clic.<br>"
-               "&nbsp;&nbsp;🚀 <b>Turbo Mode:</b> Motore interno riscritto per essere più veloce, stabile e leggero.<br>"
-               "&nbsp;&nbsp;🎯 <b>Ordine Totale:</b> Nuova gestione asincrona dei file per un'esperienza fluida e senza blocchi.<br>"
-               "&nbsp;&nbsp;💎 <b>Qualità WebP:</b> Ottimizzazione spaziale estrema senza compromessi visivi.<br><br>"
+        msg = (f"<b>⚡ ComicOptimizer {APP_VERSION}: più sicuro e più veloce</b><br><br>"
+               "&nbsp;&nbsp;🛡️ <b>Originali al sicuro:</b> il nuovo CBZ viene verificato prima di toccare "
+               "l'originale, che finisce nel cestino invece di essere cancellato.<br>"
+               "&nbsp;&nbsp;📄 <b>Nessuna pagina persa:</b> le pagine leggere (bianche, crediti) non vengono più scartate.<br>"
+               "&nbsp;&nbsp;🏷️ <b>Metadati conservati:</b> ComicInfo.xml resta nell'archivio.<br>"
+               "&nbsp;&nbsp;🚀 <b>WebP su più core:</b> conversione molto più veloce, senza ricomprimere pagine già WebP.<br>"
+               "&nbsp;&nbsp;📚 <b>PDF migliori:</b> le scansioni vengono estratte in qualità originale.<br>"
+               "&nbsp;&nbsp;🔍 <b>Duplicati per contenuto:</b> trovati anche con nomi diversi.<br>"
+               "&nbsp;&nbsp;🔔 <b>Fine lavoro:</b> riepilogo con spazio risparmiato, notifica e suono.<br><br>"
                "Mettiti comodo, al disordine ci pensiamo noi.")
-        QMessageBox.information(self, "Novità v2.0", msg)
+        QMessageBox.information(self, f"Novità v{APP_VERSION}", msg)
 
     def show_credits(self):
         msg = ("<b>Creatore, Designer e Beta Tester (mio malgrado):</b> Michele Shuren Bancheri<br><br>"
@@ -1860,7 +2488,7 @@ class MainWindow(QMainWindow):
     def trash_file(self, p):
         log.info(f"Cestino: '{os.path.basename(p)}'")
         if _trash_file_cross_platform(p):
-            log.info(f"  → spostato nel cestino con successo.")
+            log.info("  → spostato nel cestino con successo.")
             self.rem(p)
         else:
             log.error(f"  → FALLITO. Impossibile cestinare '{p}'")
@@ -1904,7 +2532,8 @@ class MainWindow(QMainWindow):
         if m == "cancel":
             return
         if m == "convert":
-            targets = [p for p, c in self.cards.items() if c.status_code not in (4, 5)]
+            # esclusi duplicati, danneggiati e già convertiti (niente ricompressione)
+            targets = [p for p, c in self.cards.items() if c.status_code not in (3, 4, 5)]
         else:
             targets = [p for p, c in self.cards.items() if c.status_code in (0, 1)]
         if not targets:
@@ -1942,7 +2571,9 @@ class MainWindow(QMainWindow):
             dlg = AdvancedEditor(p, t, i, self)
             if dlg.exec():
                 # get_paths() converte già le immagini aggiunte nel formato prevalente
-                self.start_processing([(p, dlg.get_paths(), t)], to_webp=False)
+                self.start_processing([{'src': p, 'images': dlg.get_paths(), 'tmp': t,
+                                        'comicinfo': find_comicinfo(t), 'edited': True}],
+                                      to_webp=False)
             else:
                 shutil.rmtree(t, ignore_errors=True)
 
@@ -1966,9 +2597,10 @@ class MainWindow(QMainWindow):
             r   = dlg.exec()
             if r == 1:
                 self.current_worker.abort_now()
-                self.reset_ui()
+                self.status_msg.setText("Interruzione in corso, pulizia file temporanei...")
             elif r == 2:
                 self.current_worker.stop_later()
+                self.status_msg.setText("Termino il fumetto in corso, poi mi fermo...")
 
     def check_status(self, p):
         real_fmt = detect_real_format(p)
@@ -1982,9 +2614,7 @@ class MainWindow(QMainWindow):
             return 0   # CBZ con contenuto RAR — mismatch
         # ZIP reale o presunto
         try:
-            with zipfile.ZipFile(p, 'r') as z:
-                imgs = [n for n in z.namelist() if n.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
-                return 3 if imgs and all(n.lower().endswith('.webp') for n in imgs) else 1
+            return cbz_status(p)
         except Exception as e:
             log.warning(f"check_status error '{p}': {e}")
             return 0
@@ -2065,7 +2695,11 @@ class MainWindow(QMainWindow):
 
 # FIX #5: QApplication creata solo in __main__, non a livello di modulo
 if __name__ == "__main__":
+    multiprocessing.freeze_support()   # necessario per l'eseguibile (PyInstaller)
     app = QApplication(sys.argv)
+    app.setApplicationName("ComicOptimizer")
+    app.setApplicationVersion(APP_VERSION)
+    cleanup_stale_temp()
 
     # setDesktopFileName va chiamato solo quando si gira come AppImage
     # (o con un .desktop file effettivamente installato), altrimenti
@@ -2077,11 +2711,16 @@ if __name__ == "__main__":
 
     if sys.platform == 'win32':
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('comicoptimizer')
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                f'Shuren.ComicOptimizer.{APP_VERSION}')
+        except Exception:
+            pass
 
-    base_path = _appdir or os.path.dirname(os.path.abspath(__file__))
+    base_path = _appdir or RES_DIR
     icon_path = os.path.join(base_path, "comicoptimizer.png")
     if os.path.exists(icon_path):
+        APP_ICON_PATH = icon_path
         app.setWindowIcon(QIcon(icon_path))
     else:
         app.setWindowIcon(QIcon.fromTheme("applications-graphics"))
@@ -2109,4 +2748,7 @@ if __name__ == "__main__":
         sys.exit(app.exec())
     except Exception as e:
         log.critical(f"Errore critico: {e}", exc_info=True)
-        print(f"Errore critico: {e}")
+        if sys.stdout:
+            print(f"Errore critico: {e}")
+        QMessageBox.critical(None, "ComicOptimizer — errore critico",
+                             f"{e}\n\nDettagli nel log:\n{LOG_PATH}")

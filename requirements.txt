@@ -1,9 +1,9 @@
-# ComicOptimizer v2.5.00 — dipendenze Python
+# ComicOptimizer v2.6.0 — dipendenze Python
 # Installa con: pip install -r requirements.txt
 
 PyQt6>=6.4.0
 PyQt6-Qt6>=6.4.0
 PyQt6-sip>=13.4.0
 Pillow>=9.0.0
-PyMuPDF>=1.21.0      # per il supporto PDF (pymupdf → import fitz)
+PyMuPDF>=1.21.0      # per il supporto PDF (import pymupdf)
 send2trash>=1.8.0    # cestino cross-platform
