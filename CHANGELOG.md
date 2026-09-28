@@ -23,6 +23,10 @@
 - **Nuovo:** le pagine-scansione (una sola immagine a tutta pagina, senza testo o disegni vettoriali sopra) vengono estratte nella **qualità originale**.
 - **Migliorato:** le altre pagine vengono renderizzate in JPEG invece che in PNG (file molto più leggeri).
 - **Migliorato:** uso di `import pymupdf` (il vecchio nome `fitz` è deprecato), con compatibilità per le versioni precedenti.
+- **Corretto:** l'estrazione delle pagine-scansione dei PDF con immagini Flate/PNG poteva richiedere circa 2,7 secondi a pagina (16 minuti per 353 pagine). Ora le immagini vengono decodificate direttamente alla risoluzione originale (JPEG qualità 95; le pagine già JPEG sono copiate senza ricodifica; le scansioni a 1 bit restano PNG) e l'estrazione è circa 40 volte più veloce.
+- **Migliorato:** il controllo "pagina-scansione o pagina con testo/vettori" usa `get_bboxlog()` (circa 0,1 ms a pagina invece di circa 100 ms).
+- **Nuovo:** l'estrazione dei PDF con almeno 16 pagine usa più core in parallelo.
+- **Nuovo:** durante la preparazione di un PDF compare l'avanzamento pagina per pagina (es. "Estrazione: nome.pdf (120/353 pagine)") con la barra di progresso.
 
 ### Duplicati e coerenza
 - **Nuovo:** i duplicati vengono riconosciuti anche per contenuto (stesso numero di pagine e stesse dimensioni delle immagini), non solo per nome. Viene tenuto il .cbz valido con il nome più corto.
