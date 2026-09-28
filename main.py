@@ -104,7 +104,7 @@ class LogWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Log operazioni")
-        self.setMinimumSize(900, 500)
+        fit_dialog_to_screen(self, 900, 500, min_w=500, min_h=320)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
 
         layout = QVBoxLayout(self)
@@ -922,6 +922,23 @@ def verify_cbz(path, expected_pages):
     if n != expected_pages:
         raise RuntimeError(f"il nuovo archivio ha {n} pagine invece di {expected_pages}")
 
+# --- ADATTAMENTO ALLO SCHERMO ---
+
+def fit_dialog_to_screen(dialog, want_w, want_h, min_w=520, min_h=380, margin=60):
+    """
+    Apre `dialog` con la dimensione desiderata (want_w x want_h), ma senza mai
+    superare lo schermo disponibile (barra delle applicazioni esclusa). Se lo
+    schermo è più piccolo, la finestra si apre più piccola: il contenuto che
+    non ci sta è già dentro una QScrollArea, quindi resta raggiungibile con lo
+    scorrimento invece di finire fuori dalla parte visibile. `min_w`/`min_h`
+    sono un limite minimo di comodità, MAI più grande dello schermo stesso.
+    """
+    screen = QApplication.primaryScreen().availableGeometry()
+    avail_w, avail_h = max(screen.width() - margin, 200), max(screen.height() - margin, 150)
+    w, h = min(want_w, avail_w), min(want_h, avail_h)
+    dialog.resize(w, h)
+    dialog.setMinimumSize(min(min_w, avail_w), min(min_h, avail_h))
+
 # --- COMPONENTS ---
 
 class StopDialog(QDialog):
@@ -1663,7 +1680,7 @@ class AdvancedEditor(QDialog):
         self.page_widgets = []
         self._added_paths = set()   # path delle immagini aggiunte in questa sessione
         self.setWindowTitle(f"Editor: {os.path.basename(file_path)}")
-        self.setMinimumSize(1100, 850)
+        fit_dialog_to_screen(self, 1100, 850, min_w=650, min_h=420)
 
         v = QVBoxLayout(self)
         self.scroll  = QScrollArea()
@@ -1977,13 +1994,18 @@ class MainWindow(QMainWindow):
     def _apply_window_width(self, cols):
         """Ridimensiona la finestra alla larghezza giusta per `cols` colonne."""
         screen = QApplication.primaryScreen().availableGeometry()
-        w = min(self._win_width_for_cols(cols), screen.width())
+        # La larghezza deve bastare anche per le barre dei pulsanti sopra e sotto
+        # alla griglia (altrimenti su schermi stretti alcuni pulsanti finiscono
+        # fuori dalla finestra, senza modo di raggiungerli).
+        min_bars_w = max(self.top_bar_w.minimumSizeHint().width(),
+                         self.footer_w.minimumSizeHint().width())
+        w = min(max(self._win_width_for_cols(cols), min_bars_w), screen.width())
         h = self.height() if self.isVisible() else min(800, screen.height())
         self.setFixedWidth(w)
-        self.setMinimumHeight(600)
+        self.setMinimumHeight(min(600, screen.height()))
         self.setMaximumHeight(screen.height())
         if not self.isVisible():
-            self.resize(w, h)
+            self.resize(w, min(h, screen.height()))
 
     def check_deps(self):
         m = []
@@ -2114,7 +2136,16 @@ class MainWindow(QMainWindow):
         self.status_stack.addWidget(work_w)
 
         top_bar.addWidget(self.status_stack, 1)
-        layout.addLayout(top_bar)
+        self.top_bar_w = QWidget()
+        self.top_bar_w.setLayout(top_bar)
+        top_bar_scroll = QScrollArea()
+        top_bar_scroll.setWidgetResizable(True)
+        top_bar_scroll.setFixedHeight(64)
+        top_bar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        top_bar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        top_bar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        top_bar_scroll.setWidget(self.top_bar_w)
+        layout.addWidget(top_bar_scroll)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -2178,7 +2209,16 @@ class MainWindow(QMainWindow):
         footer.addWidget(self.chk_notify)
         footer.addSpacing(8)
         footer.addWidget(self.chk_keep_log)
-        layout.addLayout(footer)
+        self.footer_w = QWidget()
+        self.footer_w.setLayout(footer)
+        footer_scroll = QScrollArea()
+        footer_scroll.setWidgetResizable(True)
+        footer_scroll.setFixedHeight(46)
+        footer_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        footer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        footer_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        footer_scroll.setWidget(self.footer_w)
+        layout.addWidget(footer_scroll)
 
     def set_working(self, working, msg="In corso...", val=0, total=0):
         self.status_stack.setCurrentIndex(1 if working else 0)
