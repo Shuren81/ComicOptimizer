@@ -43,3 +43,5 @@
 - **Corretto:** versione allineata a 2.6.0 in titolo, popup Novità, README e requirements.
 - **Corretto:** errore del sistema di log alla chiusura del programma.
 - **Corretto:** il log (terminale e finestra Log) si riempiva di messaggi di debug di Pillow (es. "failed to import FpxImagePlugin: No module named 'olefile'"). Ora le librerie esterne registrano solo avvisi ed errori.
+- **Corretto:** su monitor piccoli o a bassa risoluzione, l'editor delle pagine e la finestra del log potevano aprirsi più grandi dello schermo, lasciando i pulsanti in basso (es. "SALVA") fuori dalla parte visibile. Ora si adattano allo schermo disponibile.
+- **Corretto:** su schermi molto stretti, alcuni pulsanti della barra in alto o di quella in basso potevano finire fuori dalla finestra. Ora, se non c'è spazio a sufficienza, compare una barra di scorrimento orizzontale per raggiungerli comunque.
