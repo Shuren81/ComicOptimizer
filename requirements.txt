@@ -1,4 +1,4 @@
-# ComicOptimizer v2.6.0 — dipendenze Python
+# ComicOptimizer v2.7.1 — dipendenze Python
 # Installa con: pip install -r requirements.txt
 
 PyQt6>=6.4.0

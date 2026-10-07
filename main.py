@@ -15,16 +15,17 @@ import multiprocessing
 import xml.etree.ElementTree as ET
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from PIL import Image
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+from PyQt6.QtWidgets import (QSizePolicy, QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QLabel, QFileDialog, QHBoxLayout,
                              QScrollArea, QGridLayout, QFrame, QDialog,
                              QStackedWidget, QSpinBox, QMessageBox, QProgressBar,
                              QCheckBox, QSystemTrayIcon, QStyle)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QWaitCondition, QMutex, QMutexLocker
+from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QWaitCondition, QMutex, QMutexLocker,
+                          QEvent, QTimer)
 from PyQt6.QtGui import QPixmap, QColor, QPalette, QIcon
 
 # --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.7.1"
 
 # --- COSTANTI ELABORAZIONE ---
 WEBP_QUALITY  = 85       # qualità WebP (0-100)
@@ -127,8 +128,8 @@ class LogWindow(QDialog):
         btn_clear.setFixedWidth(80)
         btn_clear.clicked.connect(self._clear)
 
-        btn_save = QPushButton("Salva su file")
-        btn_save.setFixedWidth(110)
+        btn_save = QPushButton("Salva")
+        btn_save.setFixedWidth(80)
         btn_save.clicked.connect(self._save)
 
         top.addWidget(QLabel("Livello:"))
@@ -997,13 +998,13 @@ class StopDialog(QDialog):
         l.addWidget(lbl)
         btns = QHBoxLayout()
         b1 = QPushButton("Annulla Subito")
-        b1.setStyleSheet("background: #b71c1c; color: white;")
+        set_variant(b1, "danger")
         b1.clicked.connect(lambda: self.done(1))
         b2 = QPushButton("Termina in corso")
-        b2.setStyleSheet("background: #e65100; color: white;")
+        set_variant(b2, "primary")
         b2.clicked.connect(lambda: self.done(2))
         b3 = QPushButton("Prosegui")
-        b3.setStyleSheet("background: #444; color: white;")
+        
         b3.clicked.connect(lambda: self.done(0))
         btns.addWidget(b1)
         btns.addWidget(b2)
@@ -1607,6 +1608,99 @@ CARD_MARGIN  = 15    # margine esterno della griglia
 COLS_DEFAULT = 4     # colonne all'avvio
 COLS_MAX     = 7     # massimo assoluto di colonne
 
+# --- STILE ---
+# Un solo foglio di stile per tutta l'app. I pulsanti colorati usano la proprietà
+# "variant" (vedi set_variant): niente più stili scritti a mano su ogni pulsante.
+STYLESHEET = """
+QToolTip { background: #263238; color: #eceff1; border: 1px solid #00e5ff;
+           border-radius: 6px; padding: 4px 8px; }
+
+QPushButton { background: #333; color: #f0f0f0; border: 1px solid #4a4a4a;
+              border-radius: 10px; padding: 8px 16px; font-weight: 600; }
+QPushButton:hover    { background: #404040; border-color: #666; }
+QPushButton:pressed  { background: #262626; }
+QPushButton:disabled { background: #2a2a2a; color: #777; border-color: #333; }
+QPushButton:focus    { border-color: #00e5ff; }
+
+QPushButton[variant="primary"]        { background: #e65100; border-color: #e65100; color: white; font-weight: 800; }
+QPushButton[variant="primary"]:hover  { background: #f4600c; border-color: #f4600c; }
+QPushButton[variant="primary"]:pressed{ background: #bf4400; }
+QPushButton[variant="accent"]        { background: #00bcd4; border-color: #00bcd4; color: #002b33; }
+QPushButton[variant="accent"]:hover  { background: #26d0e6; border-color: #26d0e6; }
+QPushButton[variant="accent"]:pressed{ background: #0097a7; }
+QPushButton[variant="info"]          { background: #0277bd; border-color: #0277bd; color: white; font-weight: 800; }
+QPushButton[variant="info"]:hover    { background: #0288d1; border-color: #0288d1; }
+QPushButton[variant="info"]:pressed  { background: #01579b; }
+QPushButton[variant="danger"]        { background: #b71c1c; border-color: #b71c1c; color: white; }
+QPushButton[variant="danger"]:hover  { background: #d32f2f; border-color: #d32f2f; }
+QPushButton[variant="danger"]:pressed{ background: #8e1515; }
+QPushButton[variant="success"]       { background: #2e7d32; border-color: #2e7d32; color: white; font-weight: 800; }
+QPushButton[variant="success"]:hover { background: #388e3c; border-color: #388e3c; }
+QPushButton[variant="success"]:pressed{ background: #1b5e20; }
+QPushButton[variant="muted"]         { background: #546e7a; border-color: #546e7a; color: white; }
+QPushButton[variant="muted"]:hover   { background: #64808d; border-color: #64808d; }
+QPushButton[variant="muted"]:pressed { background: #455a64; }
+QPushButton:disabled[variant] { background: #2a2a2a; border-color: #333; color: #777; }
+
+/* piccoli pulsanti dentro le card e nell'editor */
+QPushButton[sz="small"] { padding: 4px 6px; border-radius: 8px; font-size: 12px; }
+QPushButton[sz="tiny"]  { padding: 0px; border-radius: 10px; font-size: 10px; }
+
+/* link nel piè di pagina */
+QPushButton[variant="link"]        { background: transparent; border: none; color: #FFB300;
+                                     padding: 4px 8px; font-size: 13px; font-weight: 700; }
+QPushButton[variant="link"]:hover  { color: #ffd54f; text-decoration: underline; }
+QPushButton[variant="linklog"]     { background: transparent; border: none; color: #90caf9;
+                                     padding: 4px 8px; font-size: 13px; font-weight: 700; }
+QPushButton[variant="linklog"]:hover { color: #bbdefb; }
+
+QCheckBox { color: #999; font-size: 11px; spacing: 6px; }
+QCheckBox::indicator { width: 15px; height: 15px; border-radius: 4px;
+                       border: 1px solid #666; background: #1e1e1e; }
+QCheckBox::indicator:hover   { border-color: #00e5ff; }
+QCheckBox::indicator:checked { background: #00e5ff; border-color: #00e5ff; }
+
+QProgressBar { border: 1px solid #00e5ff; border-radius: 8px; background: #1a1a1a;
+               text-align: center; color: white; font-weight: bold; }
+QProgressBar::chunk { background: #00e5ff; border-radius: 7px; }
+
+QScrollArea { border: none; background: transparent; }
+QScrollBar:vertical   { background: transparent; width: 12px; margin: 2px; }
+QScrollBar:horizontal { background: transparent; height: 12px; margin: 2px; }
+QScrollBar::handle:vertical   { background: #4a4a4a; border-radius: 4px; min-height: 30px; }
+QScrollBar::handle:horizontal { background: #4a4a4a; border-radius: 4px; min-width: 30px; }
+QScrollBar::handle:hover { background: #00bcd4; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+QMessageBox, QDialog { background: #1e1e1e; }
+"""
+
+
+def set_variant(widget, variant):
+    """Assegna la variante di colore a un pulsante e ricarica lo stile."""
+    widget.setProperty("variant", variant)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+class _VisibilityWatcher(QObject):
+    """Chiama `callback` (con un piccolo ritardo, una volta sola) quando uno dei
+    widget osservati viene mostrato o nascosto."""
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self._cb = callback
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(0)
+        self._timer.timeout.connect(self._cb)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() in (QEvent.Type.Show, QEvent.Type.Hide):
+            self._timer.start()
+        return False
+
+
 # --- UI ---
 
 # dizionario status come costante di modulo
@@ -1667,10 +1761,14 @@ class ComicCard(QFrame):
         self.btn_e = QPushButton("Edita")
         self.btn_e.clicked.connect(lambda: self.edit_requested.emit(self.file_path))
         self.btn_r = QPushButton("Fix")
-        self.btn_r.setStyleSheet("background: #e65100; color: white;")
+        set_variant(self.btn_r, "primary")
         self.btn_d = QPushButton("X")
-        self.btn_d.setFixedWidth(30)
-        self.btn_d.setStyleSheet("background: #b71c1c; color: white;")
+        self.btn_d.setFixedWidth(34)
+        set_variant(self.btn_d, "danger")
+        for _b in (self.btn_e, self.btn_r, self.btn_d):
+            _b.setProperty("sz", "small")
+        for _b in (self.btn_e, self.btn_r, self.btn_d):
+            set_variant(_b, _b.property("variant"))
         self.btn_d.clicked.connect(lambda: self.remove_requested.emit(self.file_path))
         btns.addWidget(self.btn_e)
         btns.addWidget(self.btn_r)
@@ -1682,7 +1780,7 @@ class ComicCard(QFrame):
 
     def update_style(self):
         b, bg = ("2px solid #00e5ff", "#3a3a3a") if self.selected else ("1px solid #444", "#2a2a2a")
-        self.setStyleSheet(f"ComicCard {{ background: {bg}; border-radius: 10px; border: {b}; }}")
+        self.setStyleSheet(f"ComicCard {{ background: {bg}; border-radius: 14px; border: {b}; }}")
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -1696,11 +1794,11 @@ class ComicCard(QFrame):
         self.status.setText(txt)
         self.status.setStyleSheet(
             f"background: {bg}; color: {fg}; font-weight: bold; padding: 4px; "
-            "border-top-left-radius: 10px; border-top-right-radius: 10px;"
+            "border-top-left-radius: 13px; border-top-right-radius: 13px;"
         )
         if code == 4:
             self.btn_r.setText("Dupe")
-            self.btn_r.setStyleSheet("background: #546e7a; color: white;")
+            set_variant(self.btn_r, "muted")
             try:
                 self.btn_r.clicked.disconnect()
             except Exception:
@@ -1708,7 +1806,7 @@ class ComicCard(QFrame):
             self.btn_r.clicked.connect(lambda: self.trash_requested.emit(self.file_path))
         else:
             self.btn_r.setText("Fix")
-            self.btn_r.setStyleSheet("background: #e65100; color: white;")
+            set_variant(self.btn_r, "primary")
             try:
                 self.btn_r.clicked.disconnect()
             except Exception:
@@ -1741,16 +1839,16 @@ class AdvancedEditor(QDialog):
 
         btns  = QHBoxLayout()
         b_can = QPushButton("ANNULLA")
-        b_can.setFixedSize(140, 45)
-        b_can.setStyleSheet("background: #b71c1c; color: white;")
+        b_can.setMinimumSize(130, 42)
+        set_variant(b_can, "danger")
         b_can.clicked.connect(self.reject)
         b_add = QPushButton("AGGIUNGI")
-        b_add.setFixedSize(160, 45)
-        b_add.setStyleSheet("background: #0277bd; color: white;")
+        b_add.setMinimumSize(150, 42)
+        set_variant(b_add, "info")
         b_add.clicked.connect(self.add_ext)
         b_sav = QPushButton("SALVA")
-        b_sav.setFixedSize(220, 45)
-        b_sav.setStyleSheet("background: #2e7d32; color: white; font-weight: bold;")
+        b_sav.setMinimumSize(200, 42)
+        set_variant(b_sav, "success")
         b_sav.clicked.connect(self.accept)
         btns.addWidget(b_can)
         btns.addStretch()
@@ -1783,14 +1881,15 @@ class AdvancedEditor(QDialog):
     def add_page(self, p, pos, is_new=False):
         w = QFrame()
         w.setFixedSize(160, 310)
-        w.setStyleSheet("background: #333; border-radius: 5px;")
+        w.setStyleSheet("QFrame { background: #333; border-radius: 10px; }")
         l = QVBoxLayout(w)
         l.setContentsMargins(4, 4, 4, 4)
         l.setSpacing(3)
 
         btn_del = QPushButton("X")
-        btn_del.setFixedSize(20, 20)
-        btn_del.setStyleSheet("background:red; color:white; font-size:9px;")
+        btn_del.setFixedSize(22, 22)
+        btn_del.setProperty("sz", "tiny")
+        set_variant(btn_del, "danger")
         btn_del.clicked.connect(lambda: (self.page_widgets.remove(w), w.deleteLater(), self.refresh()))
         l.addWidget(btn_del, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -2040,6 +2139,11 @@ class MainWindow(QMainWindow):
         # Se n è superiore a 7, restituisce 7.
         return max(COLS_DEFAULT, min(n, COLS_MAX))
 
+    def _refit_width(self):
+        """Riadatta la larghezza quando compaiono/spariscono i pulsanti della barra."""
+        n = len(self.cards)
+        self._apply_window_width(self._cols_for_count(n) if n > 0 else COLS_DEFAULT)
+
     def _apply_window_width(self, cols):
         """Ridimensiona la finestra alla larghezza giusta per `cols` colonne."""
         screen = QApplication.primaryScreen().availableGeometry()
@@ -2048,7 +2152,7 @@ class MainWindow(QMainWindow):
         # fuori dalla finestra, senza modo di raggiungerli).
         min_bars_w = max(self.top_bar_w.minimumSizeHint().width(),
                          self.footer_w.minimumSizeHint().width())
-        w = min(max(self._win_width_for_cols(cols), min_bars_w), screen.width())
+        w = min(max(self._win_width_for_cols(cols), min_bars_w + 30), screen.width())
         h = self.height() if self.isVisible() else min(800, screen.height())
         self.setFixedWidth(w)
         self.setMinimumHeight(min(600, screen.height()))
@@ -2094,7 +2198,8 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
             "font-size: 34px; font-weight: 900; color: #00e5ff; "
-            "padding: 10px; background: #1a1a1a; border-bottom: 2px solid #00d4ff;"
+            "padding: 10px; background: #1a1a1a; border-bottom: 2px solid #00d4ff; "
+            "border-top-left-radius: 14px; border-top-right-radius: 14px;"
         )
         layout.addWidget(title)
 
@@ -2106,40 +2211,35 @@ class MainWindow(QMainWindow):
 
         top_bar = QHBoxLayout()
         self.btn_clear = QPushButton("PULISCI LISTA")
-        self.btn_clear.setFixedSize(130, 45)
+        self.btn_clear.setMinimumHeight(42)
         self.btn_clear.clicked.connect(self.clear_all)
 
         self.btn_all = QPushButton("SISTEMA TUTTO")
-        self.btn_all.setFixedSize(150, 45)
-        self.btn_all.setStyleSheet("background: #e65100; color: white; font-weight: bold;")
+        self.btn_all.setMinimumHeight(42)
+        set_variant(self.btn_all, "primary")
         self.btn_all.clicked.connect(self.repair_all_trigger)
 
-        self.btn_analyze = QPushButton("ANALIZZA")
-        self.btn_analyze.setFixedSize(130, 45)
-        self.btn_analyze.setStyleSheet("background: #00bcd4; color: white;")
-        self.btn_analyze.clicked.connect(lambda: self.run_analysis(auto=False))
-
         self.btn_sel = QPushButton("SISTEMA SELEZIONATI")
-        self.btn_sel.setFixedSize(180, 45)
-        self.btn_sel.setStyleSheet("background: #0277bd; color: white; font-weight: bold;")
+        self.btn_sel.setMinimumHeight(42)
+        set_variant(self.btn_sel, "info")
         self.btn_sel.setVisible(False)
         self.btn_sel.clicked.connect(self.repair_selected)
 
         self.btn_trash_sel = QPushButton("CESTINA SELEZIONATI")
-        self.btn_trash_sel.setFixedSize(180, 45)
-        self.btn_trash_sel.setStyleSheet("background: #b71c1c; color: white;")
+        self.btn_trash_sel.setMinimumHeight(42)
+        set_variant(self.btn_trash_sel, "danger")
         self.btn_trash_sel.setVisible(False)
         self.btn_trash_sel.clicked.connect(self.trash_selected)
 
         self.btn_trash_dupes = QPushButton("PULISCI DUPLICATI")
-        self.btn_trash_dupes.setFixedSize(150, 45)
-        self.btn_trash_dupes.setStyleSheet("background: #546e7a; color: white;")
+        self.btn_trash_dupes.setMinimumHeight(42)
+        set_variant(self.btn_trash_dupes, "muted")
         self.btn_trash_dupes.setVisible(False)
         self.btn_trash_dupes.clicked.connect(self.trash_all_duplicates)
 
+        top_bar.setSpacing(8)
         top_bar.addWidget(self.btn_clear)
         top_bar.addWidget(self.btn_all)
-        top_bar.addWidget(self.btn_analyze)
         top_bar.addWidget(self.btn_sel)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
@@ -2147,14 +2247,18 @@ class MainWindow(QMainWindow):
 
         self.status_stack = QStackedWidget()
         self.status_stack.setFixedHeight(50)
+        self.status_stack.setMinimumWidth(230)
         idle_w = QWidget()
         idle_l = QVBoxLayout(idle_w)
         idle_l.setContentsMargins(0, 0, 0, 0)
         idle_l.setSpacing(2)
-        self.hint_lbl = QLabel("Clicca sulle card per selezionarle (Ctrl e Shift supportati)")
+        self.hint_lbl = QLabel("Clicca sulle card per selezionarle")
+        self.hint_lbl.setToolTip("Ctrl e Shift supportati")
         self.hint_lbl.setStyleSheet("color: #00e5ff; font-size: 11px; font-weight: bold")
+        self.hint_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.ironic_lbl = QLabel("Pronto ad operare.")
         self.ironic_lbl.setStyleSheet("color: #aaa; font-style: italic")
+        self.ironic_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         idle_l.addWidget(self.hint_lbl)
         idle_l.addWidget(self.ironic_lbl)
         self.status_stack.addWidget(idle_w)
@@ -2167,29 +2271,27 @@ class MainWindow(QMainWindow):
         vl.setSpacing(2)
         self.pbar = QProgressBar()
         self.pbar.setFixedHeight(18)
-        self.pbar.setStyleSheet(
-            "QProgressBar { border: 1px solid #00e5ff; border-radius: 5px; "
-            "text-align: center; color: white; font-weight: bold; } "
-            "QProgressBar::chunk { background: #00e5ff; }"
-        )
         self.status_msg = QLabel("Lavorando...")
         self.status_msg.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 12px")
         vl.addWidget(self.status_msg)
         vl.addWidget(self.pbar)
         work_l.addLayout(vl, 1)
         self.btn_stop = QPushButton("STOP")
-        self.btn_stop.setFixedSize(80, 40)
-        self.btn_stop.setStyleSheet("background: #b71c1c; color: white; font-weight: bold;")
+        self.btn_stop.setMinimumHeight(40)
+        set_variant(self.btn_stop, "danger")
         self.btn_stop.clicked.connect(self.request_stop)
         work_l.addWidget(self.btn_stop)
         self.status_stack.addWidget(work_w)
 
         top_bar.addWidget(self.status_stack, 1)
+        self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
+        for _b in (self.btn_sel, self.btn_trash_sel, self.btn_trash_dupes):
+            _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
         self.top_bar_w.setLayout(top_bar)
         top_bar_scroll = QScrollArea()
         top_bar_scroll.setWidgetResizable(True)
-        top_bar_scroll.setFixedHeight(64)
+        top_bar_scroll.setFixedHeight(74)
         top_bar_scroll.setFrameShape(QFrame.Shape.NoFrame)
         top_bar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         top_bar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -2207,21 +2309,20 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.scroll)
 
         footer = QHBoxLayout()
-        ls = "color: #FFB300; font-weight: bold; font-size: 13px; background: none; border: none;"
         self.n_btn = QPushButton(f"Novità v{APP_VERSION}")
-        self.n_btn.setStyleSheet(ls)
+        set_variant(self.n_btn, "link")
         self.n_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.n_btn.clicked.connect(self.show_news)
         self.c_btn = QPushButton("Credits")
-        self.c_btn.setStyleSheet(ls)
+        set_variant(self.c_btn, "link")
         self.c_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.c_btn.clicked.connect(self.show_credits)
         self.p_btn = QPushButton("Privacy")
-        self.p_btn.setStyleSheet(ls)
+        set_variant(self.p_btn, "link")
         self.p_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.p_btn.clicked.connect(self.show_privacy)
         self.log_btn = QPushButton("📋 Log  [L]")
-        self.log_btn.setStyleSheet("color: #90caf9; font-weight: bold; font-size: 13px; background: none; border: none;")
+        set_variant(self.log_btn, "linklog")
         self.log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.log_btn.clicked.connect(self._toggle_log)
 
@@ -2230,10 +2331,6 @@ class MainWindow(QMainWindow):
         self.chk_keep_log.setToolTip(
             f"Se spuntato, il file di log viene conservato alla chiusura:\n{LOG_PATH}\n"
             "Se non spuntato, viene eliminato automaticamente."
-        )
-        self.chk_keep_log.setStyleSheet(
-            "QCheckBox { color: #888; font-size: 11px; }"
-            "QCheckBox::indicator { width: 13px; height: 13px; }"
         )
 
         footer.addWidget(self.n_btn)
@@ -2247,10 +2344,6 @@ class MainWindow(QMainWindow):
         self.chk_notify.setToolTip(
             "A fine lavoro mostra una notifica di sistema e riproduce un suono.\n"
             "Il riepilogo a fine lavoro viene mostrato comunque."
-        )
-        self.chk_notify.setStyleSheet(
-            "QCheckBox { color: #888; font-size: 11px; }"
-            "QCheckBox::indicator { width: 13px; height: 13px; }"
         )
 
         footer.addWidget(self.log_btn)
@@ -2279,7 +2372,6 @@ class MainWindow(QMainWindow):
             self.pbar.setRange(0, 0)
         self.btn_all.setEnabled(not working)
         self.btn_clear.setEnabled(not working)
-        self.btn_analyze.setEnabled(not working)
 
     def _on_prep_pages(self, name, v, t, n_files):
         """Avanzamento pagina per pagina durante l'estrazione di un PDF."""
@@ -2515,7 +2607,10 @@ class MainWindow(QMainWindow):
                "<b>Ringraziamenti Speciali:</b><br>&nbsp;&nbsp;• <b>A mia moglie Keyla Damaer</b>.<br>"
                "&nbsp;&nbsp;• <b>A me stesso:</b> Per non aver mollato al decimo errore di PyQt6.<br>"
                "&nbsp;&nbsp;• <b>A Gemini 3 Flash Preview:</b> Per aver risposto alle mie domande esistenziali sul codice alle tre di notte.<br>"
-               "&nbsp;&nbsp;• <b>Al mio PC:</b> Per non essere esploso mentre compilavo e testavo centinaia di versioni.")
+               "&nbsp;&nbsp;• <b>Al mio PC:</b> Per non essere esploso mentre compilavo e testavo centinaia di versioni.<br>"
+               "&nbsp;&nbsp;• <b>A Claude:</b> Per aver scritto, riscritto e poi gentilmente cancellato più codice di quanto ne sia rimasto, "
+               "senza mai lamentarsi (almeno a voce alta). Se ComicOptimizer funziona, il merito è anche suo; se ha un bug, "
+               "è sicuramente colpa di un fumetto scritto in modo strano.")
         QMessageBox.information(self, "Credits", msg)
 
     def show_privacy(self):
@@ -2766,7 +2861,7 @@ class MainWindow(QMainWindow):
     def set_drop_style(self, a):
         self.drop_zone.setStyleSheet(
             f"border: {4 if a else 3}px dashed {'#00e5ff' if a else '#444'}; "
-            f"border-radius: 15px; background: {'#2c3e50' if a else '#111'}; "
+            f"border-radius: 18px; background: {'#2c3e50' if a else '#111'}; "
             f"color: {'#00e5ff' if a else '#555'}; font-size: 18px; font-weight: bold;"
         )
 
@@ -2825,6 +2920,7 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon.fromTheme("applications-graphics"))
 
     app.setStyle("Fusion")
+    app.setStyleSheet(STYLESHEET)
     dark_palette = QPalette()
     dark_palette.setColor(QPalette.ColorRole.Window,          QColor(30, 30, 30))
     dark_palette.setColor(QPalette.ColorRole.WindowText,      Qt.GlobalColor.white)
