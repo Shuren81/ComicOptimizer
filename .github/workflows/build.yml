@@ -67,9 +67,11 @@ jobs:
           if (-not (Test-Path "dist\ComicOptimizer\_internal\bin\7z.exe")) { throw "7z.exe mancante" }
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'release'
         with:
           name: ComicOptimizer-windows
           path: ${{ env.ZIP_NAME }}
+          retention-days: 1
 
       - name: Allega alla Release
         if: github.event_name == 'release'
@@ -145,9 +147,11 @@ jobs:
           test -x "${{ env.APPIMAGE_NAME }}"
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'release'
         with:
           name: ComicOptimizer-appimage
           path: ${{ env.APPIMAGE_NAME }}
+          retention-days: 1
 
       - name: Allega alla Release
         if: github.event_name == 'release'
