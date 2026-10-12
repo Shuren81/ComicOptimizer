@@ -138,6 +138,17 @@ ComicOptimizer è gratuito. Se ti è utile, puoi lasciare una mancia con il puls
 
 ### ✍️ Note dell'Autore
 
-"ComicOptimizer nasce per mettere ordine nel caos digitale. Un ringraziamento speciale a mia moglie, la scrittrice [Keyla Damaer](https://keyladamaer.com/), per il supporto costante, e a Gemini per l'assistenza tecnica nel perfezionamento del codice."
+"ComicOptimizer nasce per mettere ordine nel caos digitale. 
+
+Un ringraziamento speciale a mia moglie, la scrittrice [Keyla Damaer](https://keyladamaer.com/), per il suo supporto costante."
+
+### 🤖 Ringraziamenti all'IA
+
+Questo progetto è stato scritto con l'aiuto dell'intelligenza artificiale, e non c'è niente da nascondere:
+
+* **Gemini** ha accompagnato le prime versioni, rispondendo alle domande esistenziali sul codice alle tre di notte.
+* **Claude** (Anthropic) ha scritto, riscritto e testato buona parte del codice dalla 2.6 in poi: correzioni, conversione WebP su più core, PDF più veloci, nuova interfaccia, versioni per Windows e Linux e la divisione in moduli. Ha anche cancellato senza lamentarsi una funzione intera, quando abbiamo cambiato idea.
+
+Le idee, le decisioni e i collaudi sono di Michele: l'IA scrive il codice e ogni tanto da qualche suggerimento.
 
 ***Creato con ❤️ per i collezionisti di fumetti.***
