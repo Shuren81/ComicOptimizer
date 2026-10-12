@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Ambienti virtuali
+venv/
+.venv/
+
+# Log del programma
+comicoptimizer.log
+
+# File prodotti dalla compilazione con PyInstaller
+build/
+dist/
+*.spec
+
+# Archivi creati a mano
+*.zip
