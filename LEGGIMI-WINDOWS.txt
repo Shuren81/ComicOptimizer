@@ -1,0 +1,20 @@
+ComicOptimizer per Windows — istruzioni rapide
+==============================================
+
+1. Estrai TUTTA la cartella dallo zip (non avviarlo da dentro lo zip).
+2. Avvia ComicOptimizer.exe.
+
+Al primo avvio Windows potrebbe mostrare "Windows ha protetto il PC":
+il programma non è firmato digitalmente (la firma costa parecchio per un
+progetto gratuito). Clicca "Ulteriori informazioni" → "Esegui comunque".
+
+- 7-Zip è già incluso: non serve installare nulla.
+- Gli originali sostituiti finiscono nel Cestino: svuotalo per liberare spazio.
+- Il log si trova in: %LOCALAPPDATA%\ComicOptimizer\comicoptimizer.log
+  (spunta "Mantieni log" in basso per conservarlo alla chiusura).
+
+Stai facendo da tester? Prova prima su una COPIA di qualche fumetto e,
+se qualcosa non va, manda il file di log a Shuren.
+
+7-Zip è di Igor Pavlov, distribuito con licenza GNU LGPL + restrizione unRAR
+(vedi _internal\bin\7-Zip-License.txt).
