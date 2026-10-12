@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.8.0] — 2026-10-12
+
+### Struttura del codice
+- **Cambiato:** `main.py` (quasi 3000 righe) è stato diviso nel pacchetto `comicoptimizer/`, con un modulo per ogni compito: `config`, `logsetup`, `utils`, `pdf`, `archives`, `images`, `cbz`, `workers`, `style`, `dialogs`, `card`, `editor`, `main_window`, `app`.
+- **Invariato:** il comportamento del programma. Il codice è stato solo spostato; i fumetti di prova (CBZ, ZIP, PDF) producono file identici a quelli della 2.7.1, sia in "Solo Ripara" sia in "Converti WebP", anche nell'eseguibile compilato.
+- **Invariato:** `main.py` resta il punto di avvio (`python3 main.py`) e il comando di compilazione con PyInstaller non cambia.
+- **Cambiato:** l'icona e la cartella `bin` (7-Zip su Windows) si cercano ora nella cartella del progetto, sopra il pacchetto.
+- **Nuovo:** la versione si cambia in un solo punto, `comicoptimizer/config.py` (`APP_VERSION`).
+
 ## [2.7.1] — 2026-10-08
 
 ### Interfaccia
@@ -17,6 +26,7 @@
 - **Corretto:** interrompendo il lavoro ("Annulla subito" / "Termina in corso") le cartelle temporanee dei file non ancora elaborati restavano sul disco. Ora vengono sempre eliminate; all'avvio vengono ripulite anche quelle rimaste da sessioni chiuse male.
 - **Corretto:** se send2trash non riusciva a cestinare un file (es. dischi di rete) l'app poteva andare in crash. Ora ripiega sul metodo di sistema.
 
+
 ### Conversione immagini
 - **Corretto:** le immagini CMYK, a 16 bit o con trasparenza facevano fallire l'intero fumetto. Ora vengono convertite correttamente (trasparenza su sfondo bianco).
 - **Corretto:** le pagine più alte/larghe di 16383 px (limite del WebP) facevano fallire il fumetto. Ora restano nel formato originale.
@@ -29,6 +39,10 @@
 - **Nuovo:** le pagine-scansione (una sola immagine a tutta pagina, senza testo o disegni vettoriali sopra) vengono estratte nella **qualità originale**.
 - **Migliorato:** le altre pagine vengono renderizzate in JPEG invece che in PNG (file molto più leggeri).
 - **Migliorato:** uso di `import pymupdf` (il vecchio nome `fitz` è deprecato), con compatibilità per le versioni precedenti.
+- **Corretto:** l'estrazione delle pagine-scansione dei PDF con immagini Flate/PNG poteva richiedere circa 2,7 secondi a pagina (16 minuti per 353 pagine). Ora le immagini vengono decodificate direttamente alla risoluzione originale (JPEG qualità 95; le pagine già JPEG sono copiate senza ricodifica; le scansioni a 1 bit restano PNG) e l'estrazione è circa 40 volte più veloce.
+- **Migliorato:** il controllo "pagina-scansione o pagina con testo/vettori" usa `get_bboxlog()` (circa 0,1 ms a pagina invece di circa 100 ms).
+- **Nuovo:** l'estrazione dei PDF con almeno 16 pagine usa più core in parallelo.
+- **Nuovo:** durante la preparazione di un PDF compare l'avanzamento pagina per pagina (es. "Estrazione: nome.pdf (120/353 pagine)") con la barra di progresso.
 
 ### Duplicati e coerenza
 - **Nuovo:** i duplicati vengono riconosciuti anche per contenuto (stesso numero di pagine e stesse dimensioni delle immagini), non solo per nome. Viene tenuto il .cbz valido con il nome più corto.
@@ -50,3 +64,6 @@
 - **Corretto:** con un solo fumetto i pulsanti della barra in alto venivano tagliati. Ora hanno la larghezza del testo e la finestra si adatta quando compaiono "Sistema selezionati", "Cestina selezionati" e "Pulisci duplicati".
 - **Corretto:** versione allineata a 2.7.0 in titolo, popup Novità, README e requirements.
 - **Corretto:** errore del sistema di log alla chiusura del programma.
+- **Corretto:** il log (terminale e finestra Log) si riempiva di messaggi di debug di Pillow (es. "failed to import FpxImagePlugin: No module named 'olefile'"). Ora le librerie esterne registrano solo avvisi ed errori.
+- **Corretto:** su monitor piccoli o a bassa risoluzione, l'editor delle pagine e la finestra del log potevano aprirsi più grandi dello schermo, lasciando i pulsanti in basso (es. "SALVA") fuori dalla parte visibile. Ora si adattano allo schermo disponibile.
+- **Corretto:** su schermi molto stretti, alcuni pulsanti della barra in alto o di quella in basso potevano finire fuori dalla finestra. Ora, se non c'è spazio a sufficienza, compare una barra di scorrimento orizzontale per raggiungerli comunque.
