@@ -27,15 +27,26 @@ from .pdf import HAS_PDF, extract_pdf_pages, fitz
 from .utils import (
     _ARCHIVE_EXTS,
     _trash_file_cross_platform,
+    cbz_target,
     find_comicinfo,
+    folder_comicinfo,
+    folder_subdirs,
     fmt_size,
     get_natural_sort_key,
     is_comicinfo,
+    is_image_folder,
     is_page_file,
+    list_folder_pages,
     list_page_files,
     make_temp_dir,
+    path_size,
     run_tool,
 )
+
+
+def _task_tmps(task):
+    """Cartelle temporanee di un task (più di una se è un'unione di fumetti)."""
+    return [t for t in [task.get('tmp')] + task.get('extra_tmps', []) if t]
 
 
 class ImportWorker(QThread):
@@ -51,7 +62,9 @@ class ImportWorker(QThread):
         all_to_check = []
         for p in self.raw_paths:
             p = os.path.normpath(p)
-            if os.path.isdir(p):
+            if os.path.isdir(p) and is_image_folder(p):
+                all_to_check.append(p)   # cartella di sole immagini: un unico fumetto
+            elif os.path.isdir(p):
                 for r, _, fs in os.walk(p):
                     for f in fs:
                         if f.lower().endswith(_ARCHIVE_EXTS):
@@ -85,7 +98,7 @@ class AnalysisWorker(QThread):
             if not is_ok:
                 results[p] = 5
             else:
-                target = os.path.splitext(p)[0] + ".cbz"
+                target = cbz_target(p)
                 groups.setdefault(target, []).append(p)
                 sig = get_archive_signature(p)
                 if sig:
@@ -114,7 +127,9 @@ class AnalysisWorker(QThread):
             if p not in results:
                 real_fmt     = detect_real_format(p)
                 declared_ext = os.path.splitext(p)[1].lower()
-                if declared_ext == '.pdf' or real_fmt == 'pdf':
+                if os.path.isdir(p):
+                    results[p] = 0   # cartella di immagini: da trasformare in CBZ
+                elif declared_ext == '.pdf' or real_fmt == 'pdf':
                     results[p] = 0   # PDF: da convertire
                 elif real_fmt == 'rar' or (real_fmt is None and declared_ext in ('.cbr', '.rar')):
                     results[p] = 0   # RAR reale: da convertire in CBZ
@@ -151,6 +166,7 @@ class ProcessingWorker(QThread):
     def __init__(self, tasks, to_webp=False):
         super().__init__()
         self.tasks   = tasks            # lista di dict: src, images, tmp, comicinfo, edited
+                                        # (unione: anche extra_srcs, extra_tmps, dest, title)
         self.to_webp = to_webp
         self._is_running = True
         self._stop_after_current = False
@@ -194,8 +210,7 @@ class ProcessingWorker(QThread):
             if pool:
                 pool.shutdown(wait=True, cancel_futures=True)
             for task in self.tasks:
-                tmp = task.get('tmp')
-                if tmp and os.path.exists(tmp):
+                for tmp in _task_tmps(task):
                     shutil.rmtree(tmp, ignore_errors=True)
             summary['elapsed'] = time.time() - summary['start']
             log.info(f"ProcessingWorker completato: {summary['done']} ok, "
@@ -217,8 +232,9 @@ class ProcessingWorker(QThread):
                 summary['aborted'] = True
                 break
             orig_p   = task['src']
+            srcs     = [orig_p] + task.get('extra_srcs', [])
             img_list = task['images']
-            final_p  = os.path.splitext(orig_p)[0] + ".cbz"
+            final_p  = task.get('dest') or cbz_target(orig_p)
             log.info(f"Elaborazione: '{os.path.basename(orig_p)}' "
                      f"({len(img_list)} immagini) → '{os.path.basename(final_p)}'")
 
@@ -254,7 +270,7 @@ class ProcessingWorker(QThread):
             out      = make_temp_dir()
             tmp_zip  = final_p + ".tmp"
             start_p  = curr_p
-            size_before = os.path.getsize(orig_p) if os.path.exists(orig_p) else 0
+            size_before = sum(path_size(s) for s in srcs if os.path.exists(s))
 
             # rimuovi eventuali .tmp orfani prima di procedere
             if os.path.exists(tmp_zip):
@@ -277,13 +293,14 @@ class ProcessingWorker(QThread):
                     ci = task.get('comicinfo')
                     if ci and os.path.exists(ci):
                         z.writestr("ComicInfo.xml",
-                                   build_comicinfo(ci, len(pages), task.get('edited', False)))
+                                   build_comicinfo(ci, len(pages), task.get('edited', False),
+                                                   task.get('title')))
                         log.info("  ComicInfo.xml conservato")
                     mode = "webp" if self.to_webp else "repair"
                     z.comment = f"{CBZ_MARK} {mode}".encode()
 
                 verify_cbz(tmp_zip, len(pages))
-                self._commit(orig_p, final_p, tmp_zip)
+                self._commit(srcs, final_p, tmp_zip)
 
                 size_after = os.path.getsize(final_p)
                 summary['done'] += 1
@@ -292,7 +309,8 @@ class ProcessingWorker(QThread):
                 result_label = "CONVERTITO (WebP)" if self.to_webp else "RIPARATO"
                 log.info(f"  ✓ {result_label}: '{os.path.basename(final_p)}' — "
                          f"{fmt_size(size_before)} → {fmt_size(size_after)}")
-                self.file_finished.emit(orig_p, final_p, 3 if self.to_webp else 2)
+                for s in srcs:
+                    self.file_finished.emit(s, final_p, 3 if self.to_webp else 2)
 
             except Exception as e:
                 log.error(f"  ✗ Errore elaborazione '{os.path.basename(orig_p)}': {e} "
@@ -307,8 +325,7 @@ class ProcessingWorker(QThread):
                         os.remove(tmp_zip)
                     except Exception:
                         pass
-                tmp_src = task.get('tmp')
-                if tmp_src and os.path.exists(tmp_src):
+                for tmp_src in _task_tmps(task):
                     shutil.rmtree(tmp_src, ignore_errors=True)
 
     def _build_pages(self, pool, img_list, out, orig_p, start_p, summary):
@@ -349,18 +366,23 @@ class ProcessingWorker(QThread):
             summary['pages_kept'] += count
         return [r[0] for r in results]
 
-    def _commit(self, orig_p, final_p, tmp_zip):
+    def _commit(self, srcs, final_p, tmp_zip):
         """Il nuovo CBZ è già verificato: ora si possono toccare i file originali."""
-        same = os.path.normpath(orig_p) == os.path.normpath(final_p)
         if os.path.exists(final_p):
             # file che verrà sostituito (originale .cbz o "Sovrascrivi"): nel cestino
             if not _trash_file_cross_platform(final_p):
                 log.warning(f"  Cestino non disponibile: '{os.path.basename(final_p)}' "
                             f"verrà sovrascritto")
         os.replace(tmp_zip, final_p)
-        if not same and os.path.exists(orig_p):
+        for orig_p in srcs:
+            if os.path.normpath(orig_p) == os.path.normpath(final_p) or not os.path.exists(orig_p):
+                continue
             if _trash_file_cross_platform(orig_p):
                 log.info(f"  Originale spostato nel cestino: '{os.path.basename(orig_p)}'")
+            elif os.path.isdir(orig_p):
+                # una cartella non si cancella mai definitivamente: resta dov'è
+                log.warning(f"  Cestino non disponibile: cartella lasciata al suo posto "
+                            f"'{os.path.basename(orig_p)}'")
             else:
                 log.warning(f"  Cestino non disponibile: originale eliminato "
                             f"'{os.path.basename(orig_p)}'")
@@ -379,6 +401,13 @@ class ThumbWorker(QThread):
         imgs = get_archive_file_list(self.path)
         if not imgs:
             log.debug(f"ThumbWorker: nessuna immagine trovata in '{self.path}'")
+            return
+        if os.path.isdir(self.path):
+            try:
+                with open(imgs[0], 'rb') as fh:
+                    self.done.emit(self.path, fh.read())
+            except Exception as e:
+                log.warning(f"ThumbWorker lettura '{imgs[0]}': {e}")
             return
         with tempfile.TemporaryDirectory() as tmp:
             real_fmt = detect_real_format(self.path)
@@ -456,11 +485,21 @@ class LoadingWorker(QThread):
     finished = pyqtSignal(str, str, list)
     error    = pyqtSignal(str)
 
-    def __init__(self, path):
+    def __init__(self, path, loose_last=False):
         super().__init__()
-        self.path = path
+        self.path       = path
+        self.loose_last = loose_last
 
     def run(self):
+        if os.path.isdir(self.path):
+            # cartella di immagini: l'editor lavora sugli originali, nella cartella
+            # temporanea vanno solo ComicInfo.xml e le pagine aggiunte
+            tmp = make_temp_dir()
+            ci  = folder_comicinfo(self.path)
+            if ci:
+                shutil.copy2(ci, tmp)
+            self.finished.emit(self.path, tmp, list_folder_pages(self.path, self.loose_last))
+            return
         tmp      = make_temp_dir()
         ext      = os.path.splitext(self.path)[1].lower()
         real_fmt = detect_real_format(self.path)
@@ -557,15 +596,20 @@ class BatchPrepWorker(QThread):
     page_progress = pyqtSignal(str, int, int, int)   # nome file, pagina, pagine totali, n. file nel lotto
     ready         = pyqtSignal(list, bool)
 
-    def __init__(self, paths, to_webp):
+    def __init__(self, paths, to_webp, loose_last=()):
         super().__init__()
-        self.paths   = paths
-        self.to_webp = to_webp
+        self.paths      = paths
+        self.to_webp    = to_webp
+        self.loose_last = loose_last   # cartelle con le immagini sciolte in fondo
 
     def run(self):
         tasks = []
         total = len(self.paths)
         for i, p in enumerate(self.paths):
+            if os.path.isdir(p):
+                tasks += self._folder_task(p)
+                self.progress.emit(i + 1, total)
+                continue
             tmp = make_temp_dir()
             log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' → '{tmp}'")
             ok = False
@@ -611,3 +655,15 @@ class BatchPrepWorker(QThread):
 
         log.info(f"BatchPrep completato: {len(tasks)}/{total} file pronti per l'elaborazione")
         self.ready.emit(tasks, self.to_webp)
+
+    def _folder_task(self, p):
+        """Cartella di sole immagini: le pagine si leggono direttamente, senza estrazione."""
+        pages = list_folder_pages(p, p in self.loose_last)
+        if not pages:
+            log.error(f"  ✗ Nessuna immagine in '{os.path.basename(p)}' — cartella saltata")
+            return []
+        subs = folder_subdirs(p, pages)
+        log.info(f"BatchPrep: cartella '{os.path.basename(p)}', {len(pages)} immagini"
+                 + (f", sottocartelle in ordine: {', '.join(subs)}" if subs else ""))
+        return [{'src': p, 'images': pages, 'tmp': None,
+                 'comicinfo': folder_comicinfo(p), 'edited': False}]

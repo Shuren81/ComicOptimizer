@@ -11,11 +11,12 @@ from .utils import is_page_file
 
 CBZ_MARK = f"ComicOptimizer {APP_VERSION}"
 
-def build_comicinfo(path, page_count, edited=False):
+def build_comicinfo(path, page_count, edited=False, title=None):
     """
     Restituisce i byte di ComicInfo.xml da inserire nel nuovo CBZ.
     Se il numero di pagine è cambiato (o le pagine sono state riordinate
     nell'editor) aggiorna <PageCount> e rimuove <Pages>, che non sarebbe più valido.
+    Con `title` (unione di più fumetti) imposta <Title> e rimuove <Number>.
     """
     with open(path, "rb") as f:
         raw = f.read()
@@ -25,7 +26,15 @@ def build_comicinfo(path, page_count, edited=False):
         pages = root.find("Pages")
         pc_wrong = pc is not None and (pc.text or "").strip() != str(page_count)
         pages_wrong = pages is not None and (edited or len(pages) != page_count)
-        if not pc_wrong and not pages_wrong:
+        if title is not None:
+            t = root.find("Title")
+            if t is None:
+                t = ET.SubElement(root, "Title")
+            t.text = title
+            num = root.find("Number")
+            if num is not None:
+                root.remove(num)
+        elif not pc_wrong and not pages_wrong:
             return raw
         if pc_wrong:
             pc.text = str(page_count)

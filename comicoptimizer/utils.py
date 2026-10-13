@@ -123,9 +123,11 @@ _PAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff',
 def get_natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
 
+_JUNK_NAMES = (".ds_store", "thumbs.db", "ehthumbs.db", "desktop.ini")
+
 def is_junk_file(path):
     name = os.path.basename(path)
-    return name.startswith("._") or name.lower() == ".ds_store" or "__macosx" in path.lower()
+    return name.startswith("._") or name.lower() in _JUNK_NAMES or "__macosx" in path.lower()
 
 def is_page_file(name):
     return name.lower().endswith(_PAGE_EXTS) and not is_junk_file(name)
@@ -166,6 +168,71 @@ def list_page_files(folder):
     ]
     pages.sort(key=get_natural_sort_key)
     return pages
+
+# --- CARTELLE DI SOLE IMMAGINI ---
+
+def is_image_folder(folder):
+    """True se la cartella (sottocartelle comprese) contiene solo immagini.
+    Spazzatura e ComicInfo.xml non contano; senza nessuna immagine è False."""
+    has_page = False
+    for r, _, fs in os.walk(folder):
+        for f in fs:
+            full = os.path.join(r, f)
+            if is_page_file(full):
+                has_page = True
+            elif not (is_junk_file(full) or is_comicinfo(f)):
+                return False
+    return has_page
+
+def list_folder_pages(folder, loose_last=False):
+    """
+    Pagine di una cartella di sole immagini, in ordine naturale e in profondità:
+    prima le immagini della cartella, poi ogni sottocartella (e così via).
+    `loose_last` mette le immagini sciolte della cartella principale in fondo.
+    """
+    pages, subs = [], []
+    for e in sorted(os.scandir(folder), key=lambda e: get_natural_sort_key(e.name)):
+        if e.is_dir():
+            if not is_junk_file(e.path):
+                subs += list_folder_pages(e.path)
+        elif is_page_file(e.path):
+            pages.append(e.path)
+    return subs + pages if loose_last else pages + subs
+
+def folder_subdirs(folder, pages):
+    """Sottocartelle (relative) da cui vengono le pagine, nell'ordine delle pagine."""
+    dirs = dict.fromkeys(os.path.relpath(os.path.dirname(p), folder) for p in pages)
+    return [d for d in dirs if d != "."]
+
+def folder_has_loose_and_subs(folder):
+    """True se la cartella ha sia immagini sciolte sia sottocartelle con immagini."""
+    pages = list_folder_pages(folder)
+    loose = sum(1 for p in pages if os.path.dirname(p) == folder)
+    return 0 < loose < len(pages)
+
+def folder_comicinfo(folder):
+    """ComicInfo.xml della sola cartella principale (quelli nelle sottocartelle si ignorano)."""
+    return next((e.path for e in os.scandir(folder) if e.is_file() and is_comicinfo(e.name)), None)
+
+def path_size(path):
+    """Dimensione di un file, o di tutti i file di una cartella."""
+    if os.path.isdir(path):
+        return sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(path) for f in fs)
+    return os.path.getsize(path)
+
+def cbz_target(path):
+    """CBZ di destinazione: accanto all'originale (per una cartella: 'cartella.cbz')."""
+    # una cartella non ha estensione: "Vol. 2" non deve diventare "Vol.cbz"
+    return path + ".cbz" if os.path.isdir(path) else os.path.splitext(path)[0] + ".cbz"
+
+_CHAPTER_TAIL = re.compile(
+    r'(?:[\s._#-]*\b(?:cap(?:itolo)?|ch(?:apter)?|vol(?:ume)?|n[or]?|ep)\b)?[\s._#(\[-]*\d*$', re.I)
+
+def merge_name_hint(paths):
+    """Nome suggerito per l'unione: la parte comune dei nomi, senza il numero del capitolo."""
+    stems = [os.path.splitext(os.path.basename(p))[0] for p in paths]
+    common = _CHAPTER_TAIL.sub("", os.path.commonprefix(stems)).strip(" -_.#([")
+    return common or stems[0]
 
 def find_comicinfo(folder):
     """Cerca ComicInfo.xml (qualsiasi maiuscolo/minuscolo) nella cartella estratta."""

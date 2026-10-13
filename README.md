@@ -1,10 +1,12 @@
-### 📚 ComicOptimizer v2.8.0
+### 📚 ComicOptimizer v2.9.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v2.9.0: anteprima, cartelle e unione.** Nell'editor un doppio click apre la pagina in grande (frecce ← → per scorrere). Una cartella di sole immagini trascinata nell'app diventa un fumetto. Con "Unisci selezionati" più fumetti, anche di formati diversi, diventano un unico CBZ.
 
 **v2.8.0: codice riorganizzato.** Il programma ora è diviso in più moduli (vedi [Struttura del progetto](#-struttura-del-progetto)) invece che in un unico file enorme. Il funzionamento non cambia, ma sviluppare e correggere diventa più semplice.
 
@@ -43,7 +45,9 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 ### 🧠 Intelligenza e Controllo
 
 * **Analisi Duplicati:** Riconosce come doppioni i file con lo stesso nome (es. .cbr e .cbz) e gli archivi con contenuto identico (stesso numero di pagine e stesse dimensioni delle immagini), anche se hanno nomi diversi. L'analisi parte in automatico quando aggiungi i file.
-* **Advanced Editor:** Un editor visuale integrato per riordinare pagine, eliminare scansioni errate o aggiungere nuove immagini a un archivio esistente.
+* **Advanced Editor:** Un editor visuale integrato per riordinare pagine, eliminare scansioni errate o aggiungere nuove immagini a un archivio esistente. Doppio click su una pagina per vederla in grande.
+* **Cartelle di immagini:** una cartella che contiene solo immagini (anche in sottocartelle) diventa un unico fumetto, con le pagine in ordine naturale.
+* **Unione di fumetti:** più fumetti selezionati diventano un unico CBZ, con nome e destinazione a scelta.
 * **Integrazione di Sistema:** Duplicati e originali sostituiti finiscono nel cestino di sistema (send2trash, con gio trash come riserva su Linux).
 
 ### 📥 Download
@@ -95,11 +99,12 @@ pip install -r requirements.txt
 ### 🛠️ Utilizzo Rapido
 
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
-* **Importazione:** trascina i tuoi file o cartelle direttamente nella "Drop Zone" dell'app (i file con estensioni non supportate non vengono importati).
+* **Importazione:** trascina i tuoi file o cartelle direttamente nella "Drop Zone" dell'app (i file con estensioni non supportate non vengono importati). Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.
-* **Selezione:** clicca sulle card per selezionarle (Ctrl e Shift supportati). Con una selezione compaiono "Sistema selezionati" e "Cestina selezionati".
+* **Selezione:** clicca sulle card per selezionarle (Ctrl e Shift supportati). Con una selezione compaiono "Sistema selezionati" e "Cestina selezionati"; con almeno due fumetti anche "Unisci selezionati".
+* **Unione:** "Unisci selezionati" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
 * **Ottimizzazione:** scegli se riparare i file (uniformare i numeri di pagina e convertire in .CBZ) o convertire le pagine in WebP per risparmiare spazio.
-* **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
+* **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Doppio click su una pagina per vederla in grande (frecce ← → o pulsanti ◀ ▶ per scorrere, Esc per chiudere). Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
 * **Log:** il pulsante "Log" (o il tasto `L`) apre la finestra del log, con filtro per livello, ricerca e pulsante "Salva".
 
 ### 🧩 Struttura del progetto
@@ -116,7 +121,7 @@ comicoptimizer/
   cbz.py                  creazione e verifica dei CBZ, ComicInfo.xml
   workers.py              thread di lavoro (importazione, analisi, elaborazione...)
   style.py                foglio di stile (QSS)
-  dialogs.py              finestra di log, finestra di interruzione, widget generici
+  dialogs.py              finestra di log, interruzione, unione, widget generici
   card.py                 card di un fumetto nella griglia
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale

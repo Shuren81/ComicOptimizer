@@ -7,6 +7,7 @@ from PIL import Image
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QFrame,
@@ -15,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +26,69 @@ from .images import _to_saveable_rgb
 from .logsetup import log
 from .style import set_variant
 
+
+class PagePreview(QDialog):
+    """Pagina in grande: frecce ← → per scorrere, Esc o click fuori per chiudere."""
+    def __init__(self, paths, index, parent=None):
+        # Popup: Qt la chiude da sola con un click fuori dalla finestra
+        super().__init__(parent, Qt.WindowType.Popup)
+        self.paths, self.index = paths, index
+        fit_dialog_to_screen(self, 1000, 1400, min_w=300, min_h=300)
+        self.move(QApplication.primaryScreen().availableGeometry().center() - self.rect().center())
+
+        v = QVBoxLayout(self)
+        self.img = QLabel()
+        self.img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Ignored: la pagina si adatta alla finestra invece di allargarla
+        self.img.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.info = QLabel()
+        self.info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.info.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 13px;")
+        self.btn_prev = QPushButton("◀")
+        self.btn_next = QPushButton("▶")
+        row = QHBoxLayout()
+        for b, d, tip in ((self.btn_prev, -1, "Pagina precedente (←)"),
+                          (self.btn_next, 1, "Pagina successiva (→)")):
+            b.setProperty("sz", "small")
+            set_variant(b, "accent")
+            b.setToolTip(tip)
+            # senza focus: altrimenti il pulsante si prende le frecce della tastiera
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.clicked.connect(lambda _, d=d: self.step(d))
+        row.addWidget(self.btn_prev)
+        row.addWidget(self.info, 1)
+        row.addWidget(self.btn_next)
+        v.addWidget(self.img, 1)
+        v.addLayout(row)
+        self.show_page()
+
+    def show_page(self):
+        p = self.paths[self.index]
+        self._pix = QPixmap(p)
+        self.info.setText(f"{self.index + 1} / {len(self.paths)}  —  {os.path.basename(p)}")
+        self.btn_prev.setEnabled(self.index > 0)
+        self.btn_next.setEnabled(self.index < len(self.paths) - 1)
+        self._fit()
+
+    def _fit(self):
+        if not self._pix.isNull():
+            self.img.setPixmap(self._pix.scaled(self.img.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                                                Qt.TransformationMode.SmoothTransformation))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit()
+
+    def step(self, delta):
+        self.index = max(0, min(self.index + delta, len(self.paths) - 1))
+        self.show_page()
+
+    def keyPressEvent(self, e):
+        delta = {Qt.Key.Key_Left: -1, Qt.Key.Key_Right: 1}.get(e.key())
+        if delta:
+            self.step(delta)
+        else:
+            super().keyPressEvent(e)   # Esc chiude
 
 class AdvancedEditor(QDialog):
     def __init__(self, file_path, temp_dir, image_list, parent=None):
@@ -132,10 +197,16 @@ class AdvancedEditor(QDialog):
         sp.editingFinished.connect(lambda: self.reorder(w))
         l.addWidget(sp)
 
+        w.mouseDoubleClickEvent = lambda e: self.preview(w)
+
         w.path    = p
         w.spin    = sp
         w.is_new  = is_new   # flag: aggiunta in questa sessione
         self.page_widgets.append(w)
+
+    def preview(self, w):
+        """Doppio click: la pagina in grande, nell'ordine attuale dell'editor."""
+        PagePreview([x.path for x in self.page_widgets], self.page_widgets.index(w), self).exec()
 
     def add_ext(self):
         """Accetta tutte le estensioni immagine comuni."""

@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.9.0] — 2026-10-13
+
+### Editor delle pagine
+- **Nuovo:** doppio click su una pagina per vederla in grande. Le frecce ← → (da tastiera o con i pulsanti ◀ ▶ accanto al nome del file) passano alla pagina precedente o successiva (nell'ordine attuale dell'editor); Esc o un click fuori chiudono l'anteprima. In basso compaiono la posizione (es. "12 / 163") e il nome del file. La finestra si adatta agli schermi piccoli.
+
+### Cartelle di immagini
+- **Nuovo:** una cartella trascinata nell'app che contiene solo immagini (anche dentro sottocartelle) diventa un unico fumetto, con la sua card. "Fix" crea il CBZ con il nome della cartella, accanto ad essa, anche in WebP.
+- **Nuovo:** le pagine seguono l'ordine naturale, in profondità: prima le immagini della cartella, poi ogni sottocartella in ordine naturale, e così via; vengono rinumerate di seguito (0001, 0002…). Il log riporta l'elenco delle sottocartelle nell'ordine usato.
+- **Nuovo:** se la cartella ha sia immagini sciolte sia sottocartelle, l'app chiede se le immagini sciolte vanno prima o dopo le sottocartelle.
+- **Nuovo:** il ComicInfo.xml della cartella principale viene conservato (con `<PageCount>` aggiornato); quelli nelle sottocartelle vengono ignorati.
+- **Nuovo:** la cartella originale va nel cestino solo dopo la verifica del nuovo CBZ. Se il cestino non è disponibile la cartella resta al suo posto (mai cancellata definitivamente).
+- **Invariato:** le cartelle miste (immagini più PDF, CBZ o altro) si importano come prima: solo i file dentro, le immagini sciolte vengono ignorate. Le cartelle vuote o con sola spazzatura vengono scartate.
+- **Cambiato:** anche `Thumbs.db`, `ehthumbs.db` e `desktop.ini` sono considerati spazzatura.
+
+### Unione di fumetti
+- **Nuovo:** con almeno due fumetti selezionati compare il pulsante "Unisci selezionati". I fumetti (anche di formati diversi: CBZ, CBR, ZIP, RAR, PDF, cartelle di immagini) vengono uniti in ordine naturale del nome in un unico CBZ, con le pagine rinumerate di seguito.
+- **Nuovo:** nella finestra di unione si sceglie il nome (suggerito: la parte comune dei nomi senza il numero del capitolo) e la destinazione (di default la cartella del primo fumetto), poi "Unisci" oppure "Unisci e converti" (WebP).
+- **Nuovo:** il nuovo CBZ viene verificato prima di toccare gli originali, che poi vanno nel cestino. Se anche un solo fumetto non si legge, l'unione viene annullata e gli originali restano intatti.
+- **Nuovo:** si conserva il ComicInfo.xml del primo fumetto: `<PageCount>` diventa il totale, `<Title>` il nome scelto, `<Pages>` e `<Number>` vengono rimossi.
+- **Corretto:** con "Sovrascrivi" su un file già presente nella griglia rimaneva una card in più; ora la griglia mostra una sola card per il file finale.
+
 ## [2.8.0] — 2026-10-12
 
 ### Struttura del codice

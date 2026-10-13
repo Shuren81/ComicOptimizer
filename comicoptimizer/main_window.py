@@ -35,7 +35,7 @@ from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
 from .cbz import cbz_status
 from .config import APP_VERSION, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_WIN
-from .dialogs import LogWindow, StopDialog
+from .dialogs import LogWindow, MergeDialog, StopDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -46,6 +46,7 @@ from .utils import (
     find_tool,
     fmt_duration,
     fmt_size,
+    folder_has_loose_and_subs,
     get_natural_sort_key,
 )
 from .workers import (
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
         self.keep_log        = False   # default: cancella il log alla chiusura
         self._closing        = False
         self._tray           = None    # icona di sistema, creata alla prima notifica
+        self._loose_last     = set()   # cartelle con le immagini sciolte dopo le sottocartelle
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -256,7 +258,7 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(title)
 
-        self.drop_zone = QLabel("\nTRASCINA QUI I FILE (CBZ, CBR, ZIP, RAR, PDF)\n")
+        self.drop_zone = QLabel("\nTRASCINA QUI I FILE (CBZ, CBR, ZIP, RAR, PDF) O CARTELLE DI IMMAGINI\n")
         self.drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.drop_zone.setFixedHeight(120)
         self.set_drop_style(False)
@@ -284,6 +286,12 @@ class MainWindow(QMainWindow):
         self.btn_trash_sel.setVisible(False)
         self.btn_trash_sel.clicked.connect(self.trash_selected)
 
+        self.btn_merge = QPushButton("UNISCI SELEZIONATI")
+        self.btn_merge.setMinimumHeight(42)
+        set_variant(self.btn_merge, "accent")
+        self.btn_merge.setVisible(False)
+        self.btn_merge.clicked.connect(self.merge_selected)
+
         self.btn_trash_dupes = QPushButton("PULISCI DUPLICATI")
         self.btn_trash_dupes.setMinimumHeight(42)
         set_variant(self.btn_trash_dupes, "muted")
@@ -294,6 +302,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_clear)
         top_bar.addWidget(self.btn_all)
         top_bar.addWidget(self.btn_sel)
+        top_bar.addWidget(self.btn_merge)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
         top_bar.addStretch()
@@ -338,7 +347,7 @@ class MainWindow(QMainWindow):
 
         top_bar.addWidget(self.status_stack, 1)
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel, self.btn_trash_sel, self.btn_trash_dupes):
+        for _b in (self.btn_sel, self.btn_merge, self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
         self.top_bar_w.setLayout(top_bar)
@@ -635,6 +644,7 @@ class MainWindow(QMainWindow):
             self.cards[p].selected = False
             self.cards[p].update_style()
         self.btn_sel.setVisible(False)
+        self.btn_merge.setVisible(False)
         self.btn_trash_sel.setVisible(False)
         has_dupes = any(c.status_code == 4 for c in self.cards.values())
         self.btn_trash_dupes.setVisible(has_dupes)
@@ -687,6 +697,7 @@ class MainWindow(QMainWindow):
         self.last_clicked = card
         sel_n = len([c for c in cards if c.selected])
         self.btn_sel.setVisible(sel_n > 0)
+        self.btn_merge.setVisible(sel_n > 1)
         self.btn_trash_sel.setVisible(sel_n > 0)
 
     def on_file_done(self, o, n, s):
@@ -697,6 +708,8 @@ class MainWindow(QMainWindow):
         else:
             log.info(f"File completato: '{os.path.basename(o)}' → '{os.path.basename(n)}' [{label}]")
         if o in self.cards:
+            if n != o and n in self.cards:
+                self.rem(n)   # card già presente per il file finale (unione o "Sovrascrivi")
             c = self.cards.pop(o)
             c.file_path = n
             c.name.setText(os.path.basename(n))
@@ -711,6 +724,8 @@ class MainWindow(QMainWindow):
         added = 0
         for p, count in paths:
             if p not in self.cards:
+                if os.path.isdir(p) and folder_has_loose_and_subs(p):
+                    self._ask_loose_order(p)
                 c = ComicCard(p)
                 c.set_pages(count)
                 c.selection_changed.connect(self.handle_selection)
@@ -727,6 +742,62 @@ class MainWindow(QMainWindow):
         # L'analisi automatica post-import è stata rimossa: check_status() assegna
         # già lo stato corretto a ogni card durante l'import. L'utente può lanciare
         # manualmente l'analisi (che include la ricerca duplicati) con il tasto ANALIZZA.
+
+    def _ask_loose_order(self, folder):
+        """Cartella con immagini sciolte e sottocartelle: dove vanno le sciolte?"""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle("Ordine delle pagine")
+        msg.setText(f"La cartella <b>{os.path.basename(folder)}</b> contiene sia immagini "
+                    "sciolte sia sottocartelle.<br><br>Le immagini sciolte vanno messe:")
+        msg.addButton("Prima delle sottocartelle", QMessageBox.ButtonRole.AcceptRole)
+        b_after = msg.addButton("Dopo le sottocartelle", QMessageBox.ButtonRole.ActionRole)
+        msg.exec()
+        after = msg.clickedButton() == b_after
+        (self._loose_last.add if after else self._loose_last.discard)(folder)
+        log.info(f"Cartella '{os.path.basename(folder)}': immagini sciolte "
+                 f"{'dopo' if after else 'prima del'}le sottocartelle")
+
+    def merge_selected(self):
+        """Unisce i fumetti selezionati (ordine naturale del nome) in un unico CBZ."""
+        sel = sorted((p for p, c in self.cards.items() if c.selected),
+                     key=lambda p: get_natural_sort_key(os.path.basename(p)))
+        if len(sel) < 2:
+            return
+        dlg = MergeDialog(sel, self)
+        if not dlg.exec():
+            return
+        name, dest = dlg.values()
+        final_p = os.path.join(dest, name + ".cbz")
+        log.info(f"Unione di {len(sel)} fumetti in '{final_p}': "
+                 + ", ".join(os.path.basename(p) for p in sel))
+        self.set_working(True, "Preparazione...")
+        bw = BatchPrepWorker(sel, dlg.to_webp, self._loose_last)
+        bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
+        bw.page_progress.connect(self._on_prep_pages)
+
+        def ready(tasks, to_webp):
+            self._discard_thread(bw)
+            if len(tasks) != len(sel):
+                for t in tasks:
+                    if t['tmp']:
+                        shutil.rmtree(t['tmp'], ignore_errors=True)
+                self.set_working(False)
+                QMessageBox.warning(self, "Unisci",
+                                    "Non è stato possibile leggere tutti i fumetti: unione annullata, "
+                                    "originali intatti (dettagli nel log).")
+                return
+            self.start_processing([{
+                'src': sel[0], 'extra_srcs': sel[1:], 'dest': final_p,
+                'images': [img for t in tasks for img in t['images']],
+                'tmp': tasks[0]['tmp'], 'extra_tmps': [t['tmp'] for t in tasks[1:]],
+                'comicinfo': tasks[0]['comicinfo'],   # solo quello del primo fumetto
+                'edited': True, 'title': name,
+            }], to_webp)
+
+        bw.ready.connect(ready)
+        bw.start()
+        self._add_thread(bw)
 
     # FIX #2: trash cross-platform con feedback in caso di errore
     def trash_file(self, p):
@@ -765,7 +836,7 @@ class MainWindow(QMainWindow):
         if m != "cancel":
             targets = [p for p, c in self.cards.items() if c.selected]
             self.set_working(True, "Preparazione...")
-            bw = BatchPrepWorker(targets, m == "convert")
+            bw = BatchPrepWorker(targets, m == "convert", self._loose_last)
             bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
             bw.page_progress.connect(self._on_prep_pages)
             bw.ready.connect(lambda t, mv: (self._discard_thread(bw), self.start_processing(t, mv)))
@@ -785,7 +856,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Ottimizzazione", "Nessun file idoneo trovato.")
             return
         self.set_working(True, "Preparazione...")
-        bw = BatchPrepWorker(targets, m == "convert")
+        bw = BatchPrepWorker(targets, m == "convert", self._loose_last)
         bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
         bw.page_progress.connect(self._on_prep_pages)
         bw.ready.connect(lambda t, mv: (self._discard_thread(bw), self.start_processing(t, mv)))
@@ -808,7 +879,7 @@ class MainWindow(QMainWindow):
 
     def open_editor(self, path):
         self.set_working(True, "Apertura...")
-        l = LoadingWorker(path)
+        l = LoadingWorker(path, path in self._loose_last)
         l.progress.connect(lambda v, t: self.set_working(True, f"Apertura: Pagina {v}/{t}...", v, t))
 
         def done(p, t, i):
@@ -832,7 +903,7 @@ class MainWindow(QMainWindow):
         m = self.ask_mode()
         if m != "cancel":
             self.set_working(True, "Preparazione...")
-            bw = BatchPrepWorker([path], m == "convert")
+            bw = BatchPrepWorker([path], m == "convert", self._loose_last)
             bw.page_progress.connect(self._on_prep_pages)
             bw.ready.connect(lambda t, mv: (self._discard_thread(bw), self.start_processing(t, mv)))
             bw.start()

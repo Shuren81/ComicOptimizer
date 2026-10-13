@@ -1,11 +1,18 @@
-"""Finestre di dialogo e widget generici (log, interruzione)."""
+"""Finestre di dialogo e widget generici (log, interruzione, unione)."""
+
+import os
+import re
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -13,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from .logsetup import _qt_log_handler, log
 from .style import set_variant
+from .utils import merge_name_hint
 
 # NON aggiungere al root logger: causerebbe duplicati perché log è già figlio di root
 
@@ -171,6 +179,68 @@ class StopDialog(QDialog):
         btns.addWidget(b2)
         btns.addWidget(b3)
         l.addLayout(btns)
+
+class MergeDialog(QDialog):
+    """Unione di più fumetti: nome del CBZ finale, destinazione e modalità."""
+    def __init__(self, paths, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Unisci fumetti")
+        fit_dialog_to_screen(self, 620, 460, min_w=420, min_h=320)
+        self.to_webp = False
+        l = QVBoxLayout(self)
+
+        l.addWidget(QLabel(f"<b>{len(paths)} fumetti</b> da unire, in quest'ordine:"))
+        lst = QListWidget()
+        lst.addItems([os.path.basename(p) for p in paths])
+        l.addWidget(lst, 1)
+
+        l.addWidget(QLabel("Nome del nuovo fumetto (senza .cbz):"))
+        self.name = QLineEdit(merge_name_hint(paths))
+        l.addWidget(self.name)
+
+        l.addWidget(QLabel("Destinazione:"))
+        row = QHBoxLayout()
+        self.dest = QLineEdit(os.path.dirname(paths[0]))
+        b_dir = QPushButton("Sfoglia")
+        b_dir.clicked.connect(self._browse)
+        row.addWidget(self.dest, 1)
+        row.addWidget(b_dir)
+        l.addLayout(row)
+
+        btns = QHBoxLayout()
+        b_can = QPushButton("Annulla")
+        set_variant(b_can, "danger")
+        b_can.clicked.connect(self.reject)
+        b_mrg = QPushButton("Unisci")
+        set_variant(b_mrg, "info")
+        b_mrg.clicked.connect(lambda: self._go(False))
+        b_webp = QPushButton("Unisci e converti")
+        set_variant(b_webp, "primary")
+        b_webp.clicked.connect(lambda: self._go(True))
+        btns.addWidget(b_can)
+        btns.addStretch()
+        btns.addWidget(b_mrg)
+        btns.addWidget(b_webp)
+        l.addLayout(btns)
+
+    def _browse(self):
+        d = QFileDialog.getExistingDirectory(self, "Destinazione", self.dest.text())
+        if d:
+            self.dest.setText(d)
+
+    def values(self):
+        """(nome senza caratteri non validi nei nomi di file, cartella di destinazione)"""
+        return re.sub(r'[\\/:*?"<>|]', "_", self.name.text()).strip(), self.dest.text().strip()
+
+    def _go(self, to_webp):
+        name, dest = self.values()
+        if not name:
+            QMessageBox.warning(self, "Unisci", "Scrivi il nome del nuovo fumetto.")
+        elif not os.path.isdir(dest):
+            QMessageBox.warning(self, "Unisci", "La cartella di destinazione non esiste.")
+        else:
+            self.to_webp = to_webp
+            self.accept()
 
 class NoWheelSpinBox(QSpinBox):
     def __init__(self, parent=None):

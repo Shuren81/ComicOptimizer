@@ -6,7 +6,7 @@ import zipfile
 
 from .logsetup import log
 from .pdf import HAS_PDF, extract_pdf_pages, fitz
-from .utils import get_natural_sort_key, is_page_file, run_tool
+from .utils import get_natural_sort_key, is_page_file, list_folder_pages, run_tool
 
 # FIX #6: parsing 7z con formato stabile (-slt) invece di offset fisso line[53:]
 # --- RILEVAMENTO FORMATO REALE (magic bytes) ---
@@ -85,8 +85,10 @@ def get_archive_signature(path):
     """
     "Impronta" del contenuto: numero di pagine + dimensioni di ogni pagina.
     Due archivi con la stessa impronta contengono (in pratica) le stesse immagini,
-    anche se hanno nomi diversi. None per PDF o archivi illeggibili.
+    anche se hanno nomi diversi. None per PDF, cartelle o archivi illeggibili.
     """
+    if os.path.isdir(path):
+        return None
     real_fmt = detect_real_format(path)
     ext = os.path.splitext(path)[1].lower()
     if ext == '.pdf' or real_fmt == 'pdf':
@@ -108,7 +110,10 @@ def get_archive_file_list(path):
     """
     Elenca le immagini dentro l'archivio usando il formato REALE (magic bytes).
     Gestisce il caso di estensione errata (es. .cbz che è un RAR).
+    Per una cartella di sole immagini restituisce i percorsi completi delle pagine.
     """
+    if os.path.isdir(path):
+        return list_folder_pages(path)
     real_fmt     = detect_real_format(path)
     declared_ext = os.path.splitext(path)[1].lower()
 
@@ -178,6 +183,8 @@ def check_integrity(path):
     non l'estensione dichiarata. Questo gestisce correttamente i casi come
     un .cbz che è in realtà un RAR, o un .cbr che è in realtà uno ZIP.
     """
+    if os.path.isdir(path):
+        return True   # cartella di immagini: non c'è un archivio da verificare
     real_fmt = detect_real_format(path)
     declared_ext = os.path.splitext(path)[1].lower()
 
