@@ -73,6 +73,8 @@ chmod +x ComicOptimizer-*.AppImage
 
 Per leggere i RAR servono `p7zip-full` e `unrar` (vedi sotto).
 
+Il log dell'AppImage si trova in `~/.local/state/ComicOptimizer/comicoptimizer.log`.
+
 Gli eseguibili vengono compilati automaticamente da GitHub Actions (`.github/workflows/build.yml`) ad ogni nuova Release.
 
 ### 📦 Installazione e Requisiti (Linux / da sorgente)

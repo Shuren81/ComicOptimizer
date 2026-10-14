@@ -21,6 +21,9 @@
 - **Nuovo:** si conserva il ComicInfo.xml del primo fumetto: `<PageCount>` diventa il totale, `<Title>` il nome scelto, `<Pages>` e `<Number>` vengono rimossi.
 - **Corretto:** con "Sovrascrivi" su un file già presente nella griglia rimaneva una card in più; ora la griglia mostra una sola card per il file finale.
 
+### Linux
+- **Corretto:** nell'AppImage il log veniva creato in una cartella `~/ComicOptimizer`, che restava vuota alla chiusura. Ora va in `~/.local/state/ComicOptimizer` (o in `$XDG_STATE_HOME/ComicOptimizer`). La vecchia cartella vuota si può cancellare a mano.
+
 ## [2.8.0] — 2026-10-12
 
 ### Struttura del codice
