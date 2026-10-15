@@ -234,6 +234,65 @@ def merge_name_hint(paths):
     common = _CHAPTER_TAIL.sub("", os.path.commonprefix(stems)).strip(" -_.#([")
     return common or stems[0]
 
+# --- RINOMINA ---
+
+_BAD_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+def clean_filename(name):
+    """Nome di file valido su ogni sistema: i caratteri vietati diventano '_'."""
+    return _BAD_CHARS.sub("_", name).strip()
+
+# "-" con spazi o "_" almeno da un lato: "Spider-Man" resta una parte sola
+_PART_SEP = re.compile(r'[\s_]+-[\s_]*|[\s_]*-[\s_]+')
+_SCHEMA_TOKEN = re.compile(r'<(nome|num|n|parte(\d+))>')
+
+def apply_schema(stem, schema, n, digits):
+    """
+    Nuovo nome da uno schema con <nome> (nome attuale), <num> (primo numero
+    del nome), <n> (progressivo) e <parte1>, <parte2>… (pezzi separati da " - ").
+    Solleva ValueError se nel nome manca il numero o la parte richiesta.
+    """
+    parts = _PART_SEP.split(stem)
+
+    def sub(m):
+        key = m.group(1)
+        if key == "nome":
+            return stem
+        if key == "n":
+            return str(n).zfill(digits)
+        if key == "num":
+            found = re.search(r'\d+', stem)
+            if not found:
+                raise ValueError("numero non trovato")
+            return found.group().lstrip("0").zfill(digits)
+        i = int(m.group(2))
+        if not 1 <= i <= len(parts) or not parts[i - 1]:
+            raise ValueError(f"parte {i} mancante")
+        return parts[i - 1]
+
+    return _SCHEMA_TOKEN.sub(sub, schema)
+
+def underscores_to_spaces(s):
+    return re.sub(r" {2,}", " ", s.replace("_", " ")).strip()
+
+def capitalize_words(s):
+    """Maiuscola la prima lettera di ogni parola, senza abbassare le altre (DC resta DC)."""
+    return re.sub(r"(^|[\s(\[\"-])(\w)", lambda m: m.group(1) + m.group(2).upper(), s)
+
+def split_name(path):
+    """(nome senza estensione, estensione); una cartella non ha estensione."""
+    name = os.path.basename(path)
+    return (name, "") if os.path.isdir(path) else os.path.splitext(name)
+
+def rename_problem(old, new_path, taken):
+    """Perché `old` non si può rinominare in `new_path` (None se si può).
+    `taken` = destinazioni già scelte per le righe precedenti (normcase)."""
+    if os.path.normcase(new_path) in taken:
+        return "nome ripetuto"
+    if os.path.exists(new_path) and not os.path.samefile(old, new_path):
+        return "esiste già"
+    return None
+
 def find_comicinfo(folder):
     """Cerca ComicInfo.xml (qualsiasi maiuscolo/minuscolo) nella cartella estratta."""
     for r, _, fs in os.walk(folder):

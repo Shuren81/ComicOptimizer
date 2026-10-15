@@ -1,10 +1,12 @@
-### 📚 ComicOptimizer v2.9.0
+### 📚 ComicOptimizer v3.0.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v3.0.0: rinomina.** Rinomina uno o più fumetti dall'app (doppio click sul nome, F2 o "Rinomina selezionati"), con uno schema libero come `<parte1> - #<num> - <parte3>`, i tasti "_ → spazio" e "Iniziali Maiuscole", e l'anteprima prima di toccare i file. Il pulsante "Aiuto" spiega tutto. **Selezione più comoda:** trascina il mouse per selezionare con un riquadro (la griglia scorre da sola), "Seleziona tutto" o `Ctrl+A`.
 
 **v2.9.0: anteprima, cartelle e unione.** Nell'editor un doppio click apre la pagina in grande (frecce ← → per scorrere). Una cartella di sole immagini trascinata nell'app diventa un fumetto. Con "Unisci selezionati" più fumetti, anche di formati diversi, diventano un unico CBZ.
 
@@ -48,6 +50,7 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 * **Advanced Editor:** Un editor visuale integrato per riordinare pagine, eliminare scansioni errate o aggiungere nuove immagini a un archivio esistente. Doppio click su una pagina per vederla in grande.
 * **Cartelle di immagini:** una cartella che contiene solo immagini (anche in sottocartelle) diventa un unico fumetto, con le pagine in ordine naturale.
 * **Unione di fumetti:** più fumetti selezionati diventano un unico CBZ, con nome e destinazione a scelta.
+* **Rinomina:** uno o più fumetti, con uno schema del nome a scelta (numero già nel nome, progressivo, parti del nome), anteprima e nessuna sovrascrittura.
 * **Integrazione di Sistema:** Duplicati e originali sostituiti finiscono nel cestino di sistema (send2trash, con gio trash come riserva su Linux).
 
 ### 📥 Download
@@ -103,10 +106,11 @@ pip install -r requirements.txt
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
 * **Importazione:** trascina i tuoi file o cartelle direttamente nella "Drop Zone" dell'app (i file con estensioni non supportate non vengono importati). Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.
-* **Selezione:** clicca sulle card per selezionarle (Ctrl e Shift supportati). Con una selezione compaiono "Sistema selezionati" e "Cestina selezionati"; con almeno due fumetti anche "Unisci selezionati".
+* **Selezione:** clicca sulle card per selezionarle, oppure trascina il mouse sulla griglia per selezionarne tante con un riquadro (con Ctrl il riquadro le toglie; vicino al bordo la griglia scorre da sola). Shift+click seleziona un intervallo, "Seleziona tutto" o `Ctrl+A` le seleziona tutte, `Esc` toglie la selezione. Con una selezione compaiono "Sistema selezionati", "Rinomina selezionati" e "Cestina selezionati"; con almeno due fumetti anche "Unisci selezionati".
 * **Unione:** "Unisci selezionati" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
 * **Ottimizzazione:** scegli se riparare i file (uniformare i numeri di pagina e convertire in .CBZ) o convertire le pagine in WebP per risparmiare spazio.
 * **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Doppio click su una pagina per vederla in grande (frecce ← → o pulsanti ◀ ▶ per scorrere, Esc per chiudere). Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
+* **Rinomina:** doppio click sul nome nella card, tasto `F2` o "Rinomina selezionati". Scrivi lo schema del nuovo nome (es. `Naruto - #<num>`), sistema i nomi con i tasti "_ → spazio" e "Iniziali Maiuscole", correggi a mano le celle se serve, poi "Rinomina". Le righe rosse non vengono toccate. Il pulsante "Aiuto" (o `F1`) spiega tutti i comandi.
 * **Log:** il pulsante "Log" (o il tasto `L`) apre la finestra del log, con filtro per livello, ricerca e pulsante "Salva".
 
 ### 🧩 Struttura del progetto
@@ -123,11 +127,12 @@ comicoptimizer/
   cbz.py                  creazione e verifica dei CBZ, ComicInfo.xml
   workers.py              thread di lavoro (importazione, analisi, elaborazione...)
   style.py                foglio di stile (QSS)
-  dialogs.py              finestra di log, interruzione, unione, widget generici
+  dialogs.py              finestra di log, interruzione, unione, rinomina, widget generici
   card.py                 card di un fumetto nella griglia
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
+tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py)
 .github/workflows/        compilazione automatica (Windows e AppImage)
 ```
 

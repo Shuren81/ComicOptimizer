@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.0.0] — 2026-10-14
+
+### Rinomina
+- **Nuovo:** si possono rinominare i fumetti direttamente dall'app: doppio click sul nome nella card, tasto **F2** o pulsante "Rinomina selezionati" (compare con almeno un fumetto selezionato).
+- **Nuovo:** finestra "Rinomina" con anteprima: una riga per fumetto (ordine naturale), con il nome attuale e il nuovo nome, modificabile a mano cella per cella.
+- **Nuovo:** schema del nome libero, con i segnaposto `<nome>` (nome attuale), `<num>` (il numero già presente nel nome, uniformato nelle cifre: ideale per numerazioni sparse), `<n>` (numero progressivo) e `<parte1>`, `<parte2>`… (i pezzi del nome separati da " - ", per i nomi con più titoli e numeri). Esempio: `<parte1> - #<num> - <parte3>`.
+- **Nuovo:** tasti "_ → spazio", "Iniziali Maiuscole" (senza abbassare le sigle come DC) e Cerca/Sostituisci, sulle righe selezionate o su tutte.
+- **Nuovo:** pulsante "Aiuto" (o tasto F1) con la spiegazione di schema, segnaposto, tasti e righe rosse.
+- **Sicurezza:** si cambia solo il nome sul disco (contenuto ed estensione restano uguali); un file esistente non viene mai sovrascritto. Le righe con un problema (nome già esistente, ripetuto, vuoto, numero o parte mancante) sono rosse e non vengono rinominate. La rinomina non è disponibile durante un lavoro in corso.
+
+### Selezione
+- **Nuovo:** selezione trascinando il mouse: premi sulla griglia (anche sopra una card) e trascina; le card toccate dal riquadro si aggiungono alla selezione. Con **Ctrl** premuto vengono invece tolte. Vicino al bordo superiore o inferiore la griglia scorre da sola, così si possono selezionare anche le card fuori vista.
+- **Nuovo:** pulsante "Seleziona tutto" (diventa "Deseleziona tutto" quando sono tutti selezionati), **Ctrl+A** per selezionare tutto ed **Esc** per togliere la selezione.
+- **Invariato:** il click su una card la seleziona o deseleziona, Shift+click seleziona un intervallo, il doppio click apre l'editor (o la rinomina, sul nome).
+- **Cambiato:** la riga con il suggerimento e la frase ironica (e, durante il lavoro, la barra di avanzamento con STOP) ora sta sotto i pulsanti, su una riga tutta sua: non sparisce più quando compaiono molti pulsanti.
+- **Nuovo:** dodici nuove frasi ironiche all'avvio.
+- **Corretto:** su schermi stretti la griglia mostrava fino a 7 colonne anche se non ci stavano: le ultime card restavano fuori dalla finestra e non si potevano raggiungere. Ora le colonne si adattano alla larghezza dello schermo (sugli schermi larghi non cambia nulla).
+
+### Test
+- **Nuovo:** cartella `tests/` con i test automatici della rinomina e della selezione (`venv/bin/python tests/test_rename.py`, `tests/test_selection.py`, `tests/test_layout.py`).
+
 ## [2.9.0] — 2026-10-13
 
 ### Editor delle pagine

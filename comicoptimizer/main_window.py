@@ -8,8 +8,8 @@ import subprocess
 import sys
 import threading
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer
+from PyQt6.QtGui import QCursor, QKeySequence, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRubberBand,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
@@ -35,7 +36,7 @@ from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
 from .cbz import cbz_status
 from .config import APP_VERSION, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_WIN
-from .dialogs import LogWindow, MergeDialog, StopDialog
+from .dialogs import LogWindow, MergeDialog, RenameDialog, StopDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -58,6 +59,88 @@ from .workers import (
     ThumbWorker,
 )
 
+# --- SELEZIONE CON IL MOUSE ---
+
+class _DragSelector(QObject):
+    """
+    Filtro sulla griglia delle card. Click su una card: la seleziona o deseleziona
+    (Shift: intervallo). Trascinamento: riquadro che aggiunge alla selezione le card
+    toccate (con Ctrl le toglie); vicino al bordo la griglia scorre da sola.
+    """
+    EDGE = 30   # px dal bordo della griglia visibile in cui parte lo scorrimento
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win    = win
+        self.band   = QRubberBand(QRubberBand.Shape.Rectangle, win.grid_w)
+        self.origin = None
+        self.drag   = False
+        self.timer  = QTimer(self)
+        self.timer.setInterval(30)
+        self.timer.timeout.connect(self._autoscroll)
+        win.grid_w.installEventFilter(self)
+
+    def eventFilter(self, obj, ev):
+        t = ev.type()
+        if t == QEvent.Type.MouseButtonPress and ev.button() == Qt.MouseButton.LeftButton:
+            self.origin = ev.position().toPoint()
+            self.drag   = False
+            self.mods   = ev.modifiers()
+            return True
+        if t == QEvent.Type.MouseMove and self.origin is not None:
+            pos = ev.position().toPoint()
+            if not self.drag and (pos - self.origin).manhattanLength() >= QApplication.startDragDistance():
+                self.drag    = True
+                self.initial = {c: c.selected for c in self.win.cards.values()}
+                self.band.show()
+                self.timer.start()
+            if self.drag:
+                self._update(pos)
+            return True
+        if t == QEvent.Type.MouseButtonRelease and self.origin is not None:
+            if self.drag:
+                self.band.hide()
+                self.timer.stop()
+            else:
+                card = self._card_at(self.origin)
+                if card:
+                    card.selected = not card.selected
+                    card.update_style()
+                    self.win.handle_selection(card, self.mods)
+            self.origin = None
+            return True
+        return False
+
+    def _card_at(self, pos):
+        w = self.win.grid_w.childAt(pos)
+        while w is not None and not isinstance(w, ComicCard):
+            w = w.parentWidget()
+        return w
+
+    def _update(self, pos):
+        rect = QRect(self.origin, pos).normalized()
+        self.band.setGeometry(rect)
+        remove = bool(self.mods & Qt.KeyboardModifier.ControlModifier)
+        for c, was in self.initial.items():
+            hit = c.parent() is self.win.grid_w and c.geometry().intersects(rect)
+            sel = (was and not hit) if remove else (was or hit)
+            if sel != c.selected:
+                c.selected = sel
+                c.update_style()
+        self.win._update_sel_buttons()
+
+    def _autoscroll(self):
+        vp  = self.win.scroll.viewport()
+        y   = vp.mapFromGlobal(QCursor.pos()).y()
+        bar = self.win.scroll.verticalScrollBar()
+        if y < self.EDGE:
+            bar.setValue(bar.value() - max(4, (self.EDGE - y) // 2))
+        elif y > vp.height() - self.EDGE:
+            bar.setValue(bar.value() + max(4, (y - vp.height() + self.EDGE) // 2))
+        else:
+            return
+        self._update(self.win.grid_w.mapFromGlobal(QCursor.pos()))
+
 # --- MAIN WINDOW ---
 
 class MainWindow(QMainWindow):
@@ -79,15 +162,27 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.check_deps()
 
-        # Dimensione iniziale: 4 card di larghezza
-        self._apply_window_width(COLS_DEFAULT)
+        # Dimensione iniziale: 4 card di larghezza (meno, se lo schermo è stretto)
+        self._apply_window_width(self._cols_for_count(0))
 
         frasi = [
             "Il mio processore scalpita...",
             "Pronto a triturare PDF e immagini.",
             "Caffè caricato, iniziamo?",
             "I tuoi fumetti sono in buone mani.",
-            "Ottimizzazione? È il mio secondo nome."
+            "Ottimizzazione? È il mio secondo nome.",
+            "Nessun supereroe è stato maltrattato durante la conversione.",
+            "Più leggeri di un balloon, promesso.",
+            "Pagine in fila per due, col resto di WebP.",
+            "Prometto di non leggere gli spoiler.",
+            "Riordino fumetti meglio di quanto tu riordini la camera.",
+            "Il disordine ha i minuti contati.",
+            "CBR, CBZ, PDF... per me pari sono.",
+            "Ho visto librerie peggiori. Poche, ma le ho viste.",
+            "Pronto a fare spazio sul disco (e nel cuore).",
+            "Anche Batman aveva bisogno di un Alfred. Eccomi.",
+            "Le pagine perse non sono mai state un'opzione.",
+            "Rinomino, unisco, comprimo. Tu rilassati.",
         ]
         self.ironic_lbl.setText(random.choice(frasi))
         log.info(f"ComicOptimizer v{APP_VERSION} avviato.")
@@ -150,9 +245,15 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def keyPressEvent(self, e):
-        """Tasto L apre/chiude la finestra di log."""
+        """L: finestra di log · F2: rinomina · Ctrl+A: seleziona tutto · Esc: deseleziona."""
         if e.key() == Qt.Key.Key_L and not e.modifiers():
             self._toggle_log()
+        elif e.key() == Qt.Key.Key_F2:
+            self.rename_selected()
+        elif e.matches(QKeySequence.StandardKey.SelectAll):
+            self.select_all(True)
+        elif e.key() == Qt.Key.Key_Escape:
+            self.select_all(False)
         else:
             super().keyPressEvent(e)
 
@@ -186,18 +287,28 @@ class MainWindow(QMainWindow):
     def _cols_for_count(self, n):
         """
         Restituisce il numero di colonne ottimale per `n` card.
-        - Minimo fisso: COLS_DEFAULT (4)
-        - Massimo fisso: COLS_MAX (7)
+        - Minimo: COLS_DEFAULT (4)
+        - Massimo: COLS_MAX (7)
+        - Mai più di quelle che entrano nello schermo (anche sotto il minimo)
         """
         # Se n è piccolo (0,1,2,3), restituisce 4.
         # Se n è tra 4 e 7, restituisce n.
         # Se n è superiore a 7, restituisce 7.
-        return max(COLS_DEFAULT, min(n, COLS_MAX))
+        return min(max(COLS_DEFAULT, min(n, COLS_MAX)), self._cols_fit_screen())
+
+    def _cols_fit_screen(self):
+        """Quante colonne di card entrano nella larghezza dello schermo (almeno 1)."""
+        avail = QApplication.primaryScreen().availableGeometry().width()
+        cols = COLS_MAX
+        # + 12: la barra di scorrimento verticale della griglia (vedi STYLESHEET)
+        while cols > 1 and self._win_width_for_cols(cols) + 12 > avail:
+            cols -= 1
+        return cols
 
     def _refit_width(self):
         """Riadatta la larghezza quando compaiono/spariscono i pulsanti della barra."""
         n = len(self.cards)
-        self._apply_window_width(self._cols_for_count(n) if n > 0 else COLS_DEFAULT)
+        self._apply_window_width(self._cols_for_count(n))
 
     def _apply_window_width(self, cols):
         """Ridimensiona la finestra alla larghezza giusta per `cols` colonne."""
@@ -274,6 +385,13 @@ class MainWindow(QMainWindow):
         set_variant(self.btn_all, "primary")
         self.btn_all.clicked.connect(self.repair_all_trigger)
 
+        self.btn_sel_all = QPushButton("SELEZIONA TUTTO")
+        self.btn_sel_all.setMinimumHeight(42)
+        self.btn_sel_all.setToolTip("Ctrl+A seleziona tutto, Esc toglie la selezione")
+        self.btn_sel_all.setVisible(False)
+        self.btn_sel_all.clicked.connect(
+            lambda: self.select_all(not all(c.selected for c in self.cards.values())))
+
         self.btn_sel = QPushButton("SISTEMA SELEZIONATI")
         self.btn_sel.setMinimumHeight(42)
         set_variant(self.btn_sel, "info")
@@ -292,6 +410,12 @@ class MainWindow(QMainWindow):
         self.btn_merge.setVisible(False)
         self.btn_merge.clicked.connect(self.merge_selected)
 
+        self.btn_rename = QPushButton("RINOMINA SELEZIONATI")
+        self.btn_rename.setMinimumHeight(42)
+        self.btn_rename.setToolTip("Rinomina i fumetti selezionati (F2)")
+        self.btn_rename.setVisible(False)
+        self.btn_rename.clicked.connect(self.rename_selected)
+
         self.btn_trash_dupes = QPushButton("PULISCI DUPLICATI")
         self.btn_trash_dupes.setMinimumHeight(42)
         set_variant(self.btn_trash_dupes, "muted")
@@ -301,8 +425,10 @@ class MainWindow(QMainWindow):
         top_bar.setSpacing(8)
         top_bar.addWidget(self.btn_clear)
         top_bar.addWidget(self.btn_all)
+        top_bar.addWidget(self.btn_sel_all)
         top_bar.addWidget(self.btn_sel)
         top_bar.addWidget(self.btn_merge)
+        top_bar.addWidget(self.btn_rename)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
         top_bar.addStretch()
@@ -314,8 +440,10 @@ class MainWindow(QMainWindow):
         idle_l = QVBoxLayout(idle_w)
         idle_l.setContentsMargins(0, 0, 0, 0)
         idle_l.setSpacing(2)
-        self.hint_lbl = QLabel("Clicca sulle card per selezionarle")
-        self.hint_lbl.setToolTip("Ctrl e Shift supportati")
+        self.hint_lbl = QLabel("Clicca sulle card o trascina il mouse per selezionarle")
+        self.hint_lbl.setToolTip("Shift+click: seleziona un intervallo\n"
+                                 "Ctrl+trascina: toglie dalla selezione\n"
+                                 "Ctrl+A: seleziona tutto · Esc: deseleziona")
         self.hint_lbl.setStyleSheet("color: #00e5ff; font-size: 11px; font-weight: bold")
         self.hint_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.ironic_lbl = QLabel("Pronto ad operare.")
@@ -345,9 +473,9 @@ class MainWindow(QMainWindow):
         work_l.addWidget(self.btn_stop)
         self.status_stack.addWidget(work_w)
 
-        top_bar.addWidget(self.status_stack, 1)
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel, self.btn_merge, self.btn_trash_sel, self.btn_trash_dupes):
+        for _b in (self.btn_sel_all, self.btn_sel, self.btn_merge, self.btn_rename,
+                   self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
         self.top_bar_w.setLayout(top_bar)
@@ -359,6 +487,8 @@ class MainWindow(QMainWindow):
         top_bar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         top_bar_scroll.setWidget(self.top_bar_w)
         layout.addWidget(top_bar_scroll)
+        # riga tutta sua sotto i pulsanti: aiuto e frase (a riposo), avanzamento e STOP (al lavoro)
+        layout.addWidget(self.status_stack)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -369,6 +499,7 @@ class MainWindow(QMainWindow):
         self.grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.scroll.setWidget(self.grid_w)
         layout.addWidget(self.scroll)
+        self._drag_selector = _DragSelector(self)
 
         footer = QHBoxLayout()
         self.n_btn = QPushButton(f"Novità v{APP_VERSION}")
@@ -643,9 +774,7 @@ class MainWindow(QMainWindow):
         for p in list(self.cards.keys()):
             self.cards[p].selected = False
             self.cards[p].update_style()
-        self.btn_sel.setVisible(False)
-        self.btn_merge.setVisible(False)
-        self.btn_trash_sel.setVisible(False)
+        self._update_sel_buttons()
         has_dupes = any(c.status_code == 4 for c in self.cards.values())
         self.btn_trash_dupes.setVisible(has_dupes)
         self.last_clicked = None
@@ -695,10 +824,25 @@ class MainWindow(QMainWindow):
                 cards[i].selected = True
                 cards[i].update_style()
         self.last_clicked = card
-        sel_n = len([c for c in cards if c.selected])
+        self._update_sel_buttons()
+
+    def _update_sel_buttons(self):
+        """Mostra i pulsanti che dipendono da quanti fumetti sono selezionati."""
+        sel_n = sum(1 for c in self.cards.values() if c.selected)
         self.btn_sel.setVisible(sel_n > 0)
         self.btn_merge.setVisible(sel_n > 1)
+        self.btn_rename.setVisible(sel_n > 0)
         self.btn_trash_sel.setVisible(sel_n > 0)
+        self.btn_sel_all.setVisible(bool(self.cards))
+        self.btn_sel_all.setText("DESELEZIONA TUTTO" if self.cards and sel_n == len(self.cards)
+                                 else "SELEZIONA TUTTO")
+
+    def select_all(self, on=True):
+        for c in self.cards.values():
+            c.selected = on
+            c.update_style()
+        self.last_clicked = None
+        self._update_sel_buttons()
 
     def on_file_done(self, o, n, s):
         status_names = {0:"DA SISTEMARE", 1:"OK", 2:"RIPARATO", 3:"CONVERTITO", 4:"SALTATO", 5:"DANNEGGIATO"}
@@ -728,11 +872,11 @@ class MainWindow(QMainWindow):
                     self._ask_loose_order(p)
                 c = ComicCard(p)
                 c.set_pages(count)
-                c.selection_changed.connect(self.handle_selection)
                 c.edit_requested.connect(self.open_editor)
                 c.repair_requested.connect(self.individual_repair)
                 c.remove_requested.connect(self.rem)
                 c.trash_requested.connect(self.confirm_and_trash)
+                c.rename_requested.connect(lambda path: self.rename_cards([path]))
                 self.cards[p] = c
                 self.load_t(p)
                 c.set_status(self.check_status(p))
@@ -798,6 +942,45 @@ class MainWindow(QMainWindow):
         bw.ready.connect(ready)
         bw.start()
         self._add_thread(bw)
+
+    def rename_selected(self):
+        sel = [p for p, c in self.cards.items() if c.selected]
+        if sel:
+            self.rename_cards(sel)
+
+    def rename_cards(self, paths):
+        """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card."""
+        if self.current_worker:
+            QMessageBox.information(self, "Rinomina", "Attendi la fine del lavoro in corso.")
+            return
+        dlg = RenameDialog(paths, self)
+        if not dlg.exec():
+            return
+        errors = []
+        for old, new in dlg.renames():
+            try:
+                # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
+                if os.path.exists(new) and not os.path.samefile(old, new):
+                    raise FileExistsError("esiste già un file con questo nome")
+                os.rename(old, new)
+            except OSError as e:
+                log.error(f"Rinomina fallita: '{os.path.basename(old)}': {e}")
+                errors.append(f"{os.path.basename(old)}: {e}")
+                continue
+            log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
+            if old in self.cards:
+                c = self.cards.pop(old)
+                c.file_path = new
+                c.name.setText(os.path.basename(new))
+                self.cards[new] = c
+            if old in self._loose_last:
+                self._loose_last.discard(old)
+                self._loose_last.add(new)
+        self.reset_ui()
+        self.refresh_grid()
+        if errors:
+            QMessageBox.warning(self, "Rinomina", "Non rinominati (dettagli nel log):\n"
+                                + "\n".join(errors[:8]))
 
     # FIX #2: trash cross-platform con feedback in caso di errore
     def trash_file(self, p):
@@ -971,11 +1154,14 @@ class MainWindow(QMainWindow):
                 w.setParent(None)
 
         n    = len(self.cards)
-        cols = self._cols_for_count(n) if n > 0 else COLS_DEFAULT
+        cols = self._cols_for_count(n)
         self._apply_window_width(cols)
 
         for i, p in enumerate(sorted(self.cards.keys(), key=get_natural_sort_key)):
             self.grid_l.addWidget(self.cards[p], i // cols, i % cols)
+        if self.last_clicked not in self.cards.values():
+            self.last_clicked = None   # card rimossa: lo Shift+click ripartirebbe da lei
+        self._update_sel_buttons()
 
     def rem(self, p):
         if p in self.cards:

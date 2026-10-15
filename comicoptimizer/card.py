@@ -24,7 +24,7 @@ class ComicCard(QFrame):
     repair_requested  = pyqtSignal(str)
     remove_requested  = pyqtSignal(str)
     trash_requested   = pyqtSignal(str)
-    selection_changed = pyqtSignal(object, object)
+    rename_requested  = pyqtSignal(str)
 
     def __init__(self, path):
         super().__init__()
@@ -88,11 +88,8 @@ class ComicCard(QFrame):
         b, bg = ("2px solid #00e5ff", "#3a3a3a") if self.selected else ("1px solid #444", "#2a2a2a")
         self.setStyleSheet(f"ComicCard {{ background: {bg}; border-radius: 14px; border: {b}; }}")
 
-    def mousePressEvent(self, e):
-        if e.button() == Qt.MouseButton.LeftButton:
-            self.selected = not self.selected
-            self.update_style()
-            self.selection_changed.emit(self, e.modifiers())
+    # Il click non è gestito qui: passa alla griglia (_DragSelector in main_window),
+    # che distingue il click (seleziona questa card) dal trascinamento (riquadro).
 
     def set_status(self, code):
         self.status_code = code
@@ -123,4 +120,8 @@ class ComicCard(QFrame):
         self.thumb.setPixmap(pix.scaled(175, 230, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
 
     def mouseDoubleClickEvent(self, e):
-        self.edit_requested.emit(self.file_path)
+        # doppio click sul nome: rinomina; sul resto della card: editor
+        if self.name.geometry().contains(e.position().toPoint()):
+            self.rename_requested.emit(self.file_path)
+        else:
+            self.edit_requested.emit(self.file_path)
