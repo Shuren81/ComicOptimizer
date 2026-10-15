@@ -24,8 +24,13 @@
 - **Cambiato:** con la lista vuota la schermata è pulita: spariscono i pulsanti in alto, dietro la scritta "Trascina qui i file" compare un disegno al neon fatto solo di contorni (si rigenera con `tools/make_drop_art.py`) e il suggerimento azzurro diventa una frase d'invito ironica. Appena ci sono fumetti tutto torna come prima.
 - **Nuovo:** a fine lavoro, chiuso il riepilogo, la lista si pulisce da sola se tutti i fumetti sono "CONVERTITO" (sistemati e in WebP). Se anche uno solo è in un altro stato, la lista resta.
 
+### Compilazione
+- **Nuovo:** script per compilare in locale, senza GitHub Actions: `tools/build_appimage.sh` (AppImage, su Linux) e `tools/build_windows.ps1` (exe, su Windows), con le stesse opzioni della compilazione su GitHub.
+- **Nuovo:** versione per macOS: `tools/build_macos.sh` crea `ComicOptimizer.app` e un DMG, con 7-Zip incluso (legge anche i RAR). Va lanciato su un Mac; l'app funziona sui Mac con lo stesso processore (Apple Silicon o Intel) e non è firmata (la prima volta: tasto destro → Apri).
+- **Corretto:** su macOS l'avviso "Dipendenze mancanti" chiedeva `unrar` e suggeriva `apt`: ora, come su Windows, basta 7-Zip. 7-Zip viene cercato anche con il nome `7zz` e nelle cartelle di Homebrew; il log dell'app per Mac va in `~/Library/Logs/ComicOptimizer`.
+
 ### Test
-- **Nuovo:** cartella `tests/` con i test automatici della rinomina e della selezione (`venv/bin/python tests/test_rename.py`, `tests/test_selection.py`, `tests/test_layout.py`).
+- **Nuovo:** cartella `tests/` con i test automatici della rinomina e della selezione (`venv/bin/python tests/test_rename.py`, `tests/test_selection.py`, `tests/test_layout.py`, `tests/test_platform.py`).
 
 ## [2.9.0] — 2026-10-13
 

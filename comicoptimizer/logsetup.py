@@ -7,7 +7,7 @@ import sys
 from PyQt6.QtCore import QObject
 from PyQt6.QtCore import pyqtSignal as _pyqtSignal
 
-from .config import IS_FROZEN, IS_WIN
+from .config import IS_FROZEN, IS_MAC, IS_WIN
 
 
 def _log_file_path():
@@ -15,12 +15,14 @@ def _log_file_path():
     Su Windows e nell'eseguibile il log va in %LOCALAPPDATA%\\ComicOptimizer:
     la cartella corrente potrebbe essere Program Files (non scrivibile).
     Nell'eseguibile su Linux va in ~/.local/state/ComicOptimizer (o $XDG_STATE_HOME),
-    non in una cartella visibile nella home.
+    non in una cartella visibile nella home; nell'app per Mac in ~/Library/Logs/ComicOptimizer.
     Da sorgente su Linux resta accanto a dove si lancia lo script, come prima.
     """
     if IS_WIN or IS_FROZEN:
         if IS_WIN:
             base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        elif IS_MAC:
+            base = os.path.expanduser("~/Library/Logs")
         else:
             base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
         folder = os.path.join(base, "ComicOptimizer")

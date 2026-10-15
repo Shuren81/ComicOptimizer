@@ -134,13 +134,23 @@ comicoptimizer/
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
-tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py)
+tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py, test_platform.py)
 tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
 tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
+tools/build_appimage.sh   compila l'AppImage in locale
+tools/build_windows.ps1   compila l'exe per Windows in locale
+tools/build_macos.sh      compila l'app per macOS (DMG) su un Mac
 .github/workflows/        compilazione automatica (Windows e AppImage)
 ```
 
-Per compilare a mano un eseguibile: `pip install pyinstaller` e poi `pyinstaller main.py --onedir --name ComicOptimizer --add-data "comicoptimizer.png:."` (su Windows il separatore di `--add-data` è `;`). I comandi completi sono in `.github/workflows/build.yml`.
+**Compilare in locale** (senza GitHub):
+
+* **AppImage (Linux):** dalla cartella del progetto, con il `venv` già pronto: `bash tools/build_appimage.sh`. La prima volta scarica `appimagetool`. Il risultato è `ComicOptimizer-v<versione>-x86_64.AppImage`. Un'AppImage compilata su un sistema recente parte solo su sistemi uguali o più recenti.
+* **Windows:** serve un PC Windows con Python 3.12 (da python.org, con "Add python.exe to PATH") e 7-Zip (da 7-zip.org). Da PowerShell nella cartella del progetto: `powershell -ExecutionPolicy Bypass -File tools\build_windows.ps1`. Il risultato è `ComicOptimizer-v<versione>-windows.zip` (l'exe è anche in `dist\ComicOptimizer`).
+
+* **macOS:** serve un Mac con Python 3.12 (installer da python.org) e 7-Zip per macOS: scarica da [7-zip.org](https://www.7-zip.org/download.html) l'archivio "macOS" ed estrailo in `tools/7zip-mac/` (devono esserci `7zz` e `License.txt`; 7-Zip legge anche i RAR, `unrar` non serve). Dal Terminale nella cartella del progetto: `bash tools/build_macos.sh`. Il risultato è `ComicOptimizer-v<versione>-macos-<arm64|x86_64>.dmg`: l'app funziona sui Mac con lo stesso processore (Apple Silicon o Intel) di quello che l'ha compilata. Non è firmata: su un altro Mac, la prima volta si apre con **tasto destro → Apri**. Il log è in `~/Library/Logs/ComicOptimizer`.
+
+Gli script usano le stesse opzioni della compilazione automatica su GitHub (`.github/workflows/build.yml`).
 
 ### 🛡️ Privacy e Sicurezza
 

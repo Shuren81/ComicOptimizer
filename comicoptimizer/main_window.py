@@ -35,7 +35,7 @@ from . import config
 from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
 from .cbz import cbz_status
-from .config import APP_VERSION, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_WIN
+from .config import APP_VERSION, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
 from .dialogs import LogWindow, MergeDialog, RenameDialog, StopDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
@@ -365,8 +365,8 @@ class MainWindow(QMainWindow):
 
     def check_deps(self):
         m = []
-        if IS_WIN:
-            # su Windows basta 7-Zip (incluso nell'exe): legge anche i RAR/RAR5
+        if IS_WIN or IS_MAC:
+            # su Windows e Mac basta 7-Zip (incluso nell'app): legge anche i RAR/RAR5
             if not find_tool('7z'):
                 m.append("7-Zip")
             if not HAS_PDF:
@@ -376,6 +376,7 @@ class MainWindow(QMainWindow):
                     self, "Dipendenze mancanti",
                     "Mancano: " + ", ".join(m) +
                     "\n\nInstalla 7-Zip da https://www.7-zip.org"
+                    + (" (oppure: brew install sevenzip)" if IS_MAC else "")
                     + ("\ne PyMuPDF con: pip install pymupdf" if not HAS_PDF else "")
                 )
             return

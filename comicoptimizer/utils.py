@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 
-from .config import IS_WIN, RES_DIR, TMP_PREFIX
+from .config import IS_MAC, IS_WIN, RES_DIR, TMP_PREFIX
 from .logsetup import log
 
 
@@ -92,6 +92,11 @@ def find_tool(name):
             if base:
                 candidates.append(os.path.join(base, "7-Zip" if name == "7z" else "WinRAR",
                                                "7z.exe" if name == "7z" else "UnRAR.exe"))
+    if IS_MAC:
+        # sul Mac 7-Zip si chiama 7zz; un'app aperta dal Finder non ha Homebrew nel PATH
+        names = [name, "7zz"] if name == "7z" else [name]
+        candidates += [shutil.which(n) for n in names[1:]]
+        candidates += [os.path.join(d, n) for d in ("/opt/homebrew/bin", "/usr/local/bin") for n in names]
     path = next((c for c in candidates if c and os.path.isfile(c)), None)
     _TOOL_CACHE[name] = path
     return path

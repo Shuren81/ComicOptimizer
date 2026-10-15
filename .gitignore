@@ -14,5 +14,16 @@ build/
 dist/
 *.spec
 
+# Compilazione in locale (tools/build_appimage.sh, tools/build_windows.ps1, tools/build_macos.sh)
+AppDir/
+*.AppImage
+tools/appimagetool
+venv-win/
+venv-mac/
+tools/7zip-mac/
+*.dmg
+bin/
+*.ico
+
 # Archivi creati a mano
 *.zip

@@ -22,6 +22,8 @@ IS_FROZEN = getattr(sys, "frozen", False)          # True dentro l'eseguibile (P
 
 IS_WIN    = sys.platform == "win32"
 
+IS_MAC    = sys.platform == "darwin"
+
 # Cartella delle risorse incluse (icona, 7z.exe): _MEIPASS nell'exe, altrimenti nella cartella del progetto (sopra il pacchetto comicoptimizer)
 RES_DIR   = getattr(sys, "_MEIPASS",
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
