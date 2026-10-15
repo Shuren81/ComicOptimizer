@@ -18,6 +18,12 @@
 - **Nuovo:** dodici nuove frasi ironiche all'avvio.
 - **Corretto:** su schermi stretti la griglia mostrava fino a 7 colonne anche se non ci stavano: le ultime card restavano fuori dalla finestra e non si potevano raggiungere. Ora le colonne si adattano alla larghezza dello schermo (sugli schermi larghi non cambia nulla).
 
+### Interfaccia
+- **Nuovo:** banner in stile cyberpunk al posto della scritta "ComicOptimizer, by Shuren" (fumetti in PDF, ZIP e RAR che diventano un CBZ ottimizzato). Si adatta alla larghezza della finestra; si rigenera con `tools/make_banner.py`. Incluso negli eseguibili per Windows e Linux.
+- **Cambiato:** rimosso il riquadro "Trascina qui i file", che occupava molto spazio. Quando la lista è vuota la scritta compare al centro dello spazio delle card, senza riquadri, e sparisce appena si importano fumetti. I file si possono rilasciare in un punto qualsiasi della finestra; mentre li trascini la scritta e il bordo della griglia si illuminano.
+- **Cambiato:** con la lista vuota la schermata è pulita: spariscono i pulsanti in alto, dietro la scritta "Trascina qui i file" compare un disegno al neon fatto solo di contorni (si rigenera con `tools/make_drop_art.py`) e il suggerimento azzurro diventa una frase d'invito ironica. Appena ci sono fumetti tutto torna come prima.
+- **Nuovo:** a fine lavoro, chiuso il riepilogo, la lista si pulisce da sola se tutti i fumetti sono "CONVERTITO" (sistemati e in WebP). Se anche uno solo è in un altro stato, la lista resta.
+
 ### Test
 - **Nuovo:** cartella `tests/` con i test automatici della rinomina e della selezione (`venv/bin/python tests/test_rename.py`, `tests/test_selection.py`, `tests/test_layout.py`).
 

@@ -1,3 +1,5 @@
+![ComicOptimizer](comicoptimizer_banner.png)
+
 ### 📚 ComicOptimizer v3.0.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
@@ -6,7 +8,7 @@ Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer n
 
 ### 🆕 Novità
 
-**v3.0.0: rinomina.** Rinomina uno o più fumetti dall'app (doppio click sul nome, F2 o "Rinomina selezionati"), con uno schema libero come `<parte1> - #<num> - <parte3>`, i tasti "_ → spazio" e "Iniziali Maiuscole", e l'anteprima prima di toccare i file. Il pulsante "Aiuto" spiega tutto. **Selezione più comoda:** trascina il mouse per selezionare con un riquadro (la griglia scorre da sola), "Seleziona tutto" o `Ctrl+A`.
+**v3.0.0: rinomina.** Rinomina uno o più fumetti dall'app (doppio click sul nome, F2 o "Rinomina selezionati"), con uno schema libero come `<parte1> - #<num> - <parte3>`, i tasti "_ → spazio" e "Iniziali Maiuscole", e l'anteprima prima di toccare i file. Il pulsante "Aiuto" spiega tutto. **Nuovo look:** banner cyberpunk in cima, niente più riquadro di rilascio (i file si trascinano ovunque nella finestra) e lista che si pulisce da sola quando tutti i fumetti sono convertiti. **Selezione più comoda:** trascina il mouse per selezionare con un riquadro (la griglia scorre da sola), "Seleziona tutto" o `Ctrl+A`.
 
 **v2.9.0: anteprima, cartelle e unione.** Nell'editor un doppio click apre la pagina in grande (frecce ← → per scorrere). Una cartella di sole immagini trascinata nell'app diventa un fumetto. Con "Unisci selezionati" più fumetti, anche di formati diversi, diventano un unico CBZ.
 
@@ -104,7 +106,7 @@ pip install -r requirements.txt
 ### 🛠️ Utilizzo Rapido
 
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
-* **Importazione:** trascina i tuoi file o cartelle direttamente nella "Drop Zone" dell'app (i file con estensioni non supportate non vengono importati). Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
+* **Importazione:** trascina i tuoi file o cartelle in un punto qualsiasi della finestra (quando la lista è vuota la schermata è pulita: niente pulsanti, solo la scritta "Trascina qui i file" su un disegno al neon) (i file con estensioni non supportate non vengono importati). Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.
 * **Selezione:** clicca sulle card per selezionarle, oppure trascina il mouse sulla griglia per selezionarne tante con un riquadro (con Ctrl il riquadro le toglie; vicino al bordo la griglia scorre da sola). Shift+click seleziona un intervallo, "Seleziona tutto" o `Ctrl+A` le seleziona tutte, `Esc` toglie la selezione. Con una selezione compaiono "Sistema selezionati", "Rinomina selezionati" e "Cestina selezionati"; con almeno due fumetti anche "Unisci selezionati".
 * **Unione:** "Unisci selezionati" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
@@ -133,6 +135,8 @@ comicoptimizer/
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
 tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py)
+tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
+tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
 .github/workflows/        compilazione automatica (Windows e AppImage)
 ```
 

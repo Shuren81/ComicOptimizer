@@ -45,6 +45,8 @@ jobs:
           --name ComicOptimizer
           --icon comicoptimizer.ico
           --add-data "comicoptimizer.png;."
+          --add-data "comicoptimizer_banner.png;."
+          --add-data "comicoptimizer_drop.png;."
           --add-binary "bin\7z.exe;bin"
           --add-binary "bin\7z.dll;bin"
           --add-data "bin\7-Zip-License.txt;bin"
@@ -106,6 +108,8 @@ jobs:
           --noconfirm --clean --windowed
           --name ComicOptimizer
           --add-data "comicoptimizer.png:."
+          --add-data "comicoptimizer_banner.png:."
+          --add-data "comicoptimizer_drop.png:."
           --collect-submodules send2trash
           --exclude-module tkinter
 

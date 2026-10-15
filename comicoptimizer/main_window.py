@@ -9,7 +9,7 @@ import sys
 import threading
 
 from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer
-from PyQt6.QtGui import QCursor, QKeySequence, QPixmap
+from PyQt6.QtGui import QCursor, QKeySequence, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -141,6 +141,37 @@ class _DragSelector(QObject):
             return
         self._update(self.win.grid_w.mapFromGlobal(QCursor.pos()))
 
+# --- LISTA VUOTA ---
+
+_HINT_CARDS = "Clicca sulle card o trascina il mouse per selezionarle"
+_HINT_CARDS_TIP = ("Shift+click: seleziona un intervallo\n"
+                   "Ctrl+trascina: toglie dalla selezione\n"
+                   "Ctrl+A: seleziona tutto · Esc: deseleziona")
+_EMPTY_HINTS = [
+    "Nessun fumetto all'orizzonte: trascinali nella finestra e cominciamo.",
+    "Griglia vuota, processore annoiato. Dammi qualche fumetto.",
+    "Lancia qui i tuoi fumetti (con delicatezza): al resto penso io.",
+    "Qui c'è un silenzio da biblioteca. Trascina dentro un po' di fumetti.",
+    "Pronto quando vuoi: trascina file o cartelle in un punto qualsiasi.",
+]
+
+class _EmptyArea(QWidget):
+    """Lista vuota: disegno al neon adattato allo spazio, con la scritta sopra."""
+    def __init__(self, text, art_path):
+        super().__init__()
+        self.art = QPixmap(art_path)   # se manca resta solo la scritta
+        self.label = QLabel(text)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        QVBoxLayout(self).addWidget(self.label)
+
+    def paintEvent(self, e):
+        if self.art.isNull():
+            return
+        art = self.art.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                              Qt.TransformationMode.SmoothTransformation)
+        QPainter(self).drawPixmap((self.width() - art.width()) // 2,
+                                  (self.height() - art.height()) // 2, art)
+
 # --- MAIN WINDOW ---
 
 class MainWindow(QMainWindow):
@@ -162,8 +193,10 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.check_deps()
 
-        # Dimensione iniziale: 4 card di larghezza (meno, se lo schermo è stretto)
-        self._apply_window_width(self._cols_for_count(0))
+        # Dimensione iniziale (4 card di larghezza, meno se lo schermo è stretto)
+        # e schermata vuota: niente pulsanti, frase d'invito
+        self._was_empty = None
+        self.refresh_grid()
 
         frasi = [
             "Il mio processore scalpita...",
@@ -321,6 +354,10 @@ class MainWindow(QMainWindow):
         w = min(max(self._win_width_for_cols(cols), min_bars_w + 30), screen.width())
         h = self.height() if self.isVisible() else min(800, screen.height())
         self.setFixedWidth(w)
+        if not self._banner.isNull():
+            m = self.centralWidget().layout().contentsMargins()
+            self.title_lbl.setPixmap(self._banner.scaledToWidth(
+                w - m.left() - m.right(), Qt.TransformationMode.SmoothTransformation))
         self.setMinimumHeight(min(600, screen.height()))
         self.setMaximumHeight(screen.height())
         if not self.isVisible():
@@ -360,20 +397,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        title = QLabel("ComicOptimizer, by Shuren")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(
-            "font-size: 34px; font-weight: 900; color: #00e5ff; "
-            "padding: 10px; background: #1a1a1a; border-bottom: 2px solid #00d4ff; "
-            "border-top-left-radius: 14px; border-top-right-radius: 14px;"
-        )
-        layout.addWidget(title)
-
-        self.drop_zone = QLabel("\nTRASCINA QUI I FILE (CBZ, CBR, ZIP, RAR, PDF) O CARTELLE DI IMMAGINI\n")
-        self.drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_zone.setFixedHeight(120)
-        self.set_drop_style(False)
-        layout.addWidget(self.drop_zone)
+        self.title_lbl = QLabel()
+        self.title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._banner = QPixmap(os.path.join(config.RES_DIR, "comicoptimizer_banner.png"))
+        if self._banner.isNull():
+            # banner mancante: la vecchia scritta
+            self.title_lbl.setText("ComicOptimizer, by Shuren")
+            self.title_lbl.setStyleSheet(
+                "font-size: 34px; font-weight: 900; color: #00e5ff; "
+                "padding: 10px; background: #1a1a1a; border-bottom: 2px solid #00d4ff; "
+                "border-top-left-radius: 14px; border-top-right-radius: 14px;"
+            )
+        layout.addWidget(self.title_lbl)
 
         top_bar = QHBoxLayout()
         self.btn_clear = QPushButton("PULISCI LISTA")
@@ -440,10 +475,8 @@ class MainWindow(QMainWindow):
         idle_l = QVBoxLayout(idle_w)
         idle_l.setContentsMargins(0, 0, 0, 0)
         idle_l.setSpacing(2)
-        self.hint_lbl = QLabel("Clicca sulle card o trascina il mouse per selezionarle")
-        self.hint_lbl.setToolTip("Shift+click: seleziona un intervallo\n"
-                                 "Ctrl+trascina: toglie dalla selezione\n"
-                                 "Ctrl+A: seleziona tutto · Esc: deseleziona")
+        self.hint_lbl = QLabel(_HINT_CARDS)
+        self.hint_lbl.setToolTip(_HINT_CARDS_TIP)
         self.hint_lbl.setStyleSheet("color: #00e5ff; font-size: 11px; font-weight: bold")
         self.hint_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.ironic_lbl = QLabel("Pronto ad operare.")
@@ -479,14 +512,14 @@ class MainWindow(QMainWindow):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
         self.top_bar_w.setLayout(top_bar)
-        top_bar_scroll = QScrollArea()
-        top_bar_scroll.setWidgetResizable(True)
-        top_bar_scroll.setFixedHeight(74)
-        top_bar_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        top_bar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        top_bar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        top_bar_scroll.setWidget(self.top_bar_w)
-        layout.addWidget(top_bar_scroll)
+        self.top_bar_scroll = QScrollArea()
+        self.top_bar_scroll.setWidgetResizable(True)
+        self.top_bar_scroll.setFixedHeight(74)
+        self.top_bar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.top_bar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.top_bar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.top_bar_scroll.setWidget(self.top_bar_w)
+        layout.addWidget(self.top_bar_scroll)
         # riga tutta sua sotto i pulsanti: aiuto e frase (a riposo), avanzamento e STOP (al lavoro)
         layout.addWidget(self.status_stack)
 
@@ -498,7 +531,19 @@ class MainWindow(QMainWindow):
         self.grid_l.setSpacing(15)
         self.grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.scroll.setWidget(self.grid_w)
-        layout.addWidget(self.scroll)
+
+        # Griglia vuota: al posto delle card la scritta "trascina qui" (niente riquadri)
+        self.empty_lbl = _EmptyArea(
+            "<div style='font-size: 26px; font-weight: 800;'>TRASCINA QUI I FILE</div>"
+            "<div style='font-size: 14px; margin-top: 8px;'>"
+            "CBZ · CBR · ZIP · RAR · PDF · cartelle di immagini</div>",
+            os.path.join(config.RES_DIR, "comicoptimizer_drop.png"))
+        self.grid_stack = QStackedWidget()
+        self.grid_stack.setObjectName("grid_stack")
+        self.grid_stack.addWidget(self.empty_lbl)
+        self.grid_stack.addWidget(self.scroll)
+        self.set_drop_style(False)
+        layout.addWidget(self.grid_stack)
         self._drag_selector = _DragSelector(self)
 
         footer = QHBoxLayout()
@@ -710,6 +755,11 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(title)
         box.setText("<br>".join(lines))
         box.exec()
+
+        # tutti i fumetti nella condizione migliore (sistemati e in WebP): lista pulita
+        if self.cards and all(c.status_code == 3 for c in self.cards.values()):
+            log.info("Tutti i fumetti sono convertiti: lista pulita.")
+            self.clear_all()
 
     def _notify_system(self, title, body, ok=True):
         """Notifica del sistema operativo + suono (non blocca l'interfaccia)."""
@@ -1159,6 +1209,14 @@ class MainWindow(QMainWindow):
 
         for i, p in enumerate(sorted(self.cards.keys(), key=get_natural_sort_key)):
             self.grid_l.addWidget(self.cards[p], i // cols, i % cols)
+        empty = not self.cards
+        self.grid_stack.setCurrentWidget(self.empty_lbl if empty else self.scroll)
+        self.top_bar_scroll.setVisible(not empty)
+        if empty != self._was_empty:   # la frase cambia solo quando la lista si svuota/riempie
+            self._was_empty = empty
+            self.hint_lbl.setText(random.choice(_EMPTY_HINTS) if empty else _HINT_CARDS)
+            self.hint_lbl.setToolTip("Formati: CBZ, CBR, ZIP, RAR, PDF e cartelle di immagini"
+                                     if empty else _HINT_CARDS_TIP)
         if self.last_clicked not in self.cards.values():
             self.last_clicked = None   # card rimossa: lo Shift+click ripartirebbe da lei
         self._update_sel_buttons()
@@ -1169,11 +1227,10 @@ class MainWindow(QMainWindow):
             self.refresh_grid()
 
     def set_drop_style(self, a):
-        self.drop_zone.setStyleSheet(
-            f"border: {4 if a else 3}px dashed {'#00e5ff' if a else '#444'}; "
-            f"border-radius: 18px; background: {'#2c3e50' if a else '#111'}; "
-            f"color: {'#00e5ff' if a else '#555'}; font-size: 18px; font-weight: bold;"
-        )
+        """Mentre si trascinano file sulla finestra: scritta ciano e bordo tratteggiato."""
+        self.empty_lbl.label.setStyleSheet(f"color: {'#00e5ff' if a else '#888'};")
+        self.grid_stack.setStyleSheet(
+            "QStackedWidget#grid_stack { border: 2px dashed #00e5ff; border-radius: 14px; }" if a else "")
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls():
