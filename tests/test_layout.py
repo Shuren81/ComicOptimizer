@@ -89,7 +89,8 @@ def banner_and_empty_grid(work):
     assert not hasattr(w, "drop_zone")
     pix = w.title_lbl.pixmap()
     m = w.centralWidget().layout().contentsMargins()
-    assert pix.width() == w.width() - m.left() - m.right(), (pix.width(), w.width())
+    grid_w = min(w._win_width_for_cols(w._cols_for_count(0)), w.width())
+    assert pix.width() == grid_w - m.left() - m.right(), (pix.width(), w.width())
     assert abs(pix.height() - pix.width() * 260 / 2000) <= 1
     # lista vuota: scritta con disegno, niente pulsanti, frase d'invito;
     # con fumetti: griglia, pulsanti e suggerimento di sempre; "Pulisci lista" → di nuovo vuota
@@ -126,6 +127,25 @@ def banner_and_empty_grid(work):
     assert w.cards == {} and w.grid_stack.currentWidget() is w.empty_lbl
     for t in list(w.active_threads):
         t.wait(5000)
+    w._closing = True
+    w.close()
+
+    # pochi fumetti: selezionando una card compaiono i pulsanti e la finestra si allarga,
+    # ma banner e card non si spostano (il doppio click sul nome resta sulla stessa card)
+    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtCore import QSize
+    w = window_with(2, work)
+    card = list(w.cards.values())[0]
+    before = (w.title_lbl.pixmap().height(), card.mapTo(w, QPoint(0, 0)), w.width())
+    w.top_bar_w.minimumSizeHint = lambda: QSize(1400, 50)   # pulsanti larghi come su uno schermo vero
+    card.selected = True
+    w.handle_selection(card, Qt.KeyboardModifier.NoModifier)
+    QTest.qWait(QApplication.doubleClickInterval() // 2)
+    assert w.width() == before[2]                 # nessun cambio di larghezza a metà doppio click
+    QTest.qWait(QApplication.doubleClickInterval() + 200)
+    assert w.btn_rename.isVisible() and w.width() > before[2]
+    assert (w.title_lbl.pixmap().height(), card.mapTo(w, QPoint(0, 0))) == before[:2]
     w._closing = True
     w.close()
 

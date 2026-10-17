@@ -2,10 +2,13 @@
 
 import os
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QSettings, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
+    QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -17,6 +20,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QVBoxLayout,
 )
 
@@ -31,6 +35,7 @@ from .utils import (
     rename_problem,
     split_name,
     underscores_to_spaces,
+    wildcard_replace,
 )
 
 # NON aggiungere al root logger: causerebbe duplicati perché log è già figlio di root
@@ -255,22 +260,39 @@ class MergeDialog(QDialog):
 
 class RenameDialog(QDialog):
     """
-    Rinomina uno o più fumetti: lo schema riempie la colonna "Nuovo nome",
-    i tasti la trasformano, le celle si possono modificare a mano.
+    Rinomina uno o più fumetti. La colonna "Nuovo nome" è ricalcolata a ogni modifica:
+    schema → Cerca/Sostituisci → "_ → spazio" → "Iniziali Maiuscole", sulle righe
+    selezionate (o su tutte se non ce ne sono): le altre restano invariate. Le celle
+    corrette a mano restano fisse; svuotandole torna il nome automatico.
     Le righe con un problema (rosse) non vengono rinominate.
     """
+    SETTINGS = ("Shuren", "ComicOptimizer")
+    RECENT_MAX = 10
+    PRESETS = ["<parte1> #<parte2>",                               # serie
+               "<parte1> #<parte2> - <parte3>",                    # una storia per numero
+               "<parte1> #<parte2> - <parte3> (Vol. <parte4:1>)"]  # contenitore, storie a volumi
+
     def __init__(self, paths, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Rinomina")
-        fit_dialog_to_screen(self, 900, 560, min_w=560, min_h=360)
+        fit_dialog_to_screen(self, 920, 600, min_w=580, min_h=380)
         self.paths = sorted(paths, key=lambda p: get_natural_sort_key(os.path.basename(p)))
         self._schema_err = [None] * len(self.paths)
+        self._manual = {}            # riga → nome scritto a mano (fisso)
+        self._single_row = None      # riga selezionata da sola: lo Schema mostra il suo nome
+        self._multi_schema = ""      # lo schema messo da parte nel frattempo
         self._targets = []
         l = QVBoxLayout(self)
 
         row = QHBoxLayout()
         single = len(self.paths) == 1
-        self.schema = QLineEdit(split_name(self.paths[0])[0] if single else "<nome>")
+        self.schema = QComboBox()
+        self.schema.setEditable(True)
+        self.schema.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        recent = self._recent()
+        self.schema.addItems(recent + [x for x in self.PRESETS if x not in recent])
+        self.schema.setEditText(split_name(self.paths[0])[0] if single else "<nome>")
+        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e tre schemi pronti")
         self.digits = QSpinBox()
         self.digits.setRange(1, 6)
         self.digits.setValue(3)
@@ -284,39 +306,67 @@ class RenameDialog(QDialog):
         row.addWidget(QLabel("Parti da:"))
         row.addWidget(self.start)
         l.addLayout(row)
+        row = QHBoxLayout()
         hint = QLabel("Segnaposto: <nome> nome attuale · <num> numero già nel nome · "
-                      "<n> progressivo · <parte1>, <parte2>… pezzi separati da \" - \"")
+                      "<n> progressivo · <parte1>, <parte2>… pezzi del nome")
         hint.setStyleSheet("color: #aaa; font-size: 11px;")
         hint.setTextFormat(Qt.TextFormat.PlainText)   # altrimenti "<nome>" sembra un tag HTML
         hint.setWordWrap(True)
-        l.addWidget(hint)
+        self.split_numbers = QCheckBox("Dividi anche ai numeri")
+        self.split_numbers.setChecked(True)
+        self.split_numbers.setToolTip("Le parti si dividono ai \" - \" e ai numeri staccati\n"
+                                      "(\"titolo 43 sottotitolo\" → titolo · 43 · sottotitolo).\n"
+                                      "Togli la spunta per nomi come \"Fantastici 4\".")
+        row.addWidget(hint, 1)
+        row.addWidget(self.split_numbers)
+        l.addLayout(row)
 
         row = QHBoxLayout()
-        b_us = QPushButton("_ → spazio")
-        b_us.clicked.connect(lambda: self._transform(underscores_to_spaces))
-        b_cap = QPushButton("Iniziali Maiuscole")
-        b_cap.clicked.connect(lambda: self._transform(capitalize_words))
+        self.b_us = QPushButton("_ → spazio")
+        self.b_cap = QPushButton("Iniziali Maiuscole")
+        for b in (self.b_us, self.b_cap):
+            b.setCheckable(True)
+            b.setAutoDefault(False)
+            b.setToolTip("Acceso/spento: vale per le righe selezionate (o per tutte)")
         self.find = QLineEdit()
-        self.find.setPlaceholderText("Cerca")
+        self.find.setPlaceholderText("Cerca  (? = un carattere, * = qualsiasi testo)")
         self.repl = QLineEdit()
         self.repl.setPlaceholderText("Sostituisci con")
-        b_rep = QPushButton("Sostituisci")
-        b_rep.clicked.connect(lambda: self.find.text() and self._transform(
-            lambda s: s.replace(self.find.text(), self.repl.text())))
-        for b in (b_us, b_cap, b_rep):
-            b.setAutoDefault(False)
-        row.addWidget(b_us)
-        row.addWidget(b_cap)
+        self.case = QCheckBox("Maiuscole/minuscole")
+        self.case.setToolTip("Se spuntato, \"naruto\" non trova \"NARUTO\"")
+        row.addWidget(self.b_us)
+        row.addWidget(self.b_cap)
         row.addSpacing(12)
         row.addWidget(self.find, 1)
         row.addWidget(self.repl, 1)
-        row.addWidget(b_rep)
+        row.addWidget(self.case)
+        l.addLayout(row)
+
+        row = QHBoxLayout()
+        sel_lbl = QLabel("Con righe selezionate si rinominano solo quelle (con una sola, lo Schema mostra il suo "
+                         "nome) · click: solo quella riga (di nuovo: deseleziona) · trascina o Shift+click: "
+                         "intervallo · Ctrl+click o Ctrl+trascina: aggiunge/toglie")
+        sel_lbl.setWordWrap(True)
+        sel_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        b_all = QPushButton("Tutte")
+        b_none = QPushButton("Nessuna")
+        for b in (b_all, b_none):
+            b.setProperty("sz", "small")
+            set_variant(b, "muted")
+            b.setAutoDefault(False)
+        row.addWidget(sel_lbl, 1)
+        row.addWidget(b_all)
+        row.addWidget(b_none)
         l.addLayout(row)
 
         self.table = QTableWidget(len(self.paths), 3)
         self.table.setHorizontalHeaderLabels(["Nome attuale", "Nuovo nome", "Estensione / problema"])
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # click = solo quella riga; trascina/Shift = intervallo; Ctrl = aggiunge/toglie
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
         for i, p in enumerate(self.paths):
             cur = QTableWidgetItem(os.path.basename(p))
             cur.setFlags(cur.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -328,6 +378,8 @@ class RenameDialog(QDialog):
         self.table.setColumnWidth(0, 330)
         self.table.setColumnWidth(1, 330)
         l.addWidget(self.table, 1)
+        b_all.clicked.connect(self.table.selectAll)
+        b_none.clicked.connect(self.table.clearSelection)
 
         btns = QHBoxLayout()
         b_can = QPushButton("Annulla")
@@ -349,44 +401,97 @@ class RenameDialog(QDialog):
         btns.addWidget(self.b_ok)
         l.addLayout(btns)
 
-        self.schema.textChanged.connect(self._fill)
-        self.digits.valueChanged.connect(self._fill)
-        self.start.valueChanged.connect(self._fill)
+        self.schema.editTextChanged.connect(self._fill)
+        self.schema.lineEdit().returnPressed.connect(
+            lambda: self.b_ok.isEnabled() and self.accept())
+        for sig in (self.digits.valueChanged, self.start.valueChanged, self.split_numbers.toggled,
+                    self.b_us.toggled, self.b_cap.toggled, self.find.textChanged,
+                    self.repl.textChanged, self.case.toggled):
+            sig.connect(self._fill)
+        self.table.itemSelectionChanged.connect(self._on_selection)
         self.table.itemChanged.connect(self._edited)
+        self.table.viewport().installEventFilter(self)
         self._fill()
-        self.schema.selectAll()
+        self.schema.lineEdit().selectAll()
         self.schema.setFocus()
 
+    def _post(self, s):
+        """Cerca/Sostituisci e tasti, nell'ordine; alla fine spazi doppi tolti."""
+        s = wildcard_replace(s, self.find.text(), self.repl.text(), self.case.isChecked())
+        if self.b_us.isChecked():
+            s = underscores_to_spaces(s)
+        if self.b_cap.isChecked():
+            s = capitalize_words(s)
+        return " ".join(s.split())
+
     def _fill(self):
-        """Lo schema riscrive tutta la colonna "Nuovo nome"."""
+        """Ricalcola tutta la colonna "Nuovo nome"."""
+        # con righe selezionate si rinominano solo quelle; <n> conta solo loro
+        scope = {i.row() for i in self.table.selectedIndexes()} or set(range(len(self.paths)))
+        post = bool(self.find.text() or self.b_us.isChecked() or self.b_cap.isChecked())
+        k = 0
         self.table.blockSignals(True)
         for i, p in enumerate(self.paths):
+            err = None
             stem = split_name(p)[0]
-            try:
-                new, err = apply_schema(stem, self.schema.text(), self.start.value() + i,
-                                        self.digits.value()), None
-            except ValueError as e:
-                new, err = stem, str(e)
-            self.table.item(i, 1).setText(new)
+            if i in self._manual:
+                new = self._manual[i]
+            elif i not in scope:
+                new = stem                                  # non selezionata: invariata
+            else:
+                try:
+                    new = apply_schema(stem, self.schema.currentText(), self.start.value() + k,
+                                       self.digits.value(), self.split_numbers.isChecked())
+                    if post:
+                        new = self._post(new)
+                except ValueError as e:
+                    new, err = stem, str(e)
+                k += 1
+            item = self.table.item(i, 1)
+            item.setText(new)
+            f = item.font()
+            f.setItalic(i in self._manual)
+            item.setFont(f)
             self._schema_err[i] = err
         self.table.blockSignals(False)
         self._check()
 
-    def _edited(self, item):
-        if item.column() == 1:
-            self._schema_err[item.row()] = None   # corretta a mano
-            self._check()
+    def eventFilter(self, obj, ev):
+        # click (senza tasti) sull'unica riga selezionata: la deseleziona
+        if obj is self.table.viewport() and ev.type() == QEvent.Type.MouseButtonPress \
+                and ev.button() == Qt.MouseButton.LeftButton and not ev.modifiers():
+            row = self.table.rowAt(int(ev.position().y()))
+            if row >= 0 and {i.row() for i in self.table.selectedIndexes()} == {row}:
+                self.table.clearSelection()
+                return True
+        return super().eventFilter(obj, ev)
 
-    def _transform(self, fn):
-        """Applica `fn` alle righe selezionate nella tabella (o a tutte)."""
-        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or range(len(self.paths))
-        self.table.blockSignals(True)
-        for r in rows:
-            item = self.table.item(r, 1)
-            item.setText(fn(item.text()))
-            self._schema_err[r] = None
-        self.table.blockSignals(False)
-        self._check()
+    def _on_selection(self):
+        """Una sola riga selezionata: lo Schema mostra il suo nome, da riscrivere direttamente.
+        Cambiando selezione, il nome scritto resta come correzione a mano e torna lo schema di prima."""
+        rows = {i.row() for i in self.table.selectedIndexes()}
+        one = rows.pop() if len(rows) == 1 else None
+        if self._single_row is not None and one != self._single_row:
+            r, text = self._single_row, self.schema.currentText()
+            if text.strip() and text != split_name(self.paths[r])[0]:
+                self._manual[r] = text
+            self._single_row = None
+            self.schema.setEditText(self._multi_schema)
+        if one is not None and self._single_row is None:
+            self._multi_schema = self.schema.currentText()
+            self._single_row = one
+            self.schema.setEditText(self._manual.pop(one, split_name(self.paths[one])[0]))
+            self.schema.lineEdit().selectAll()
+        self._fill()
+
+    def _edited(self, item):
+        """Correzione a mano: resta fissa; svuotando la cella torna il nome automatico."""
+        if item.column() == 1:
+            if item.text().strip():
+                self._manual[item.row()] = item.text()
+            else:
+                self._manual.pop(item.row(), None)
+            self._fill()
 
     def _check(self):
         """Colora le righe, calcola le destinazioni valide e aggiorna il pulsante."""
@@ -412,16 +517,28 @@ class RenameDialog(QDialog):
             bg = QColor("#5c1a1a") if problem else QColor(0, 0, 0, 0)
             for c in range(3):
                 self.table.item(i, c).setBackground(bg)
-            self.table.item(i, 2).setText(f"⚠ {problem}" if problem
-                                          else (ext or "cartella") + ("" if changed else " · invariato"))
+            note = f"⚠ {problem}" if problem else (ext or "cartella") + ("" if changed else " · invariato")
+            self.table.item(i, 2).setText(note + ("  ✎ a mano" if i in self._manual else ""))
         self.table.blockSignals(False)
         n = len(self._targets)
-        self.b_ok.setText(f"Rinomina <n> di {len(self.paths)}" if len(self.paths) > 1 else "Rinomina")
+        self.b_ok.setText(f"Rinomina {n} di {len(self.paths)}" if len(self.paths) > 1 else "Rinomina")
         self.b_ok.setEnabled(n > 0)
 
     def renames(self):
         """[(vecchio percorso, nuovo percorso)] delle sole righe valide e cambiate."""
         return list(self._targets)
+
+    # --- schemi recenti (salvati tra un avvio e l'altro) ---
+
+    def _recent(self):
+        return QSettings(*self.SETTINGS).value("rinomina/schemi_recenti", [], type=list)
+
+    def accept(self):
+        schema = self.schema.currentText()
+        if "<" in schema:   # solo schemi veri, non un nome scritto per un singolo fumetto
+            recent = [schema] + [x for x in self._recent() if x != schema]
+            QSettings(*self.SETTINGS).setValue("rinomina/schemi_recenti", recent[:self.RECENT_MAX])
+        super().accept()
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key.Key_F1:
@@ -430,21 +547,34 @@ class RenameDialog(QDialog):
             super().keyPressEvent(e)
 
     def show_help(self):
-        box = QMessageBox(self)
-        box.setWindowTitle("Rinomina: aiuto")
-        box.setText(RENAME_HELP)
-        box.exec()
+        self.help_dialog().exec()
+
+    def help_dialog(self):
+        """Aiuto in un'area che scorre: il testo è lungo."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rinomina: aiuto")
+        fit_dialog_to_screen(dlg, 760, 680, min_w=420, min_h=320)
+        v = QVBoxLayout(dlg)
+        dlg.text = QTextBrowser()
+        dlg.text.setHtml(RENAME_HELP)
+        v.addWidget(dlg.text, 1)
+        b = QPushButton("Chiudi")
+        set_variant(b, "info")
+        b.clicked.connect(dlg.accept)
+        v.addWidget(b, alignment=Qt.AlignmentFlag.AlignRight)
+        return dlg
 
 RENAME_HELP = """
 <h3>Come si rinomina</h3>
 <ol>
-<li><b>Schema</b>: scrivi il formato del nuovo nome. La colonna <i>Nuovo nome</i> si aggiorna mentre scrivi.</li>
-<li><b>Tasti</b>: sistemano i nomi della colonna (sulle righe selezionate nella tabella, o su tutte).</li>
+<li><b>Schema</b>: scrivi il formato del nuovo nome (nel menu a tendina: gli schemi usati di recente e tre schemi pronti).</li>
+<li><b>Cerca / Sostituisci</b> e i tasti <b>_ → spazio</b>, <b>Iniziali Maiuscole</b>: sistemano i nomi.</li>
 <li><b>A mano</b>: doppio click su una cella di <i>Nuovo nome</i> per correggere un caso particolare.</li>
 <li><b>Rinomina</b>: cambia il nome dei soli file validi. Le righe rosse e quelle invariate non vengono toccate.</li>
 </ol>
-<p>Attenzione: cambiare lo schema riscrive tutta la colonna, comprese le correzioni fatte a mano o con i tasti.
-Usa prima lo schema, poi i tasti, per ultime le correzioni a mano.</p>
+<p>La colonna <i>Nuovo nome</i> è sempre aggiornata, mentre scrivi: mostra esattamente il nome finale.
+Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i> → <i>Iniziali Maiuscole</i>
+(gli spazi doppi vengono tolti).</p>
 
 <h3>Segnaposto dello schema</h3>
 <table cellspacing="4">
@@ -452,21 +582,65 @@ Usa prima lo schema, poi i tasti, per ultime le correzioni a mano.</p>
 <tr><td><b>&lt;num&gt;</b></td><td>il primo numero già presente nel nome, con le <i>Cifre</i> scelte
  (<code>naruto_12</code> → <code>012</code>). Tiene il numero vero: ideale per numerazioni sparse.</td></tr>
 <tr><td><b>&lt;n&gt;</b></td><td>un numero progressivo, nell'ordine della tabella, da <i>Parti da</i>, con le <i>Cifre</i> scelte</td></tr>
-<tr><td><b>&lt;parte1&gt;</b>, <b>&lt;parte2&gt;</b>…</td><td>i pezzi del nome separati da un trattino con spazi o <code>_</code> attorno
- (<code>Zagor - 45 - Il ritorno</code> → parte1 <code>Zagor</code>, parte2 <code>45</code>, parte3 <code>Il ritorno</code>).
- Il trattino dentro una parola (<code>Spider-Man</code>) non divide.</td></tr>
+<tr><td><b>&lt;parte1&gt;</b>, <b>&lt;parte2&gt;</b>…</td><td>i pezzi del nome. Si dividono ai trattini con spazi o <code>_</code>
+ attorno e, con <i>Dividi anche ai numeri</i>, ai numeri staccati (anche con <code>#</code> davanti):
+ <code>Titolo 43 Sottotitolo</code> → parte1 <code>Titolo</code>, parte2 <code>43</code>, parte3 <code>Sottotitolo</code>.
+ Una parte fatta solo di cifre prende le <i>Cifre</i> scelte (<code>43</code> → <code>043</code>).
+ Non dividono il trattino dentro una parola (<code>Spider-Man</code>) e il numero attaccato (<code>X-Men2</code>).
+ Per nomi come <i>Fantastici 4</i> togli la spunta a <i>Dividi anche ai numeri</i>.</td></tr>
+<tr><td><b>&lt;…:cifre&gt;</b></td><td>cifre solo per quel segnaposto, al posto del campo <i>Cifre</i>:
+ <code>&lt;num:4&gt;</code> → <code>0045</code>, <code>&lt;parte4:1&gt;</code> → <code>2</code> (<code>:1</code> = numero così com'è)</td></tr>
 </table>
 <p>Tutto il resto dello schema è testo fisso. Esempi:<br>
 <code>Naruto - #&lt;num&gt;</code> → <code>Naruto - #012</code><br>
-<code>&lt;parte1&gt; - #&lt;num&gt; - &lt;parte3&gt;</code> → <code>Zagor - #045 - Il ritorno</code><br>
+<code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt;</code> → <code>Titolo #043 - Sottotitolo</code><br>
 <code>Dylan Dog &lt;n&gt;</code> → <code>Dylan Dog 001</code>, <code>Dylan Dog 002</code>…</p>
 
-<h3>Tasti</h3>
+<h3>Come conviene chiamare i file</h3>
+<ol>
+<li>La <b>testata per prima</b>, scritta sempre uguale: i numeri della stessa serie restano vicini.</li>
+<li>Il <b>numero con # e sempre 3 cifre</b> (<code>#007</code>, <code>#045</code>): si legge subito, si ordina bene
+ ovunque e Komga, Kavita e YACReader lo riconoscono da soli.</li>
+<li>Il <b>titolo della storia dopo " - "</b>, solo per le testate che lo hanno.</li>
+<li>L'<b>anno tra parentesi in fondo</b>, solo se serve distinguere serie con lo stesso nome.</li>
+<li><b>Niente etichette</b> come <code>(Digital)</code> o <code>(Pyrate-…)</code>.</li>
+</ol>
+<table cellspacing="4">
+<tr><td>Serie</td><td><code>Absolute Batman #024.cbz</code><br>
+ schema <code>&lt;parte1&gt; #&lt;parte2&gt;</code></td></tr>
+<tr><td>Una storia per numero</td><td><code>Dylan Dog #045 - L'alba dei morti viventi.cbz</code><br>
+ schema <code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt;</code>; storia che continua: <code>(2)</code>, <code>(3)</code> in fondo;
+ più storie nello stesso numero: <code>La grande rapina + Il ponte</code></td></tr>
+<tr><td>Contenitore, storie a volumi</td><td><code>Romanzi a Fumetti #003 - Il Corvo (Vol. 1).cbz</code><br>
+ <code>Romanzi a Fumetti #008 - Il Corvo (Vol. 2).cbz</code><br>
+ schema <code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt; (Vol. &lt;parte4:1&gt;)</code>: i file restano in ordine di uscita
+ e cercando il titolo della storia trovi tutti i volumi.</td></tr>
+</table>
+<p>I tre schemi sono già pronti nel menu a tendina dello Schema.</p>
+
+<h3>Cerca / Sostituisci</h3>
+<p>Il risultato si vede subito nella colonna. Jolly in <i>Cerca</i>:
+<b>?</b> = un carattere qualsiasi, <b>*</b> = qualsiasi testo. Esempi:<br>
+<code>(*)</code> con <i>Sostituisci</i> vuoto → toglie ogni gruppo tra parentesi
+ (<code>Titolo (2019) (Digital)</code> → <code>Titolo</code>)<br>
+<code>Vol*</code> → sostituisce da "Vol" fino alla fine del nome<br>
+<code>Cap ??</code> → trova "Cap 12", "Cap 07"…<br>
+Senza <i>Maiuscole/minuscole</i> spuntato, "naruto" trova anche "NARUTO".</p>
+
+<h3>Tasti e righe selezionate</h3>
 <ul>
-<li><b>_ → spazio</b>: sostituisce i trattini bassi con spazi (e toglie gli spazi doppi).</li>
-<li><b>Iniziali Maiuscole</b>: maiuscola la prima lettera di ogni parola, senza abbassare le altre
- (<code>DC</code> resta <code>DC</code>, <code>l'alba</code> diventa <code>L'alba</code>).</li>
-<li><b>Cerca / Sostituisci con</b>: sostituisce un pezzo di testo uguale in tutti i nomi.</li>
+<li><b>_ → spazio</b> e <b>Iniziali Maiuscole</b> sono interruttori: acceso/spento. <i>Iniziali Maiuscole</i>
+ non abbassa le altre lettere (<code>DC</code> resta <code>DC</code>, <code>l'alba</code> diventa <code>L'alba</code>).</li>
+<li>Se selezioni delle righe, si rinominano <b>solo quelle</b> (schema, Cerca/Sostituisci e tasti);
+ le altre restano invariate e il progressivo &lt;n&gt; conta solo le selezionate. Senza selezione si lavora su tutte.</li>
+<li>Con <b>una sola riga selezionata</b>, lo Schema mostra il suo nome: scrivi direttamente quello nuovo.
+ Selezionando altro, il nome scritto resta su quella riga ("✎ a mano") e torna lo schema di prima.</li>
+<li>Selezione: <b>click</b> seleziona solo quella riga (un altro click sulla stessa la deseleziona);
+ <b>trascinando</b> o con <b>Shift+click</b> selezioni un intervallo; <b>Ctrl+click</b> aggiunge o toglie una riga,
+ <b>Ctrl+trascina</b> aggiunge o toglie un intervallo (partendo da una riga selezionata, le toglie).
+ <i>Tutte</i> / <i>Nessuna</i>, o Ctrl+A.</li>
+<li>Le <b>correzioni a mano</b> (in corsivo, "✎ a mano") restano fisse anche se cambi schema o tasti.
+ Svuota la cella per tornare al nome automatico.</li>
 </ul>
 
 <h3>Righe rosse</h3>
@@ -476,7 +650,8 @@ Correggile a mano nella cella.</p>
 
 <h3>Sicurezza</h3>
 <p>Si cambia solo il nome: il contenuto del fumetto non viene toccato e l'estensione resta la stessa.
-Un file esistente non viene mai sovrascritto. I caratteri <code>\\ / : * ? " &lt; &gt; |</code> diventano <code>_</code>.</p>
+Un file esistente non viene mai sovrascritto. I caratteri <code>\\ / : * ? " &lt; &gt; |</code> diventano <code>_</code>.
+Dopo una rinomina, il pulsante <b>Annulla rinomina</b> nella finestra principale rimette i nomi di prima.</p>
 <p><b>Come aprire la rinomina:</b> doppio click sul nome nella card, tasto <b>F2</b> o pulsante
 <b>Rinomina selezionati</b>. In questa finestra, <b>F1</b> apre questo aiuto.</p>
 """

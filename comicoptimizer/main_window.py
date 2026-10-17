@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
         self._closing        = False
         self._tray           = None    # icona di sistema, creata alla prima notifica
         self._loose_last     = set()   # cartelle con le immagini sciolte dopo le sottocartelle
+        self._last_renames   = []      # [(vecchio, nuovo)] dell'ultima rinomina, per annullarla
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -355,9 +356,12 @@ class MainWindow(QMainWindow):
         h = self.height() if self.isVisible() else min(800, screen.height())
         self.setFixedWidth(w)
         if not self._banner.isNull():
+            # largo quanto la griglia, non quanto la finestra: se si allarga per i pulsanti
+            # il banner non cambia altezza e le card non si spostano sotto il mouse
             m = self.centralWidget().layout().contentsMargins()
             self.title_lbl.setPixmap(self._banner.scaledToWidth(
-                w - m.left() - m.right(), Qt.TransformationMode.SmoothTransformation))
+                min(self._win_width_for_cols(cols), w) - m.left() - m.right(),
+                Qt.TransformationMode.SmoothTransformation))
         self.setMinimumHeight(min(600, screen.height()))
         self.setMaximumHeight(screen.height())
         if not self.isVisible():
@@ -452,6 +456,13 @@ class MainWindow(QMainWindow):
         self.btn_rename.setVisible(False)
         self.btn_rename.clicked.connect(self.rename_selected)
 
+        self.btn_undo_rename = QPushButton("ANNULLA RINOMINA")
+        self.btn_undo_rename.setMinimumHeight(42)
+        set_variant(self.btn_undo_rename, "muted")
+        self.btn_undo_rename.setToolTip("Rimette i nomi di prima ai fumetti dell'ultima rinomina")
+        self.btn_undo_rename.setVisible(False)
+        self.btn_undo_rename.clicked.connect(self.undo_rename)
+
         self.btn_trash_dupes = QPushButton("PULISCI DUPLICATI")
         self.btn_trash_dupes.setMinimumHeight(42)
         set_variant(self.btn_trash_dupes, "muted")
@@ -465,6 +476,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_sel)
         top_bar.addWidget(self.btn_merge)
         top_bar.addWidget(self.btn_rename)
+        top_bar.addWidget(self.btn_undo_rename)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
         top_bar.addStretch()
@@ -508,7 +520,7 @@ class MainWindow(QMainWindow):
         self.status_stack.addWidget(work_w)
 
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel_all, self.btn_sel, self.btn_merge, self.btn_rename,
+        for _b in (self.btn_sel_all, self.btn_sel, self.btn_merge, self.btn_rename, self.btn_undo_rename,
                    self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
@@ -687,6 +699,7 @@ class MainWindow(QMainWindow):
         self._add_thread(aw)
 
     def start_processing(self, tasks, to_webp=False):
+        self._set_undo([])   # dopo un lavoro i file dell'ultima rinomina possono non esistere più
         self.set_working(True, "Ottimizzazione...")
         self.current_worker = ProcessingWorker(tasks, to_webp=to_webp)
         self.current_worker.status_msg.connect(self.status_msg.setText)
@@ -1007,8 +1020,28 @@ class MainWindow(QMainWindow):
         dlg = RenameDialog(paths, self)
         if not dlg.exec():
             return
-        errors = []
-        for old, new in dlg.renames():
+        done = self._do_renames(dlg.renames())
+        if done:
+            self._set_undo(done)
+
+    def undo_rename(self):
+        """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""
+        if self.current_worker:
+            QMessageBox.information(self, "Rinomina", "Attendi la fine del lavoro in corso.")
+            return
+        log.info(f"Annulla rinomina: {len(self._last_renames)} file")
+        self._do_renames([(new, old) for old, new in reversed(self._last_renames)])
+        self._set_undo([])
+
+    def _set_undo(self, pairs):
+        self._last_renames = pairs
+        self.btn_undo_rename.setVisible(bool(pairs))
+
+    def _do_renames(self, pairs):
+        """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card.
+        Restituisce le coppie (vecchio, nuovo) riuscite."""
+        errors, done = [], []
+        for old, new in pairs:
             try:
                 # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
                 if os.path.exists(new) and not os.path.samefile(old, new):
@@ -1019,6 +1052,7 @@ class MainWindow(QMainWindow):
                 errors.append(f"{os.path.basename(old)}: {e}")
                 continue
             log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
+            done.append((old, new))
             if old in self.cards:
                 c = self.cards.pop(old)
                 c.file_path = new
@@ -1032,6 +1066,7 @@ class MainWindow(QMainWindow):
         if errors:
             QMessageBox.warning(self, "Rinomina", "Non rinominati (dettagli nel log):\n"
                                 + "\n".join(errors[:8]))
+        return done
 
     # FIX #2: trash cross-platform con feedback in caso di errore
     def trash_file(self, p):
@@ -1190,6 +1225,7 @@ class MainWindow(QMainWindow):
         self._add_thread(w)
 
     def clear_all(self):
+        self._set_undo([])
         for p in list(self.cards.keys()):
             self.cards[p].deleteLater()
         self.cards.clear()

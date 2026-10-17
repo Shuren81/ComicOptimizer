@@ -1,6 +1,7 @@
 """Foglio di stile (QSS) e piccoli aiuti grafici."""
 
 from PyQt6.QtCore import QEvent, QObject, QTimer
+from PyQt6.QtWidgets import QApplication
 
 # --- STILE ---
 # Un solo foglio di stile per tutta l'app. I pulsanti colorati usano la proprietà
@@ -14,6 +15,7 @@ QPushButton { background: #333; color: #f0f0f0; border: 1px solid #4a4a4a;
 QPushButton:hover    { background: #404040; border-color: #666; }
 QPushButton:pressed  { background: #262626; }
 QPushButton:disabled { background: #2a2a2a; color: #777; border-color: #333; }
+QPushButton:checked  { background: #00838f; color: white; border-color: #00e5ff; }
 QPushButton:focus    { border-color: #00e5ff; }
 
 QPushButton[variant="primary"]        { background: #e65100; border-color: #e65100; color: white; font-weight: 800; }
@@ -78,13 +80,14 @@ def set_variant(widget, variant):
 
 class _VisibilityWatcher(QObject):
     """Chiama `callback` (con un piccolo ritardo, una volta sola) quando uno dei
-    widget osservati viene mostrato o nascosto."""
+    widget osservati viene mostrato o nascosto. Il ritardo è quello di un doppio click:
+    la finestra non cambia larghezza in mezzo a un doppio click su una card."""
     def __init__(self, callback, parent=None):
         super().__init__(parent)
         self._cb = callback
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.setInterval(0)
+        self._timer.setInterval(QApplication.doubleClickInterval())
         self._timer.timeout.connect(self._cb)
 
     def eventFilter(self, obj, ev):

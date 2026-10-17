@@ -249,33 +249,64 @@ def clean_filename(name):
 
 # "-" con spazi o "_" almeno da un lato: "Spider-Man" resta una parte sola
 _PART_SEP = re.compile(r'[\s_]+-[\s_]*|[\s_]*-[\s_]+')
-_SCHEMA_TOKEN = re.compile(r'<(nome|num|n|parte(\d+))>')
+# numero "staccato" (anche con # davanti): "titolo 43 sottotitolo"; "X-Men2" e "Vol.3" non dividono
+_NUM_PART = re.compile(r'[\s_]*(?<![^\s_])#?(\d+)(?![^\s_])[\s_]*')
+# <segnaposto> oppure <segnaposto:cifre>, es. <parte4:1> (cifre solo per quel segnaposto)
+_SCHEMA_TOKEN = re.compile(r'<(nome|num|n|parte(\d+))(?::(\d))?>')
 
-def apply_schema(stem, schema, n, digits):
+def name_parts(stem, split_numbers=True):
+    """Pezzi del nome: separati da " - " e, con `split_numbers`, anche dai numeri staccati."""
+    parts = _PART_SEP.split(stem)
+    if split_numbers:
+        parts = [q for p in parts for q in _NUM_PART.split(p)]
+    return [p for p in parts if p]
+
+def _pad(num, digits):
+    return num.lstrip("0").zfill(digits)
+
+def apply_schema(stem, schema, n, digits, split_numbers=True):
     """
     Nuovo nome da uno schema con <nome> (nome attuale), <num> (primo numero
-    del nome), <n> (progressivo) e <parte1>, <parte2>… (pezzi separati da " - ").
+    del nome), <n> (progressivo) e <parte1>, <parte2>… (pezzi separati da " - "
+    e dai numeri, vedi name_parts; una parte di sole cifre prende le cifre scelte).
+    Con <segnaposto:C> le cifre sono C solo per quel segnaposto (:1 = numero com'è).
     Solleva ValueError se nel nome manca il numero o la parte richiesta.
     """
-    parts = _PART_SEP.split(stem)
+    parts = name_parts(stem, split_numbers)
 
     def sub(m):
         key = m.group(1)
+        d = int(m.group(3)) if m.group(3) else digits
         if key == "nome":
             return stem
         if key == "n":
-            return str(n).zfill(digits)
+            return str(n).zfill(d)
         if key == "num":
             found = re.search(r'\d+', stem)
             if not found:
                 raise ValueError("numero non trovato")
-            return found.group().lstrip("0").zfill(digits)
+            return _pad(found.group(), d)
         i = int(m.group(2))
-        if not 1 <= i <= len(parts) or not parts[i - 1]:
+        if not 1 <= i <= len(parts):
             raise ValueError(f"parte {i} mancante")
-        return parts[i - 1]
+        return _pad(parts[i - 1], d) if parts[i - 1].isdigit() else parts[i - 1]
 
     return _SCHEMA_TOKEN.sub(sub, schema)
+
+def wildcard_replace(s, find, repl, case=False):
+    """
+    Cerca/Sostituisci con i jolly: ? = un carattere, * = qualsiasi sequenza (la più
+    corta, così "(*)" toglie ogni gruppo tra parentesi; alla fine dello schema arriva in fondo).
+    Tutto il resto, anche `repl`, vale alla lettera.
+    """
+    if not find:
+        return s
+    if not find.strip("*"):
+        return repl                                   # solo "*": tutto il nome
+    pat = "".join(".*?" if c == "*" else "." if c == "?" else re.escape(c) for c in find)
+    if find.endswith("*"):
+        pat = pat[:-3] + ".*"
+    return re.sub(pat, lambda m: repl, s, flags=0 if case else re.IGNORECASE)
 
 def underscores_to_spaces(s):
     return re.sub(r" {2,}", " ", s.replace("_", " ")).strip()
