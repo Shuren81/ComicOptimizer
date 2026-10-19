@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from collections import deque
 
 from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer
 from PyQt6.QtGui import QCursor, QKeySequence, QPainter, QPixmap
@@ -34,8 +35,8 @@ from PyQt6.QtWidgets import (
 from . import config
 from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
-from .cbz import cbz_status
-from .config import APP_VERSION, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
+from .cbz import file_status
+from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
 from .dialogs import LogWindow, MergeDialog, RenameDialog, StopDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
@@ -48,6 +49,8 @@ from .utils import (
     fmt_duration,
     fmt_size,
     folder_has_loose_and_subs,
+    folder_subdirs,
+    list_folder_pages,
     get_natural_sort_key,
 )
 from .workers import (
@@ -190,6 +193,8 @@ class MainWindow(QMainWindow):
         self._tray           = None    # icona di sistema, creata alla prima notifica
         self._loose_last     = set()   # cartelle con le immagini sciolte dopo le sottocartelle
         self._last_renames   = []      # [(vecchio, nuovo)] dell'ultima rinomina, per annullarla
+        self._thumb_queue    = deque() # miniature in attesa: ne girano poche alla volta
+        self._thumbs_running = 0
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -233,6 +238,20 @@ class MainWindow(QMainWindow):
     def _discard_thread(self, t):
         with self._threads_lock:
             self._active_threads.discard(t)
+
+    def _busy(self):
+        """True se c'è un lavoro sui file in corso (preparazione, elaborazione, apertura editor)."""
+        if self.current_worker:
+            return True
+        with self._threads_lock:
+            return any(isinstance(t, (BatchPrepWorker, LoadingWorker)) for t in self._active_threads)
+
+    def _free(self):
+        """Un lavoro alla volta: con uno già in corso avvisa e restituisce False."""
+        if self._busy():
+            QMessageBox.information(self, "Lavoro in corso", "Attendi la fine del lavoro in corso.")
+            return False
+        return True
 
     # FIX #14: closeEvent per terminare i thread prima di chiudere
     def closeEvent(self, event):
@@ -307,17 +326,6 @@ class MainWindow(QMainWindow):
                 + 2 * CARD_MARGIN
                 + 2)   # bordi finestra
 
-    # ~ def _cols_for_count(self, n):
-        # ~ """
-        # ~ Restituisce il numero di colonne ottimale per `n` card.
-        # ~ - Minimo COLS_DEFAULT (4) se ci sono almeno 4 card
-        # ~ - Massimo COLS_MAX (7), indipendentemente dalla risoluzione
-        # ~ """
-        # ~ if n <= 0:
-            # ~ return COLS_DEFAULT
-        # ~ cols = min(n, COLS_MAX)
-        # ~ cols = max(cols, min(n, COLS_DEFAULT))
-        # ~ return cols
     def _cols_for_count(self, n):
         """
         Restituisce il numero di colonne ottimale per `n` card.
@@ -366,6 +374,27 @@ class MainWindow(QMainWindow):
         self.setMaximumHeight(screen.height())
         if not self.isVisible():
             self.resize(w, min(h, screen.height()))
+        self._fit_height()
+
+    def _fit_height(self):
+        """Con dei fumetti, una fila intera di card deve stare senza barra di scorrimento:
+        la finestra si allunga (fin dove arriva lo schermo), poi se serve il banner si abbassa."""
+        if not self.cards:
+            return
+        self.centralWidget().layout().activate()
+        m = self.grid_l.contentsMargins()
+        missing = CARD_H + m.top() + m.bottom() - self.grid_stack.height()
+        if missing <= 0:
+            return
+        screen_h = QApplication.primaryScreen().availableGeometry().height()
+        grow = max(0, min(missing, screen_h - self.height()))
+        if grow:
+            self.resize(self.width(), self.height() + grow)
+            missing -= grow
+        pix = self.title_lbl.pixmap()
+        if missing > 0 and not pix.isNull():
+            self.title_lbl.setPixmap(self._banner.scaledToHeight(
+                max(40, pix.height() - missing), Qt.TransformationMode.SmoothTransformation))
 
     def check_deps(self):
         m = []
@@ -538,6 +567,7 @@ class MainWindow(QMainWindow):
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)   # niente bordo: tutta l'altezza è per le card
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.grid_w = QWidget()
         self.grid_l = QGridLayout(self.grid_w)
@@ -651,6 +681,8 @@ class MainWindow(QMainWindow):
             self.current_worker.set_permission(res)
 
     def confirm_and_trash(self, path):
+        if not self._free():
+            return
         if self.skip_trash_confirm:
             self.trash_file(path)
             return
@@ -932,6 +964,8 @@ class MainWindow(QMainWindow):
         added = 0
         for p, count in paths:
             if p not in self.cards:
+                if os.path.isdir(p) and not self._confirm_folder(p):
+                    continue
                 if os.path.isdir(p) and folder_has_loose_and_subs(p):
                     self._ask_loose_order(p)
                 c = ComicCard(p)
@@ -943,13 +977,32 @@ class MainWindow(QMainWindow):
                 c.rename_requested.connect(lambda path: self.rename_cards([path]))
                 self.cards[p] = c
                 self.load_t(p)
-                c.set_status(self.check_status(p))
+                c.set_status(file_status(p))
                 added += 1
         log.info(f"Importati {added} file ({len(paths)} totali scansionati).")
         self.refresh_grid()
-        # L'analisi automatica post-import è stata rimossa: check_status() assegna
-        # già lo stato corretto a ogni card durante l'import. L'utente può lanciare
-        # manualmente l'analisi (che include la ricerca duplicati) con il tasto ANALIZZA.
+
+    def _confirm_folder(self, folder):
+        """Cartella con più sottocartelle: diventa davvero UN fumetto? (una libreria trascinata
+        per sbaglio diventerebbe un unico CBZ enorme)"""
+        pages = list_folder_pages(folder)
+        subs = folder_subdirs(folder, pages)
+        if len(subs) < 2:
+            return True
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle("Cartella di immagini")
+        msg.setText(f"La cartella <b>{os.path.basename(folder)}</b> contiene {len(subs)} sottocartelle "
+                    f"e {len(pages)} immagini.<br><br>Diventeranno <b>un solo fumetto</b>, con le "
+                    "sottocartelle una dopo l'altra in ordine naturale.<br>"
+                    "Se invece è una raccolta di fumetti diversi, trascina le singole cartelle.")
+        b_yes = msg.addButton("Sì, un solo fumetto", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton("No, salta questa cartella", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+        ok = msg.clickedButton() == b_yes
+        if not ok:
+            log.info(f"Cartella '{os.path.basename(folder)}' saltata ({len(subs)} sottocartelle)")
+        return ok
 
     def _ask_loose_order(self, folder):
         """Cartella con immagini sciolte e sottocartelle: dove vanno le sciolte?"""
@@ -968,6 +1021,8 @@ class MainWindow(QMainWindow):
 
     def merge_selected(self):
         """Unisce i fumetti selezionati (ordine naturale del nome) in un unico CBZ."""
+        if not self._free():
+            return
         sel = sorted((p for p, c in self.cards.items() if c.selected),
                      key=lambda p: get_natural_sort_key(os.path.basename(p)))
         if len(sel) < 2:
@@ -1014,8 +1069,7 @@ class MainWindow(QMainWindow):
 
     def rename_cards(self, paths):
         """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card."""
-        if self.current_worker:
-            QMessageBox.information(self, "Rinomina", "Attendi la fine del lavoro in corso.")
+        if not self._free():
             return
         dlg = RenameDialog(paths, self)
         if not dlg.exec():
@@ -1026,8 +1080,7 @@ class MainWindow(QMainWindow):
 
     def undo_rename(self):
         """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""
-        if self.current_worker:
-            QMessageBox.information(self, "Rinomina", "Attendi la fine del lavoro in corso.")
+        if not self._free():
             return
         log.info(f"Annulla rinomina: {len(self._last_renames)} file")
         self._do_renames([(new, old) for old, new in reversed(self._last_renames)])
@@ -1083,6 +1136,8 @@ class MainWindow(QMainWindow):
             )
 
     def trash_selected(self):
+        if not self._free():
+            return
         sel = [p for p, c in self.cards.items() if c.selected]
         if sel and QMessageBox.question(
             self, "Cestina", f"Spostare {len(sel)} file nel cestino?"
@@ -1092,6 +1147,8 @@ class MainWindow(QMainWindow):
             self.reset_ui()
 
     def trash_all_duplicates(self):
+        if not self._free():
+            return
         dupes = [p for p, c in self.cards.items() if c.status_code == 4]
         if dupes and QMessageBox.question(
             self, "Cestina", "Eliminare i duplicati?"
@@ -1101,6 +1158,8 @@ class MainWindow(QMainWindow):
             self.reset_ui()
 
     def repair_selected(self):
+        if not self._free():
+            return
         m = self.ask_mode()
         if m != "cancel":
             targets = [p for p, c in self.cards.items() if c.selected]
@@ -1113,6 +1172,8 @@ class MainWindow(QMainWindow):
             self._add_thread(bw)
 
     def repair_all_trigger(self):
+        if not self._free():
+            return
         m = self.ask_mode()
         if m == "cancel":
             return
@@ -1147,6 +1208,8 @@ class MainWindow(QMainWindow):
         return "cancel"
 
     def open_editor(self, path):
+        if not self._free():
+            return
         self.set_working(True, "Apertura...")
         l = LoadingWorker(path, path in self._loose_last)
         l.progress.connect(lambda v, t: self.set_working(True, f"Apertura: Pagina {v}/{t}...", v, t))
@@ -1164,11 +1227,14 @@ class MainWindow(QMainWindow):
                 shutil.rmtree(t, ignore_errors=True)
 
         l.finished.connect(done)
-        l.error.connect(lambda m: (self.set_working(False), QMessageBox.warning(self, "Errore", m)))
+        l.error.connect(lambda m: (self._discard_thread(l), self.set_working(False),
+                                   QMessageBox.warning(self, "Errore", m)))
         l.start()
         self._add_thread(l)
 
     def individual_repair(self, path):
+        if not self._free():
+            return
         m = self.ask_mode()
         if m != "cancel":
             self.set_working(True, "Preparazione...")
@@ -1189,40 +1255,41 @@ class MainWindow(QMainWindow):
                 self.current_worker.stop_later()
                 self.status_msg.setText("Termino il fumetto in corso, poi mi fermo...")
 
-    def check_status(self, p):
-        real_fmt = detect_real_format(p)
-        ext      = os.path.splitext(p)[1].lower()
-        # PDF o RAR (anche con estensione .cbz) → da sistemare
-        if ext == '.pdf' or real_fmt == 'pdf':
-            return 0
-        if real_fmt == 'rar' or (real_fmt is None and ext in ('.cbr', '.rar')):
-            return 0
-        if real_fmt == 'rar' and ext in ('.cbz', '.zip'):
-            return 0   # CBZ con contenuto RAR — mismatch
-        # ZIP reale o presunto
-        try:
-            return cbz_status(p)
-        except Exception as e:
-            log.warning(f"check_status error '{p}': {e}")
-            return 0
+    THUMBS_AT_ONCE = max(2, os.cpu_count() or 2)   # miniature caricate in parallelo
 
     def load_t(self, p):
-        w = ThumbWorker(p)
+        """Miniatura della card: in coda, al massimo THUMBS_AT_ONCE alla volta
+        (importando 1000 CBR non partono 1000 processi 7z insieme)."""
+        self._thumb_queue.append(p)
+        self._next_thumbs()
 
-        def _on_thumb_done(path, data):
-            self._discard_thread(w)
-            if path not in self.cards:
-                return
-            # QPixmap creato nel main thread dai bytes raw (thread-safe)
-            pix = QPixmap()
-            if pix.loadFromData(data):
-                self.cards[path].set_pixmap(pix)
-            else:
-                log.warning(f"load_t: QPixmap.loadFromData fallito per '{path}'")
+    def _next_thumbs(self):
+        while self._thumb_queue and self._thumbs_running < self.THUMBS_AT_ONCE:
+            p = self._thumb_queue.popleft()
+            if p not in self.cards or self._closing:
+                continue
+            w = ThumbWorker(p)
+            w.done.connect(self._on_thumb_done)
+            # "finished" arriva sempre, anche se la miniatura non riesce
+            w.finished.connect(lambda w=w: self._thumb_finished(w))
+            self._thumbs_running += 1
+            self._add_thread(w)
+            w.start()
 
-        w.done.connect(_on_thumb_done)
-        w.start()
-        self._add_thread(w)
+    def _thumb_finished(self, w):
+        self._discard_thread(w)
+        self._thumbs_running -= 1
+        self._next_thumbs()
+
+    def _on_thumb_done(self, path, data):
+        if path not in self.cards:
+            return
+        # QPixmap creato nel main thread dai bytes raw (thread-safe)
+        pix = QPixmap()
+        if pix.loadFromData(data):
+            self.cards[path].set_pixmap(pix)
+        else:
+            log.warning(f"load_t: QPixmap.loadFromData fallito per '{path}'")
 
     def clear_all(self):
         self._set_undo([])
@@ -1257,6 +1324,7 @@ class MainWindow(QMainWindow):
         if self.last_clicked not in self.cards.values():
             self.last_clicked = None   # card rimossa: lo Shift+click ripartirebbe da lei
         self._update_sel_buttons()
+        self._fit_height()   # la riga dei pulsanti può essere appena ricomparsa
 
     def rem(self, p):
         if p in self.cards:

@@ -12,18 +12,17 @@ from PIL import Image
 from PyQt6.QtCore import QMutex, QMutexLocker, QThread, QWaitCondition, pyqtSignal
 
 from .archives import (
-    _format_mismatch_log,
     check_integrity,
     detect_real_format,
     extract_archive,
     get_archive_file_list,
     get_archive_signature,
 )
-from .cbz import CBZ_MARK, build_comicinfo, cbz_status, verify_cbz
+from .cbz import CBZ_MARK, build_comicinfo, file_status, verify_cbz
 from .config import WEBP_QUALITY
 from .images import _prepare_page
 from .logsetup import log
-from .pdf import HAS_PDF, extract_pdf_pages, fitz
+from .pdf import fitz
 from .utils import (
     _ARCHIVE_EXTS,
     _trash_file_cross_platform,
@@ -33,7 +32,6 @@ from .utils import (
     folder_subdirs,
     fmt_size,
     get_natural_sort_key,
-    is_comicinfo,
     is_image_folder,
     is_page_file,
     list_folder_pages,
@@ -80,6 +78,27 @@ class ImportWorker(QThread):
         valid.sort(key=lambda x: get_natural_sort_key(x[0]))
         self.finished.emit(valid)
 
+# Risultati dei controlli lenti (integrità + impronta) per file, validi finché il file non
+# cambia (stessa dimensione e data di modifica): dopo un lavoro si rilegge solo ciò che è cambiato.
+# shortcut: resta in memoria per tutta la sessione (poche decine di byte a file), da svuotare se servisse
+_ANALYSIS_CACHE = {}
+
+def _integrity_and_signature(p):
+    if os.path.isdir(p):
+        return check_integrity(p), None              # cartella: nessun costo, niente memoria
+    try:
+        st = os.stat(p)
+        key = (st.st_size, st.st_mtime_ns)
+    except OSError:
+        return False, None
+    hit = _ANALYSIS_CACHE.get(p)
+    if hit and hit[0] == key:
+        return hit[1], hit[2]
+    ok = check_integrity(p)
+    sig = get_archive_signature(p) if ok else None
+    _ANALYSIS_CACHE[p] = (key, ok, sig)
+    return ok, sig
+
 class AnalysisWorker(QThread):
     progress = pyqtSignal(int, int)
     finished = pyqtSignal(dict, int)
@@ -94,13 +113,13 @@ class AnalysisWorker(QThread):
         by_sig  = {}     # stesso contenuto (pagine identiche) anche con nomi diversi
         total   = len(self.paths)
         for i, p in enumerate(self.paths):
-            is_ok = check_integrity(p)
+            is_ok, sig = _integrity_and_signature(p)
             if not is_ok:
                 results[p] = 5
             else:
-                target = cbz_target(p)
-                groups.setdefault(target, []).append(p)
-                sig = get_archive_signature(p)
+                # una cartella di immagini non è il doppione di un CBZ con lo stesso nome
+                if not os.path.isdir(p):
+                    groups.setdefault(cbz_target(p), []).append(p)
                 if sig:
                     by_sig.setdefault(sig, []).append(p)
             self.progress.emit(i + 1, total)
@@ -122,27 +141,10 @@ class AnalysisWorker(QThread):
                         log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
                                   f"= '{os.path.basename(ps[0])}'")
 
-        # Assegna status a TUTTI i file integri usando il formato REALE
+        # Stato di TUTTI i file integri, dal formato REALE (stessa regola dell'importazione)
         for p in self.paths:
             if p not in results:
-                real_fmt     = detect_real_format(p)
-                declared_ext = os.path.splitext(p)[1].lower()
-                if os.path.isdir(p):
-                    results[p] = 0   # cartella di immagini: da trasformare in CBZ
-                elif declared_ext == '.pdf' or real_fmt == 'pdf':
-                    results[p] = 0   # PDF: da convertire
-                elif real_fmt == 'rar' or (real_fmt is None and declared_ext in ('.cbr', '.rar')):
-                    results[p] = 0   # RAR reale: da convertire in CBZ
-                elif real_fmt == 'rar' and declared_ext in ('.cbz', '.zip'):
-                    # CBZ che è in realtà un RAR → da sistemare
-                    results[p] = 0
-                elif real_fmt == 'zip' or (real_fmt is None and declared_ext in ('.cbz', '.zip')):
-                    try:
-                        results[p] = cbz_status(p)   # 3 = CONVERTITO, 1 = OK
-                    except Exception:
-                        results[p] = 0
-                else:
-                    results[p] = 1
+                results[p] = file_status(p)
 
         self.finished.emit(results, dupes_count)
 
@@ -369,24 +371,31 @@ class ProcessingWorker(QThread):
     def _commit(self, srcs, final_p, tmp_zip):
         """Il nuovo CBZ è già verificato: ora si possono toccare i file originali."""
         if os.path.exists(final_p):
-            # file che verrà sostituito (originale .cbz o "Sovrascrivi"): nel cestino
+            # file che verrà sostituito (originale .cbz o "Sovrascrivi"): nel cestino,
+            # oppure, se il cestino non c'è, messo da parte con un nome .bak (mai perso)
             if not _trash_file_cross_platform(final_p):
-                log.warning(f"  Cestino non disponibile: '{os.path.basename(final_p)}' "
-                            f"verrà sovrascritto")
+                bak = _free_name(final_p + ".bak")
+                os.replace(final_p, bak)
+                log.warning(f"  Cestino non disponibile: il vecchio file è conservato come "
+                            f"'{os.path.basename(bak)}'")
         os.replace(tmp_zip, final_p)
         for orig_p in srcs:
             if os.path.normpath(orig_p) == os.path.normpath(final_p) or not os.path.exists(orig_p):
                 continue
             if _trash_file_cross_platform(orig_p):
                 log.info(f"  Originale spostato nel cestino: '{os.path.basename(orig_p)}'")
-            elif os.path.isdir(orig_p):
-                # una cartella non si cancella mai definitivamente: resta dov'è
-                log.warning(f"  Cestino non disponibile: cartella lasciata al suo posto "
-                            f"'{os.path.basename(orig_p)}'")
             else:
-                log.warning(f"  Cestino non disponibile: originale eliminato "
+                # mai cancellazioni definitive: l'originale resta dov'è
+                log.warning(f"  Cestino non disponibile: originale lasciato al suo posto "
                             f"'{os.path.basename(orig_p)}'")
-                os.remove(orig_p)
+
+def _free_name(path):
+    """`path`, o `path.1`, `path.2`… se esiste già: per non sovrascrivere nulla."""
+    c, cand = 0, path
+    while os.path.exists(cand):
+        c += 1
+        cand = f"{path}.{c}"
+    return cand
 
 class ThumbWorker(QThread):
     # Emette i byte raw dell'immagine invece di QPixmap
@@ -500,92 +509,18 @@ class LoadingWorker(QThread):
                 shutil.copy2(ci, tmp)
             self.finished.emit(self.path, tmp, list_folder_pages(self.path, self.loose_last))
             return
-        tmp      = make_temp_dir()
-        ext      = os.path.splitext(self.path)[1].lower()
-        real_fmt = detect_real_format(self.path)
-        success  = False
-        img_list = get_archive_file_list(self.path)
-        total    = len(img_list)
-
-        if not img_list:
-            shutil.rmtree(tmp, ignore_errors=True)
+        if not get_archive_file_list(self.path):
             self.error.emit("Archivio vuoto.")
             return
-
-        if ext == '.pdf' or real_fmt == 'pdf':
-            if HAS_PDF:
-                try:
-                    extract_pdf_pages(self.path, tmp,
-                                      lambda v, t: self.progress.emit(v, t))
-                    success = True
-                except Exception as e:
-                    log.error(f"LoadingWorker PDF '{self.path}': {e}")
-                    success = False
-        else:
-            # Usa formato reale per decidere il tool
-            use_zip = (real_fmt == 'zip') or (real_fmt is None and ext in ('.cbz', '.zip'))
-            try:
-                if use_zip:
-                    try:
-                        with zipfile.ZipFile(self.path, 'r') as z:
-                            for i, img_name in enumerate(img_list):
-                                z.extract(img_name, tmp)
-                                self.progress.emit(i + 1, total)
-                            # conserva i metadati
-                            for n in z.namelist():
-                                if is_comicinfo(n):
-                                    z.extract(n, tmp)
-                                    break
-                        success = True
-                        log.info(f"LoadingWorker ZIP OK: '{os.path.basename(self.path)}'")
-                    except zipfile.BadZipFile:
-                        log.warning(f"LoadingWorker: '{os.path.basename(self.path)}' "
-                                    f"non è un ZIP valido (real={real_fmt}), provo unrar/7z")
-                        use_zip = False  # ricade nel ramo RAR/7z sotto
-
-                if not use_zip:
-                    if real_fmt and real_fmt != ext.lstrip('.'):
-                        _format_mismatch_log(self.path, ext, real_fmt)
-                    extracted_ok = False
-                    try:
-                        res = run_tool(
-                            ['unrar', 'x', '-y', self.path, tmp + os.sep],
-                            capture_output=True, timeout=600
-                        )
-                        if res.returncode == 0:
-                            extracted_ok = True
-                            log.info(f"LoadingWorker unrar x OK: '{os.path.basename(self.path)}'")
-                        else:
-                            log.warning(f"LoadingWorker unrar x rc={res.returncode}: "
-                                        f"{res.stderr.decode(errors='replace')[:200]}")
-                    except FileNotFoundError:
-                        log.warning("LoadingWorker: unrar non trovato, uso 7z x")
-                    except Exception as e:
-                        log.warning(f"LoadingWorker unrar x eccezione: {e}")
-
-                    if not extracted_ok:
-                        res = run_tool(
-                            ['7z', 'x', '-y', f'-o{tmp}', self.path],
-                            capture_output=True, timeout=600
-                        )
-                        if res.returncode == 0:
-                            extracted_ok = True
-                            log.info(f"LoadingWorker 7z x OK: '{os.path.basename(self.path)}'")
-                        else:
-                            log.error(f"LoadingWorker 7z x rc={res.returncode}: "
-                                      f"{res.stderr.decode(errors='replace')[:200]}")
-
-                    for i in range(total):
-                        self.progress.emit(i + 1, total)
-                    success = extracted_ok
-
-            except Exception as e:
-                log.error(f"LoadingWorker archive '{self.path}': {e}")
-                success = False
-
-        if success:
-            extracted = list_page_files(tmp)
-            self.finished.emit(self.path, tmp, extracted)
+        tmp = make_temp_dir()
+        try:
+            success = extract_archive(self.path, tmp, lambda v, t: self.progress.emit(v, t))
+        except Exception as e:
+            log.error(f"LoadingWorker '{self.path}': {e}")
+            success = False
+        pages = list_page_files(tmp) if success else []
+        if pages:
+            self.finished.emit(self.path, tmp, pages)
         else:
             shutil.rmtree(tmp, ignore_errors=True)
             self.error.emit("Errore durante l'estrazione.")

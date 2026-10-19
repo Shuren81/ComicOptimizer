@@ -331,7 +331,7 @@ class RenameDialog(QDialog):
         self.find = QLineEdit()
         self.find.setPlaceholderText("Cerca  (? = un carattere, * = qualsiasi testo)")
         self.repl = QLineEdit()
-        self.repl.setPlaceholderText("Sostituisci con")
+        self.repl.setPlaceholderText("Sostituisci con  (* ? = testo trovato)")
         self.case = QCheckBox("Maiuscole/minuscole")
         self.case.setToolTip("Se spuntato, \"naruto\" non trova \"NARUTO\"")
         row.addWidget(self.b_us)
@@ -626,6 +626,12 @@ Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i>
 <code>Vol*</code> → sostituisce da "Vol" fino alla fine del nome<br>
 <code>Cap ??</code> → trova "Cap 12", "Cap 07"…<br>
 Senza <i>Maiuscole/minuscole</i> spuntato, "naruto" trova anche "NARUTO".</p>
+<p>In <i>Sostituisci con</i>, <b>*</b> e <b>?</b> rimettono il testo trovato dai jolly di <i>Cerca</i>,
+nello stesso ordine (il 1° con il 1°, il 2° con il 2°…):<br>
+<code>[*]</code> → <code>*</code> : <code>Titolo [ testo ] 2</code> → <code>Titolo testo 2</code> (toglie solo le parentesi)<br>
+<code>(*)</code> → <code>- *</code> : <code>Zagor (Il ritorno)</code> → <code>Zagor - Il ritorno</code><br>
+<code>Cap ??</code> → <code>Capitolo ??</code> : <code>Cap 07</code> → <code>Capitolo 07</code><br>
+<code>* - *</code> → <code>* (*)</code> : <code>Tex - Speciale</code> → <code>Tex (Speciale)</code></p>
 
 <h3>Tasti e righe selezionate</h3>
 <ul>

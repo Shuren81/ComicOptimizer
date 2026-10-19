@@ -14,15 +14,15 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication
 
 
-def fake_screen(width):
-    """Sostituisce la larghezza disponibile dello schermo vista dalla finestra."""
+def fake_screen(width, height=None):
+    """Sostituisce la larghezza (e l'altezza) disponibile dello schermo vista dalla finestra."""
     import comicoptimizer.main_window as mw
     real = QApplication.primaryScreen()
 
     class Screen:
         def availableGeometry(self):
             g = real.availableGeometry()
-            return QRect(0, 0, width, g.height())
+            return QRect(0, 0, width, height or g.height())
 
     class App:
         def __getattr__(self, name):
@@ -84,7 +84,7 @@ def banner_and_empty_grid(work):
     import comicoptimizer.main_window as mw
     from comicoptimizer import config
 
-    # banner: largo quanto la finestra (meno i margini), proporzioni 2000×260
+    # banner: largo quanto la griglia (meno i margini), proporzioni 2000×260
     w = window_with(0, work)
     assert not hasattr(w, "drop_zone")
     pix = w.title_lbl.pixmap()
@@ -148,6 +148,22 @@ def banner_and_empty_grid(work):
     assert (w.title_lbl.pixmap().height(), card.mapTo(w, QPoint(0, 0))) == before[:2]
     w._closing = True
     w.close()
+
+    # una sola fila di card: nessuna barra di scorrimento. Su uno schermo alto la finestra
+    # si allunga, su uno basso il banner si abbassa; con più file la prima resta intera
+    m = None
+    for screen_h, n in ((1080, 7), (800, 7), (800, 10)):
+        fake_screen(1920, screen_h)
+        w = window_with(n, work)
+        QTest.qWait(QApplication.doubleClickInterval() + 300)   # anche dopo il ricalcolo della larghezza
+        m = w.grid_l.contentsMargins()
+        assert w.grid_stack.height() >= mw.CARD_H + m.top() + m.bottom(), (screen_h, n, w.grid_stack.height())
+        assert w.height() <= screen_h
+        if n <= 7:
+            assert not w.scroll.verticalScrollBar().isVisible(), (screen_h, n)
+        w._closing = True
+        w.close()
+    fake_screen(1920)
 
     # banner mancante: torna la scritta
     real = config.RES_DIR

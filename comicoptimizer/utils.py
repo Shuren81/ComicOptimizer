@@ -39,8 +39,10 @@ def _trash_file_cross_platform(path):
             return False
     elif sys.platform == "darwin":
         try:
-            script = f'tell application "Finder" to delete POSIX file "{path}"'
-            res = subprocess.run(['osascript', '-e', script], capture_output=True, timeout=10)
+            # il percorso va come argomento, mai dentro il testo dello script (nomi con " o comandi)
+            res = subprocess.run(['osascript', '-e', 'on run argv',
+                                  '-e', 'tell application "Finder" to delete POSIX file (item 1 of argv)',
+                                  '-e', 'end run', path], capture_output=True, timeout=10)
             return res.returncode == 0
         except Exception as e:
             log.error(f"Impossibile cestinare '{path}': {e}")
@@ -293,20 +295,26 @@ def apply_schema(stem, schema, n, digits, split_numbers=True):
 
     return _SCHEMA_TOKEN.sub(sub, schema)
 
+def _fill_jolly(repl, found):
+    """In `repl` ogni * o ? diventa, in ordine, il testo trovato dal jolly corrispondente di Cerca."""
+    it = iter(found)
+    return "".join(next(it, "") if c in "*?" else c for c in repl)
+
 def wildcard_replace(s, find, repl, case=False):
     """
     Cerca/Sostituisci con i jolly: ? = un carattere, * = qualsiasi sequenza (la più
     corta, così "(*)" toglie ogni gruppo tra parentesi; alla fine dello schema arriva in fondo).
-    Tutto il resto, anche `repl`, vale alla lettera.
+    In `repl` * e ? rimettono il testo trovato dai jolly di `find`, nello stesso ordine
+    ("[*]" → "*" toglie le parentesi e tiene il testo); tutto il resto vale alla lettera.
     """
     if not find:
         return s
     if not find.strip("*"):
-        return repl                                   # solo "*": tutto il nome
-    pat = "".join(".*?" if c == "*" else "." if c == "?" else re.escape(c) for c in find)
+        return _fill_jolly(repl, [s])                 # solo "*": tutto il nome
+    pat = "".join("(.*?)" if c == "*" else "(.)" if c == "?" else re.escape(c) for c in find)
     if find.endswith("*"):
-        pat = pat[:-3] + ".*"
-    return re.sub(pat, lambda m: repl, s, flags=0 if case else re.IGNORECASE)
+        pat = pat[:-5] + "(.*)"
+    return re.sub(pat, lambda m: _fill_jolly(repl, m.groups()), s, flags=0 if case else re.IGNORECASE)
 
 def underscores_to_spaces(s):
     return re.sub(r" {2,}", " ", s.replace("_", " ")).strip()
@@ -358,4 +366,3 @@ def fmt_duration(sec):
 
 _ARCHIVE_EXTS = ('.cbz', '.cbr', '.zip', '.rar', '.pdf')
 
-_IMAGE_EXTS   = _PAGE_EXTS

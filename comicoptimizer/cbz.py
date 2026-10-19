@@ -1,8 +1,10 @@
 """Creazione e verifica dei CBZ, ComicInfo.xml."""
 
+import os
 import xml.etree.ElementTree as ET
 import zipfile
 
+from .archives import detect_real_format
 from .config import APP_VERSION
 from .logsetup import log
 from .utils import is_page_file
@@ -53,6 +55,23 @@ def cbz_status(path):
             return 3
         imgs = [n for n in z.namelist() if is_page_file(n)]
         return 3 if imgs and all(n.lower().endswith('.webp') for n in imgs) else 1
+
+def file_status(path):
+    """
+    Stato di un fumetto integro, dal formato REALE (non dall'estensione):
+    0 = da sistemare (PDF, RAR, cartella, ZIP illeggibile, altro), 1 = CBZ ok, 3 = convertito.
+    Unica regola, usata sia all'importazione sia nell'analisi.
+    """
+    if os.path.isdir(path):
+        return 0
+    real = detect_real_format(path)
+    ext = os.path.splitext(path)[1].lower()
+    if real == 'zip' or (real is None and ext in ('.cbz', '.zip')):
+        try:
+            return cbz_status(path)
+        except Exception as e:
+            log.debug(f"file_status: '{os.path.basename(path)}' non leggibile come ZIP: {e}")
+    return 0
 
 def verify_cbz(path, expected_pages):
     """Controlla il CBZ appena creato PRIMA di toccare l'originale."""

@@ -9,6 +9,7 @@
 - **Nuovo:** tasti "_ → spazio", "Iniziali Maiuscole" (senza abbassare le sigle come DC) e Cerca/Sostituisci, sulle righe selezionate o su tutte.
 - **Cambiato:** le parti (`<parte1>`, `<parte2>`…) si dividono anche ai numeri staccati, anche con `#` davanti: "titolo 43 sottotitolo" → titolo · 43 · sottotitolo. Il numero attaccato a una parola (`X-Men2`) non divide; per nomi come "Fantastici 4" si toglie la spunta a "Dividi anche ai numeri". Una parte fatta solo di cifre prende le "Cifre" scelte (43 → 043).
 - **Cambiato:** la colonna "Nuovo nome" si aggiorna in tempo reale, anche mentre si scrive in Cerca/Sostituisci (il pulsante "Sostituisci" non serve più). "_ → spazio" e "Iniziali Maiuscole" diventano interruttori (acceso/spento). Le correzioni a mano restano fisse anche cambiando schema o tasti; svuotando la cella torna il nome automatico.
+- **Nuovo:** in "Sostituisci con", `*` e `?` rimettono il testo trovato dai jolly di Cerca, nello stesso ordine: Cerca `[*]` e Sostituisci `*` toglie solo le parentesi e tiene il testo (`Titolo [ testo ] 2` → `Titolo testo 2`); `* - *` → `* (*)` scambia i pezzi.
 - **Nuovo:** jolly in Cerca: `?` = un carattere, `*` = qualsiasi testo (es. `(*)` toglie ogni gruppo tra parentesi), con la casella "Maiuscole/minuscole", come nel rinomina file di Mint.
 - **Nuovo:** righe della tabella selezionabili col mouse, come in un file manager: il click seleziona solo quella riga (un altro click sulla stessa la deseleziona), trascinando o con Shift+click si seleziona un intervallo, Ctrl+click e Ctrl+trascina aggiungono o tolgono righe; pulsanti "Tutte" e "Nessuna". Con righe selezionate si rinominano solo quelle (schema, Cerca/Sostituisci e tasti) e il progressivo `<n>` conta solo loro; senza selezione si lavora su tutte.
 - **Nuovo:** con una sola riga selezionata, lo Schema mostra direttamente il suo nome (come quando si rinomina un solo file): si scrive quello nuovo e vale solo per quella riga. Selezionando altro, il nome scritto resta su quella riga come correzione a mano e torna lo schema di prima.
@@ -33,6 +34,7 @@
 - **Nuovo:** banner in stile cyberpunk al posto della scritta "ComicOptimizer, by Shuren" (fumetti in PDF, ZIP e RAR che diventano un CBZ ottimizzato). Si adatta alla larghezza della finestra; si rigenera con `tools/make_banner.py`. Incluso negli eseguibili per Windows e Linux.
 - **Cambiato:** rimosso il riquadro "Trascina qui i file", che occupava molto spazio. Quando la lista è vuota la scritta compare al centro dello spazio delle card, senza riquadri, e sparisce appena si importano fumetti. I file si possono rilasciare in un punto qualsiasi della finestra; mentre li trascini la scritta e il bordo della griglia si illuminano.
 - **Cambiato:** con la lista vuota la schermata è pulita: spariscono i pulsanti in alto, dietro la scritta "Trascina qui i file" compare un disegno al neon fatto solo di contorni (si rigenera con `tools/make_drop_art.py`) e il suggerimento azzurro diventa una frase d'invito ironica. Appena ci sono fumetti tutto torna come prima.
+- **Corretto:** importando i fumetti, lo spazio delle card era di poco troppo basso e compariva la barra di scorrimento anche con una sola fila (la riga dei pulsanti ricompare e il banner è più alto con molte colonne). Ora la finestra si allunga quanto serve per una fila intera; se lo schermo è troppo basso, si abbassa il banner.
 - **Corretto:** con pochi fumetti, il doppio click sul nome di una card per rinominarla poteva finire su un'altra zona: al primo click comparivano i pulsanti della selezione, la finestra si allargava e il banner, diventando più alto, spingeva giù le card. Ora il banner segue la larghezza della griglia (non cambia altezza) e la finestra si allarga solo dopo il tempo di un doppio click.
 - **Nuovo:** a fine lavoro, chiuso il riepilogo, la lista si pulisce da sola se tutti i fumetti sono "CONVERTITO" (sistemati e in WebP). Se anche uno solo è in un altro stato, la lista resta.
 
@@ -41,8 +43,20 @@
 - **Nuovo:** versione per macOS: `tools/build_macos.sh` crea `ComicOptimizer.app` e un DMG, con 7-Zip incluso (legge anche i RAR). Va lanciato su un Mac; l'app funziona sui Mac con lo stesso processore (Apple Silicon o Intel) e non è firmata (la prima volta: tasto destro → Apri).
 - **Corretto:** su macOS l'avviso "Dipendenze mancanti" chiedeva `unrar` e suggeriva `apt`: ora, come su Windows, basta 7-Zip. 7-Zip viene cercato anche con il nome `7zz` e nelle cartelle di Homebrew; il log dell'app per Mac va in `~/Library/Logs/ComicOptimizer`.
 
+### Sicurezza e affidabilità (revisione del codice)
+- **Corretto:** si potevano avviare due lavori insieme (per esempio "Fix" su una card mentre era in corso "Sistema tutto"): la risposta a un conflitto di nomi arrivava al lavoro sbagliato e il primo restava bloccato per sempre, fino a un possibile crash alla chiusura. Ora c'è un lavoro alla volta: Fix, Edita, Sistema, Unisci, Rinomina e Cestina chiedono di attendere la fine di quello in corso (anche durante l'estrazione).
+- **Corretto:** se il cestino non era disponibile (dischi di rete, alcune chiavette), l'originale veniva cancellato definitivamente. Ora resta al suo posto; nella riparazione "sul posto" di un .cbz il vecchio file viene conservato come `.bak`. Mai cancellazioni definitive.
+- **Corretto:** su macOS, se send2trash falliva, il cestino passava per uno script in cui il nome del file finiva dentro il testo: un nome costruito apposta poteva eseguire comandi. Ora il nome viene passato a parte.
+- **Nuovo:** trascinando una cartella di immagini con più sottocartelle, l'app chiede conferma prima di farne un unico fumetto (una libreria trascinata per sbaglio diventava un solo CBZ enorme).
+- **Migliorato:** dopo ogni lavoro l'analisi ricontrolla solo i file cambiati, non più tutta la lista (con centinaia di fumetti voleva dire minuti di attesa).
+- **Migliorato:** le miniature si caricano poche alla volta (quanti sono i core): importando migliaia di CBR non partono più migliaia di processi 7z insieme. Le miniature non riuscite non lasciano più thread in memoria.
+- **Corretto:** una cartella di immagini e un CBZ con lo stesso nome non sono più segnati come duplicati (e "Pulisci duplicati" non cestina più la cartella).
+- **Cambiato:** lo stato dei fumetti (da sistemare / OK / convertito) è deciso da una sola regola, uguale all'importazione e all'analisi; sparisce il falso errore "check_status error" nel log per le cartelle. Un archivio di formato sconosciuto risulta "da sistemare" invece di "OK".
+- **Cambiato:** l'apertura dell'editor usa la stessa estrazione degli altri lavori (circa 70 righe in meno); tolto codice inutilizzato.
+
 ### Test
-- **Nuovo:** cartella `tests/` con i test automatici della rinomina e della selezione (`venv/bin/python tests/test_rename.py`, `tests/test_selection.py`, `tests/test_layout.py`, `tests/test_platform.py`).
+- **Nuovo:** `tests/test_processing.py`: riparazione, WebP, cartelle di immagini, unione, originali al sicuro senza cestino, analisi, un lavoro alla volta, conferma delle cartelle, miniature.
+- **Nuovo:** cartella `tests/` con i test automatici della rinomina e della selezione (`venv/bin/python tests/test_rename.py`, `tests/test_selection.py`, `tests/test_layout.py`, `tests/test_platform.py`, `tests/test_processing.py`).
 
 ## [2.9.0] — 2026-10-13
 

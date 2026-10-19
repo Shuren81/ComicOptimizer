@@ -63,6 +63,15 @@ def test_utils():
     assert wildcard_replace("abc", "*", "X") == "X"
     assert wildcard_replace("a.b", ".", "\\1") == "a\\1b"              # tutto alla lettera
     assert wildcard_replace("abc", "", "X") == "abc"
+    # jolly in Sostituisci: rimettono il testo trovato, in ordine
+    post = lambda s: " ".join(s.split())                           # spazi doppi tolti, come nella finestra
+    assert post(wildcard_replace("Titolo [ testo ] 2", "[*]", "*")) == "Titolo testo 2"
+    assert wildcard_replace("Zagor (Il ritorno)", "(*)", "- *") == "Zagor - Il ritorno"
+    assert wildcard_replace("Cap 07", "Cap ??", "Capitolo ??") == "Capitolo 07"
+    assert wildcard_replace("Tex - Speciale", "* - *", "* (*)") == "Tex (Speciale)"
+    assert wildcard_replace("a [b] c [d]", "[*]", "<*>") == "a <b> c <d>"   # ogni gruppo
+    assert wildcard_replace("x (y)", "(*)", "* * *") == "x y  "             # jolly in più: vuoti
+    assert wildcard_replace("abc", "*", "X *") == "X abc"
     assert underscores_to_spaces("a__b_ c_") == "a b c"
     assert capitalize_words("l'alba dei DC (edizione) spider-man") == "L'alba Dei DC (Edizione) Spider-Man"
     assert clean_filename(' a/b:c? ') == "a_b_c_"
