@@ -24,13 +24,14 @@
 
 ### Selezione
 - **Nuovo:** selezione trascinando il mouse: premi sulla griglia (anche sopra una card) e trascina; le card toccate dal riquadro si aggiungono alla selezione. Con **Ctrl** premuto vengono invece tolte. Vicino al bordo superiore o inferiore la griglia scorre da sola, così si possono selezionare anche le card fuori vista.
-- **Nuovo:** pulsante "Seleziona tutto" (diventa "Deseleziona tutto" quando sono tutti selezionati), **Ctrl+A** per selezionare tutto ed **Esc** per togliere la selezione.
+- **Nuovo:** pulsante "Seleziona tutto", che diventa "Deseleziona tutto" appena c'è almeno un fumetto selezionato (un click toglie tutta la selezione), **Ctrl+A** per selezionare tutto ed **Esc** per togliere la selezione.
 - **Invariato:** il click su una card la seleziona o deseleziona, Shift+click seleziona un intervallo, il doppio click apre l'editor (o la rinomina, sul nome).
 - **Cambiato:** la riga con il suggerimento e la frase ironica (e, durante il lavoro, la barra di avanzamento con STOP) ora sta sotto i pulsanti, su una riga tutta sua: non sparisce più quando compaiono molti pulsanti.
 - **Nuovo:** dodici nuove frasi ironiche all'avvio.
 - **Corretto:** su schermi stretti la griglia mostrava fino a 7 colonne anche se non ci stavano: le ultime card restavano fuori dalla finestra e non si potevano raggiungere. Ora le colonne si adattano alla larghezza dello schermo (sugli schermi larghi non cambia nulla).
 
 ### Interfaccia
+- **Cambiato:** pulsanti più compatti, così la finestra non si allarga oltre la griglia: "Sistema tutto" e "Sistema selezionati" diventano un solo pulsante **"Sistema"** (con dei fumetti selezionati chiede se sistemare i selezionati o tutti); "Rinomina selezionati", "Unisci selezionati" e "Cestina selezionati" diventano **"Rinomina"**, **"Unisci"** e **"Cestina"** (la spiegazione completa è nel suggerimento al passaggio del mouse).
 - **Nuovo:** banner in stile cyberpunk al posto della scritta "ComicOptimizer, by Shuren" (fumetti in PDF, ZIP e RAR che diventano un CBZ ottimizzato). Si adatta alla larghezza della finestra; si rigenera con `tools/make_banner.py`. Incluso negli eseguibili per Windows e Linux.
 - **Cambiato:** rimosso il riquadro "Trascina qui i file", che occupava molto spazio. Quando la lista è vuota la scritta compare al centro dello spazio delle card, senza riquadri, e sparisce appena si importano fumetti. I file si possono rilasciare in un punto qualsiasi della finestra; mentre li trascini la scritta e il bordo della griglia si illuminano.
 - **Cambiato:** con la lista vuota la schermata è pulita: spariscono i pulsanti in alto, dietro la scritta "Trascina qui i file" compare un disegno al neon fatto solo di contorni (si rigenera con `tools/make_drop_art.py`) e il suggerimento azzurro diventa una frase d'invito ironica. Appena ci sono fumetti tutto torna come prima.

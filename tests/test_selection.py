@@ -53,13 +53,14 @@ def main(work):
     center = lambda c: c.geometry().center()
 
     assert w.btn_sel_all.isVisible() and w.btn_sel_all.text() == "SELEZIONA TUTTO"
-    assert not w.btn_sel.isVisible()
+    assert not w.btn_rename.isVisible()
 
     # click su una card (sull'immagine: l'evento passa dalla card alla griglia)
     a = card(0, 0)
     mouse(a.thumb, QEvent.Type.MouseButtonPress, QPoint(10, 10))
     mouse(a.thumb, QEvent.Type.MouseButtonRelease, QPoint(10, 10))
-    assert selected() == {a} and w.btn_sel.isVisible() and w.btn_rename.isVisible()
+    assert selected() == {a} and w.btn_trash_sel.isVisible() and w.btn_rename.isVisible()
+    assert w.btn_sel_all.text() == "DESELEZIONA TUTTO"            # anche con una selezione parziale
     assert not w.btn_merge.isVisible()
     # Shift+click: intervallo
     b = card(0, 2)
@@ -74,7 +75,7 @@ def main(work):
     # Esc, Ctrl+A, pulsante seleziona/deseleziona tutto
     key = lambda k, m=NO: w.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, k, m))
     key(Qt.Key.Key_Escape)
-    assert selected() == set() and not w.btn_sel.isVisible()
+    assert selected() == set() and not w.btn_rename.isVisible()
     key(Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
     assert len(selected()) == 30 and w.btn_sel_all.text() == "DESELEZIONA TUTTO"
     w.btn_sel_all.click()
@@ -82,6 +83,10 @@ def main(work):
     w.btn_sel_all.click()
     assert len(selected()) == 30
     key(Qt.Key.Key_Escape)
+    card(0, 0).selected = True                                    # selezione parziale: un click la toglie
+    w._update_sel_buttons()
+    w.btn_sel_all.click()
+    assert selected() == set() and w.btn_sel_all.text() == "SELEZIONA TUTTO"
 
     # trascinamento: dal centro di (0,0) al centro di (1,1) → 4 card
     mouse(card(0, 0).thumb, QEvent.Type.MouseButtonPress, QPoint(10, 10))

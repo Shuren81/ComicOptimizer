@@ -449,37 +449,35 @@ class MainWindow(QMainWindow):
         self.btn_clear.setMinimumHeight(42)
         self.btn_clear.clicked.connect(self.clear_all)
 
-        self.btn_all = QPushButton("SISTEMA TUTTO")
+        self.btn_all = QPushButton("SISTEMA")
         self.btn_all.setMinimumHeight(42)
         set_variant(self.btn_all, "primary")
-        self.btn_all.clicked.connect(self.repair_all_trigger)
+        self.btn_all.setToolTip("Ripara o converte in WebP tutti i fumetti, o solo i selezionati")
+        self.btn_all.clicked.connect(self.repair_trigger)
 
         self.btn_sel_all = QPushButton("SELEZIONA TUTTO")
         self.btn_sel_all.setMinimumHeight(42)
         self.btn_sel_all.setToolTip("Ctrl+A seleziona tutto, Esc toglie la selezione")
         self.btn_sel_all.setVisible(False)
+        # con almeno un fumetto selezionato toglie la selezione, altrimenti seleziona tutto
         self.btn_sel_all.clicked.connect(
-            lambda: self.select_all(not all(c.selected for c in self.cards.values())))
+            lambda: self.select_all(not any(c.selected for c in self.cards.values())))
 
-        self.btn_sel = QPushButton("SISTEMA SELEZIONATI")
-        self.btn_sel.setMinimumHeight(42)
-        set_variant(self.btn_sel, "info")
-        self.btn_sel.setVisible(False)
-        self.btn_sel.clicked.connect(self.repair_selected)
-
-        self.btn_trash_sel = QPushButton("CESTINA SELEZIONATI")
+        self.btn_trash_sel = QPushButton("CESTINA")
         self.btn_trash_sel.setMinimumHeight(42)
         set_variant(self.btn_trash_sel, "danger")
+        self.btn_trash_sel.setToolTip("Sposta nel cestino i fumetti selezionati")
         self.btn_trash_sel.setVisible(False)
         self.btn_trash_sel.clicked.connect(self.trash_selected)
 
-        self.btn_merge = QPushButton("UNISCI SELEZIONATI")
+        self.btn_merge = QPushButton("UNISCI")
         self.btn_merge.setMinimumHeight(42)
         set_variant(self.btn_merge, "accent")
+        self.btn_merge.setToolTip("Unisce i fumetti selezionati in un unico CBZ")
         self.btn_merge.setVisible(False)
         self.btn_merge.clicked.connect(self.merge_selected)
 
-        self.btn_rename = QPushButton("RINOMINA SELEZIONATI")
+        self.btn_rename = QPushButton("RINOMINA")
         self.btn_rename.setMinimumHeight(42)
         self.btn_rename.setToolTip("Rinomina i fumetti selezionati (F2)")
         self.btn_rename.setVisible(False)
@@ -502,7 +500,6 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_clear)
         top_bar.addWidget(self.btn_all)
         top_bar.addWidget(self.btn_sel_all)
-        top_bar.addWidget(self.btn_sel)
         top_bar.addWidget(self.btn_merge)
         top_bar.addWidget(self.btn_rename)
         top_bar.addWidget(self.btn_undo_rename)
@@ -549,7 +546,7 @@ class MainWindow(QMainWindow):
         self.status_stack.addWidget(work_w)
 
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel_all, self.btn_sel, self.btn_merge, self.btn_rename, self.btn_undo_rename,
+        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_undo_rename,
                    self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
@@ -925,13 +922,11 @@ class MainWindow(QMainWindow):
     def _update_sel_buttons(self):
         """Mostra i pulsanti che dipendono da quanti fumetti sono selezionati."""
         sel_n = sum(1 for c in self.cards.values() if c.selected)
-        self.btn_sel.setVisible(sel_n > 0)
         self.btn_merge.setVisible(sel_n > 1)
         self.btn_rename.setVisible(sel_n > 0)
         self.btn_trash_sel.setVisible(sel_n > 0)
         self.btn_sel_all.setVisible(bool(self.cards))
-        self.btn_sel_all.setText("DESELEZIONA TUTTO" if self.cards and sel_n == len(self.cards)
-                                 else "SELEZIONA TUTTO")
+        self.btn_sel_all.setText("DESELEZIONA TUTTO" if sel_n else "SELEZIONA TUTTO")
 
     def select_all(self, on=True):
         for c in self.cards.values():
@@ -1156,6 +1151,26 @@ class MainWindow(QMainWindow):
             for p in dupes:
                 self.trash_file(p)
             self.reset_ui()
+
+    def repair_trigger(self):
+        """SISTEMA: con una selezione chiede se sistemare i selezionati o tutti."""
+        if not self._free():
+            return
+        sel_n = sum(1 for c in self.cards.values() if c.selected)
+        if not sel_n:
+            self.repair_all_trigger()
+            return
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Sistema")
+        msg.setText("Cosa vuoi sistemare?")
+        b_sel = msg.addButton(f"Selezionati ({sel_n})", QMessageBox.ButtonRole.AcceptRole)
+        b_all = msg.addButton(f"Tutti ({len(self.cards)})", QMessageBox.ButtonRole.ActionRole)
+        msg.addButton("Annulla", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+        if msg.clickedButton() == b_sel:
+            self.repair_selected()
+        elif msg.clickedButton() == b_all:
+            self.repair_all_trigger()
 
     def repair_selected(self):
         if not self._free():

@@ -659,7 +659,7 @@ Correggile a mano nella cella.</p>
 Un file esistente non viene mai sovrascritto. I caratteri <code>\\ / : * ? " &lt; &gt; |</code> diventano <code>_</code>.
 Dopo una rinomina, il pulsante <b>Annulla rinomina</b> nella finestra principale rimette i nomi di prima.</p>
 <p><b>Come aprire la rinomina:</b> doppio click sul nome nella card, tasto <b>F2</b> o pulsante
-<b>Rinomina selezionati</b>. In questa finestra, <b>F1</b> apre questo aiuto.</p>
+<b>Rinomina</b>. In questa finestra, <b>F1</b> apre questo aiuto.</p>
 """
 
 class NoWheelSpinBox(QSpinBox):
