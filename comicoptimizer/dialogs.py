@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -26,7 +27,9 @@ from PyQt6.QtWidgets import (
 
 from .logsetup import _qt_log_handler, log
 from .style import set_variant
+from .online import AuthorSearchWorker, clean_title, result_label
 from .utils import (
+    FREE_FIELDS,
     apply_schema,
     capitalize_words,
     clean_filename,
@@ -258,6 +261,8 @@ class MergeDialog(QDialog):
             self.to_webp = to_webp
             self.accept()
 
+_SEARCHES = set()   # ricerche online in corso (il thread deve vivere fino alla fine)
+
 class RenameDialog(QDialog):
     """
     Rinomina uno o più fumetti. La colonna "Nuovo nome" è ricalcolata a ogni modifica:
@@ -268,13 +273,24 @@ class RenameDialog(QDialog):
     """
     SETTINGS = ("Shuren", "ComicOptimizer")
     RECENT_MAX = 10
-    PRESETS = ["<parte1> #<parte2>",                               # serie
-               "<parte1> #<parte2> - <parte3>",                    # una storia per numero
-               "<parte1> #<parte2> - <parte3> (Vol. <parte4:1>)"]  # contenitore, storie a volumi
+    # l'autore dove è uno solo per tutta la serie; non per Bonelli e contenitori (cambia a ogni numero)
+    PRESETS = [("<parte1> (<autore>) Vol. <parte2:2>", "Manga a volumi"),
+               ("<parte1> (<autore>) Ch. <parte2>", "Manga a capitoli"),
+               ("<parte1> (<autore>) (<editore>) Vol. <parte2:2> [<lingua>]",
+                "Manga, edizione completa (editore e lingua)"),
+               ("<parte1> (<anno>) (<autore>) #<parte2>", "Comics americani"),
+               ("<parte1> (<anno>) (<autore>) #<parte2> - <parte3>", "Comics americani con sottotitolo"),
+               ("<parte1> #<parte2> - <parte3>", "Una storia per numero (Bonelli…)"),
+               ("<parte1> #<parte2> - <parte3> (Vol. <parte4:1>)", "Contenitore con storie a volumi")]
 
-    def __init__(self, paths, parent=None):
+    def __init__(self, paths, parent=None, on_rename=None):
         super().__init__(parent)
         self.setWindowTitle("Rinomina")
+        # on_rename(coppie) rinomina sul disco e restituisce le coppie riuscite: la finestra
+        # resta aperta per altri passaggi. Senza, "Rinomina" chiude e restituisce le coppie.
+        self.on_rename = on_rename
+        self.done_pairs = []         # tutte le rinomine fatte da questa finestra (per annullarle)
+        self._search = None
         fit_dialog_to_screen(self, 920, 600, min_w=580, min_h=380)
         self.paths = sorted(paths, key=lambda p: get_natural_sort_key(os.path.basename(p)))
         self._schema_err = [None] * len(self.paths)
@@ -290,9 +306,17 @@ class RenameDialog(QDialog):
         self.schema.setEditable(True)
         self.schema.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         recent = self._recent()
-        self.schema.addItems(recent + [x for x in self.PRESETS if x not in recent])
+        self.schema.addItems(recent)
+        presets = [(s, d) for s, d in self.PRESETS if s not in recent]
+        if recent and presets:
+            self.schema.insertSeparator(len(recent))
+        for s, d in presets:   # nel menu: tipo di fumetto · schema; nel campo entra solo lo schema
+            self.schema.addItem(f"{d}  ·  {s}", s)
+        self.schema.activated.connect(
+            lambda i: self.schema.setEditText(self.schema.itemData(i) or self.schema.itemText(i)))
         self.schema.setEditText(split_name(self.paths[0])[0] if single else "<nome>")
-        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e tre schemi pronti")
+        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e sette schemi pronti\n"
+                               "(manga a volumi e a capitoli, comics americani, storie, contenitori)")
         self.digits = QSpinBox()
         self.digits.setRange(1, 6)
         self.digits.setValue(3)
@@ -308,7 +332,8 @@ class RenameDialog(QDialog):
         l.addLayout(row)
         row = QHBoxLayout()
         hint = QLabel("Segnaposto: <nome> nome attuale · <num> numero già nel nome · "
-                      "<n> progressivo · <parte1>, <parte2>… pezzi del nome")
+                      "<n> progressivo · <anno> anno nel nome · <parte1>, <parte2>… pezzi del nome · "
+                      "<autore> <editore> <edizione> <lingua> dalle caselle qui sotto")
         hint.setStyleSheet("color: #aaa; font-size: 11px;")
         hint.setTextFormat(Qt.TextFormat.PlainText)   # altrimenti "<nome>" sembra un tag HTML
         hint.setWordWrap(True)
@@ -340,6 +365,30 @@ class RenameDialog(QDialog):
         row.addWidget(self.find, 1)
         row.addWidget(self.repl, 1)
         row.addWidget(self.case)
+        l.addLayout(row)
+
+        # campi che non si ricavano dal nome: si usano con <autore>, <editore>, <edizione>, <lingua>
+        row = QHBoxLayout()
+        self.fields = {}
+        examples = {"autore": "Kentaro Miura", "editore": "Panini", "edizione": "Ultimate", "lingua": "ITA"}
+        for key in FREE_FIELDS:
+            edit = QLineEdit()
+            edit.setPlaceholderText(f"es. {examples[key]}")
+            edit.setToolTip(f"Si inserisce nello Schema con <{key}>")
+            if key == "lingua":
+                edit.setMaximumWidth(90)
+            row.addWidget(QLabel(key.capitalize() + ":"))
+            row.addWidget(edit, 0 if key == "lingua" else 1)
+            self.fields[key] = edit
+            if key == "autore":
+                self.b_search = QPushButton("🔍 Cerca")
+                self.b_search.setProperty("sz", "small")
+                set_variant(self.b_search, "info")
+                self.b_search.setAutoDefault(False)
+                self.b_search.setToolTip("Cerca l'autore online (Wikidata, AniList) dal titolo del fumetto.\n"
+                                         "Viene inviato solo il titolo, mai i file.")
+                self.b_search.clicked.connect(self.search_author)
+                row.addWidget(self.b_search)
         l.addLayout(row)
 
         row = QHBoxLayout()
@@ -382,10 +431,12 @@ class RenameDialog(QDialog):
         b_none.clicked.connect(self.table.clearSelection)
 
         btns = QHBoxLayout()
-        b_can = QPushButton("Annulla")
+        b_can = QPushButton("Chiudi" if on_rename else "Annulla")
         set_variant(b_can, "danger")
         b_can.setAutoDefault(False)
         b_can.clicked.connect(self.reject)
+        self.status = QLabel()
+        self.status.setStyleSheet("color: #00e5ff; font-weight: bold;")
         b_help = QPushButton("? Aiuto")
         set_variant(b_help, "info")
         b_help.setToolTip("Come si rinomina (F1)")
@@ -394,19 +445,20 @@ class RenameDialog(QDialog):
         self.b_ok = QPushButton("Rinomina")
         set_variant(self.b_ok, "success")
         self.b_ok.setDefault(True)
-        self.b_ok.clicked.connect(self.accept)
+        self.b_ok.clicked.connect(self._rename)
         btns.addWidget(b_can)
         btns.addWidget(b_help)
-        btns.addStretch()
+        btns.addSpacing(12)
+        btns.addWidget(self.status, 1)
         btns.addWidget(self.b_ok)
         l.addLayout(btns)
 
         self.schema.editTextChanged.connect(self._fill)
-        self.schema.lineEdit().returnPressed.connect(
-            lambda: self.b_ok.isEnabled() and self.accept())
+        self.schema.lineEdit().returnPressed.connect(self._rename)
         for sig in (self.digits.valueChanged, self.start.valueChanged, self.split_numbers.toggled,
                     self.b_us.toggled, self.b_cap.toggled, self.find.textChanged,
-                    self.repl.textChanged, self.case.toggled):
+                    self.repl.textChanged, self.case.toggled,
+                    *(e.textChanged for e in self.fields.values())):
             sig.connect(self._fill)
         self.table.itemSelectionChanged.connect(self._on_selection)
         self.table.itemChanged.connect(self._edited)
@@ -441,7 +493,8 @@ class RenameDialog(QDialog):
             else:
                 try:
                     new = apply_schema(stem, self.schema.currentText(), self.start.value() + k,
-                                       self.digits.value(), self.split_numbers.isChecked())
+                                       self.digits.value(), self.split_numbers.isChecked(),
+                                       {key: e.text() for key, e in self.fields.items()})
                     if post:
                         new = self._post(new)
                 except ValueError as e:
@@ -533,12 +586,96 @@ class RenameDialog(QDialog):
     def _recent(self):
         return QSettings(*self.SETTINGS).value("rinomina/schemi_recenti", [], type=list)
 
-    def accept(self):
+    def _save_recent(self):
         schema = self.schema.currentText()
         if "<" in schema:   # solo schemi veri, non un nome scritto per un singolo fumetto
             recent = [schema] + [x for x in self._recent() if x != schema]
             QSettings(*self.SETTINGS).setValue("rinomina/schemi_recenti", recent[:self.RECENT_MAX])
+
+    def accept(self):
+        self._save_recent()
         super().accept()
+
+    def _rename(self):
+        """Rinomina. Con on_rename la finestra resta aperta e riparte dai nomi nuovi."""
+        pairs = self.renames()
+        if not pairs:
+            return
+        if self.on_rename is None:
+            self.accept()
+            return
+        self._save_recent()
+        done = self.on_rename(pairs)
+        self.done_pairs += done
+        new_of = dict(done)
+        self.table.clearSelection()                   # esce anche dal "nome singolo"
+        for i, p in enumerate(self.paths):
+            if p in new_of:
+                self.paths[i] = new_of[p]
+                self.table.item(i, 0).setText(os.path.basename(new_of[p]))
+                self._manual.pop(i, None)
+        # si riparte dai nomi nuovi: tutto "invariato"; le caselle Autore/Editore/… restano
+        for w in (self.find, self.repl):
+            w.blockSignals(True)
+            w.clear()
+            w.blockSignals(False)
+        for b in (self.b_us, self.b_cap):
+            b.blockSignals(True)
+            b.setChecked(False)
+            b.blockSignals(False)
+        self.schema.setEditText("<nome>")
+        self._fill()
+        miss = len(pairs) - len(done)
+        self.status.setText(f"✓ {len(done)} rinominati" + (f" · {miss} non riusciti" if miss else ""))
+
+    # --- ricerca dell'autore online ---
+
+    def search_author(self):
+        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or [0]
+        title, ok = QInputDialog.getText(
+            self, "Cerca autore", "Titolo da cercare (viene inviato solo questo testo a Wikidata e AniList):",
+            text=clean_title(self.paths[rows[0]]))
+        if not ok or not title.strip():
+            return
+        self.b_search.setEnabled(False)
+        self.b_search.setText("Ricerca…")
+        self._search = AuthorSearchWorker(title.strip())
+        self._search.found.connect(self._author_found)
+        self._search.failed.connect(self._author_failed)
+        _SEARCHES.add(self._search)                   # vive fino alla fine, anche se la finestra si chiude
+        self._search.finished.connect(lambda w=self._search: _SEARCHES.discard(w))
+        self._search.start()
+
+    def _search_done(self):
+        self.b_search.setEnabled(True)
+        self.b_search.setText("🔍 Cerca")
+
+    def _author_failed(self, err):
+        self._search_done()
+        QMessageBox.warning(self, "Cerca autore", f"Ricerca non riuscita (connessione?):\n{err}")
+
+    def _author_found(self, results):
+        self._search_done()
+        if not results:
+            QMessageBox.information(self, "Cerca autore", "Nessun risultato: prova con il titolo originale "
+                                    "o in inglese, oppure scrivi l'autore a mano.")
+            return
+        if len(results) == 1:
+            pick = results[0]
+        else:
+            labels = [result_label(r) for r in results]
+            text, ok = QInputDialog.getItem(self, "Cerca autore", "Scegli il fumetto giusto:", labels, 0, False)
+            if not ok:
+                return
+            pick = results[labels.index(text)]
+        self.fields["autore"].setText(", ".join(pick["authors"]))
+
+    def done(self, r):
+        # finestra chiusa con una ricerca in corso: il risultato non deve più arrivare qui
+        if self._search and self._search.isRunning():
+            self._search.found.disconnect()
+            self._search.failed.disconnect()
+        super().done(r)
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key.Key_F1:
@@ -567,7 +704,7 @@ class RenameDialog(QDialog):
 RENAME_HELP = """
 <h3>Come si rinomina</h3>
 <ol>
-<li><b>Schema</b>: scrivi il formato del nuovo nome (nel menu a tendina: gli schemi usati di recente e tre schemi pronti).</li>
+<li><b>Schema</b>: scrivi il formato del nuovo nome (nel menu a tendina: gli schemi usati di recente e sette schemi pronti).</li>
 <li><b>Cerca / Sostituisci</b> e i tasti <b>_ → spazio</b>, <b>Iniziali Maiuscole</b>: sistemano i nomi.</li>
 <li><b>A mano</b>: doppio click su una cella di <i>Nuovo nome</i> per correggere un caso particolare.</li>
 <li><b>Rinomina</b>: cambia il nome dei soli file validi. Le righe rosse e quelle invariate non vengono toccate.</li>
@@ -581,6 +718,11 @@ Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i>
 <tr><td><b>&lt;nome&gt;</b></td><td>il nome attuale</td></tr>
 <tr><td><b>&lt;num&gt;</b></td><td>il primo numero già presente nel nome, con le <i>Cifre</i> scelte
  (<code>naruto_12</code> → <code>012</code>). Tiene il numero vero: ideale per numerazioni sparse.</td></tr>
+<tr><td><b>&lt;anno&gt;</b></td><td>l'anno a 4 cifre presente nel nome, preferito quello tra parentesi
+ (<code>Absolute Batman 024 (2024) (Digital)</code> → <code>2024</code>)</td></tr>
+<tr><td><b>&lt;autore&gt;</b>, <b>&lt;editore&gt;</b>,<br><b>&lt;edizione&gt;</b>, <b>&lt;lingua&gt;</b></td>
+ <td>il testo scritto nelle caselle <i>Autore</i>, <i>Editore</i>, <i>Edizione</i>, <i>Lingua</i> (uguale per tutti i fumetti
+ della finestra). Se la casella è vuota la riga diventa rossa.</td></tr>
 <tr><td><b>&lt;n&gt;</b></td><td>un numero progressivo, nell'ordine della tabella, da <i>Parti da</i>, con le <i>Cifre</i> scelte</td></tr>
 <tr><td><b>&lt;parte1&gt;</b>, <b>&lt;parte2&gt;</b>…</td><td>i pezzi del nome. Si dividono ai trattini con spazi o <code>_</code>
  attorno e, con <i>Dividi anche ai numeri</i>, ai numeri staccati (anche con <code>#</code> davanti):
@@ -597,26 +739,39 @@ Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i>
 <code>Dylan Dog &lt;n&gt;</code> → <code>Dylan Dog 001</code>, <code>Dylan Dog 002</code>…</p>
 
 <h3>Come conviene chiamare i file</h3>
-<ol>
-<li>La <b>testata per prima</b>, scritta sempre uguale: i numeri della stessa serie restano vicini.</li>
-<li>Il <b>numero con # e sempre 3 cifre</b> (<code>#007</code>, <code>#045</code>): si legge subito, si ordina bene
- ovunque e Komga, Kavita e YACReader lo riconoscono da soli.</li>
-<li>Il <b>titolo della storia dopo " - "</b>, solo per le testate che lo hanno.</li>
-<li>L'<b>anno tra parentesi in fondo</b>, solo se serve distinguere serie con lo stesso nome.</li>
-<li><b>Niente etichette</b> come <code>(Digital)</code> o <code>(Pyrate-…)</code>.</li>
-</ol>
+<p>Nomi che i lettori di fumetti (Komga, Kavita, YACReader) e i programmi di catalogazione
+(ComicTagger, Mylar) riconoscono da soli, e che si ordinano bene ovunque:</p>
 <table cellspacing="4">
-<tr><td>Serie</td><td><code>Absolute Batman #024.cbz</code><br>
- schema <code>&lt;parte1&gt; #&lt;parte2&gt;</code></td></tr>
-<tr><td>Una storia per numero</td><td><code>Dylan Dog #045 - L'alba dei morti viventi.cbz</code><br>
- schema <code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt;</code>; storia che continua: <code>(2)</code>, <code>(3)</code> in fondo;
- più storie nello stesso numero: <code>La grande rapina + Il ponte</code></td></tr>
-<tr><td>Contenitore, storie a volumi</td><td><code>Romanzi a Fumetti #003 - Il Corvo (Vol. 1).cbz</code><br>
- <code>Romanzi a Fumetti #008 - Il Corvo (Vol. 2).cbz</code><br>
- schema <code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt; (Vol. &lt;parte4:1&gt;)</code>: i file restano in ordine di uscita
- e cercando il titolo della storia trovi tutti i volumi.</td></tr>
+<tr><td>Manga a volumi</td><td><code>Berserk (Kentaro Miura) Vol. 03.cbz</code> · schema <code>&lt;parte1&gt; (&lt;autore&gt;) Vol. &lt;parte2:2&gt;</code><br>
+ completo: <code>Berserk (Kentaro Miura) (Panini) Vol. 03 [ITA]</code> · <code>&lt;parte1&gt; (&lt;autore&gt;) (&lt;editore&gt;) Vol. &lt;parte2:2&gt; [&lt;lingua&gt;]</code><br>
+ niente <code>#</code> con i volumi: per i lettori <code>#</code> è il numero dell'albo o del capitolo</td></tr>
+<tr><td>Manga a capitoli</td><td><code>Juujika no Rokunin (Shiryuu Nakatake) Ch. 012.cbz</code> · schema <code>&lt;parte1&gt; (&lt;autore&gt;) Ch. &lt;parte2&gt;</code></td></tr>
+<tr><td>Comics americani</td><td><code>Batman (2016) #050 - The Wedding.cbz</code><br>
+ schema <code>&lt;parte1&gt; (&lt;anno&gt;) (&lt;autore&gt;) #&lt;parte2&gt;</code> (<code>Batman (2016) (Tom King) #050</code>),
+ con sottotitolo <code>… - &lt;parte3&gt;</code><br>
+ l'anno è quello di <b>inizio della serie</b> (distingue Batman 1940, 2016, 2025); il sottotitolo va dopo " - ",
+ senza parentesi (le parentesi sono lette come dati, tipo anno o "Digital")</td></tr>
+<tr><td>Una storia per numero</td><td><code>Zagor #045 - Il ritorno.cbz</code> · schema <code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt;</code><br>
+ storia che continua: <code>(2)</code>, <code>(3)</code> in fondo; più storie nello stesso numero: <code>La grande rapina + Il ponte</code></td></tr>
+<tr><td>Contenitori, storie a volumi</td><td><code>Romanzi a Fumetti #008 - Il Corvo (Vol. 2).cbz</code><br>
+ schema <code>&lt;parte1&gt; #&lt;parte2&gt; - &lt;parte3&gt; (Vol. &lt;parte4:1&gt;)</code></td></tr>
 </table>
-<p>I tre schemi sono già pronti nel menu a tendina dello Schema.</p>
+<p>Regole comuni: la <b>testata per prima</b>, scritta sempre uguale; numeri con gli zeri davanti
+(<code>#007</code>, <code>Vol. 03</code>); <b>niente etichette</b> come <code>(Digital)</code> o <code>(Pyrate-…)</code>.
+I sette schemi sono pronti nel menu a tendina dello Schema; quelli con <code>&lt;autore&gt;</code> usano la casella
+Autore (riempibile con 🔍 Cerca). Per Bonelli e contenitori l'autore non c'è, perché cambia da un numero all'altro.</p>
+<p><b>Una cartella per serie</b>, con lo stesso nome della serie, è il miglioramento più grande:
+<code>Comics/Absolute Batman (2024)/Absolute Batman (2024) #001.cbz</code>,
+<code>Manga/Jujika no Rokunin/Jujika no Rokunin Vol. 01.cbz</code>. Komga e Kavita usano la cartella come serie
+(copertina, ordine, "prossimo da leggere"); il nome del file ripete la serie, così si capisce anche fuori dalla cartella.</p>
+<p><b>Autore, editore, edizione</b> tra parentesi dopo il titolo, la <b>lingua</b> tra quadre in fondo:
+<code>Berserk (Kentaro Miura) (Panini) Vol. 03 [ITA]</code> con lo schema
+<code>&lt;parte1&gt; (&lt;autore&gt;) (&lt;editore&gt;) Vol. &lt;parte2:2&gt; [&lt;lingua&gt;]</code>.
+I lettori leggono parentesi e quadre come dati e non come titolo, così la serie resta "Berserk".
+Usa solo quello che distingue davvero (l'editore se hai la stessa serie da due editori, la lingua se hai più lingue).
+Nella cartella della serie va bene lo stesso: <code>Manga/Berserk (Kentaro Miura)/</code>.</p>
+<p>I lettori si fidano ancora di più dei dati dentro il CBZ (<b>ComicInfo.xml</b>: serie, numero, anno, titolo),
+che ComicOptimizer conserva sempre.</p>
 
 <h3>Cerca / Sostituisci</h3>
 <p>Il risultato si vede subito nella colonna. Jolly in <i>Cerca</i>:
@@ -648,6 +803,20 @@ nello stesso ordine (il 1° con il 1°, il 2° con il 2°…):<br>
 <li>Le <b>correzioni a mano</b> (in corsivo, "✎ a mano") restano fisse anche se cambi schema o tasti.
  Svuota la cella per tornare al nome automatico.</li>
 </ul>
+
+<h3>Cerca l'autore online</h3>
+<p>Il pulsante <b>🔍 Cerca</b> accanto ad <i>Autore</i> propone il titolo ricavato dal nome del fumetto selezionato
+(o del primo): senza numeri, Vol./Ch., parentesi e trattini bassi. Puoi correggerlo prima di cercare.
+La ricerca usa <b>Wikidata</b> (titoli in italiano, inglese e originali: "L'attacco dei giganti", "Attack on Titan"…;
+manga, comics, fumetti italiani) e <b>AniList</b> (manga). Scegli il risultato giusto e la casella si riempie.<br>
+<b>Privacy:</b> viene inviato solo il titolo che confermi, mai i file né il percorso; senza premere il pulsante
+l'app non usa Internet. Se non trova nulla, prova con il titolo originale o in inglese, o scrivi l'autore a mano.</p>
+
+<h3>Più passaggi</h3>
+<p>Dopo <b>Rinomina</b> la finestra resta aperta: la colonna <i>Nome attuale</i> mostra i nomi nuovi, lo Schema torna
+<code>&lt;nome&gt;</code> e Cerca/Sostituisci e gli interruttori si azzerano, così continui dai nomi nuovi
+(le caselle Autore, Editore, Edizione, Lingua restano). <b>Chiudi</b> o Esc per finire. <b>Annulla rinomina</b>,
+nella finestra principale, annulla tutti i passaggi fatti in questa finestra.</p>
 
 <h3>Righe rosse</h3>
 <p>Non vengono rinominate: <i>numero non trovato</i>, <i>parte mancante</i>, <i>nome vuoto</i>,

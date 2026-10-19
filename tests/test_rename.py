@@ -44,6 +44,31 @@ def test_utils():
     assert capitalize_words(underscores_to_spaces(
         apply_schema(z, "<parte1> - #<num> - <parte3>", 1, 3))) == "Zagor - #045 - Il Ritorno"
     assert apply_schema("x", "<nome> <n>", 7, 2) == "x 07"
+    # <anno>: preferito quello tra parentesi; 0245 non è un anno
+    assert apply_schema("Absolute Batman 024 (2024) (Digital) (Shan-Empire)", "<parte1> (<anno>) #<parte2>", 1, 3) \
+        == "Absolute Batman (2024) #024"
+    assert apply_schema("Batman 2016 050 (2025)", "<anno>", 1, 3) == "2025"
+    assert apply_schema("Batman 2016 050", "<anno>", 1, 3) == "2016"
+    try:
+        apply_schema("Zagor 0245 x 12025", "<anno>", 1, 3)
+        raise AssertionError("doveva fallire")
+    except ValueError as e:
+        assert "anno" in str(e)
+    assert capitalize_words(underscores_to_spaces(apply_schema("jujika_no_rokunin_v3", "<parte1> Vol. <num:2>", 1, 3))) \
+        == "Jujika No Rokunin V3 Vol. 03"
+    assert apply_schema("Jujika no Rokunin 3", "<parte1> Vol. <parte2:2>", 1, 3) == "Jujika no Rokunin Vol. 03"
+    assert apply_schema("Jujika no Rokunin 12", "<parte1> Ch. <parte2>", 1, 3) == "Jujika no Rokunin Ch. 012"
+    # campi scritti a mano: autore, editore, edizione, lingua
+    full = {"autore": "Kentaro Miura", "editore": "Panini", "edizione": "Ultimate", "lingua": "ITA"}
+    assert apply_schema("Berserk 3", "<parte1> (<autore>) (<editore>) (<edizione>) Vol. <parte2:2> [<lingua>]",
+                        1, 3, fields=full) == "Berserk (Kentaro Miura) (Panini) (Ultimate) Vol. 03 [ITA]"
+    for key in full:
+        try:
+            apply_schema("Berserk 3", f"<parte1> <{key}>", 1, 3, fields={**full, key: "  "})
+            raise AssertionError("doveva fallire")
+        except ValueError as e:
+            assert str(e) == f"campo {key} vuoto"
+    assert apply_schema("Berserk 3", "<parte1>", 1, 3, fields={}) == "Berserk"     # campi non usati: ignorati
     # cifre per singolo segnaposto
     assert apply_schema("a 45 b 2", "<parte2> <parte4:1> <num:4> <n:2>", 7, 3) == "045 2 0045 07"
     corvo = apply_schema("romanzi_a_fumetti_008_il_corvo_2", "<parte1> #<parte2> - <parte3> (Vol. <parte4:1>)", 1, 3)
@@ -193,6 +218,14 @@ def test_dialog(work):
     assert h.text.verticalScrollBar().maximum() > 0 and "Come conviene" in h.text.toPlainText()
     h.close()
 
+    # caselle Autore/Editore/…: anteprima subito, casella vuota → riga rossa, "/" → "_"
+    d.schema.setEditText("<nome> (<autore>)")
+    assert "campo autore vuoto" in note(0) and not d.b_ok.isEnabled()
+    d.fields["autore"].setText("AC/DC")
+    assert col()[0] == "altro (AC/DC)" and os.path.basename(d.renames()[0][1]) == "altro (AC_DC).pdf"
+    d.fields["autore"].setText("")
+    d.schema.setEditText("<nome>")
+
     # due righe con lo stesso nome finale (stessa estensione)
     e1, e2 = touch("x 1.cbz"), touch("x 2.cbz")
     d2 = RenameDialog([e1, e2])
@@ -218,14 +251,19 @@ def test_dialog(work):
     items = [recent.itemText(i) for i in range(recent.count())]
     assert items[0] == "S5 <n>" and items.count("S5 <n>") == 1, items
     assert items[:10] == ["S5 <n>"] + [f"S{i} <n>" for i in (11, 10, 9, 8, 7, 6, 4, 3, 2)], items
-    assert items[10:] == RenameDialog.PRESETS and "X 1" not in items   # + i tre schemi pronti
+    assert items[10] == "" and "X 1" not in items                  # separatore, poi gli schemi pronti
+    assert [recent.itemData(i) for i in range(11, recent.count())] == [s for s, _ in RenameDialog.PRESETS]
+    assert items[11] == "Manga a volumi  ·  <parte1> (<autore>) Vol. <parte2:2>"   # con la descrizione
+    recent.activated.emit(11)                                      # scelto dal menu: nel campo solo lo schema
+    assert recent.currentText() == "<parte1> (<autore>) Vol. <parte2:2>"
     # uno schema pronto già tra i recenti non compare due volte
     dd = RenameDialog([e1, e2])
-    dd.schema.setEditText(RenameDialog.PRESETS[1])
+    dd.schema.setEditText(RenameDialog.PRESETS[1][0])
     dd.accept()
     combo = RenameDialog([e1]).schema
     items = [combo.itemText(i) for i in range(combo.count())]
-    assert items.count(RenameDialog.PRESETS[1]) == 1 and items[0] == RenameDialog.PRESETS[1]
+    schemas = [combo.itemData(i) or items[i] for i in range(combo.count())]
+    assert schemas.count(RenameDialog.PRESETS[1][0]) == 1 and items[0] == RenameDialog.PRESETS[1][0]
 
 
 def test_window(work):
@@ -250,11 +288,12 @@ def test_window(work):
     new_a = os.path.join(work, "Naruto - #010.cbz")
 
     class FakeDialog:
-        def __init__(self, paths, parent=None):
-            pass
+        def __init__(self, paths, parent=None, on_rename=None):
+            self.on_rename = on_rename
 
         def exec(self):
-            return True
+            self.done_pairs = self.on_rename(self.renames())    # come un click su "Rinomina"
+            return 0
 
         def renames(self):
             return [(a, new_a), (b, taken)]                      # la seconda esiste: va rifiutata
@@ -287,6 +326,63 @@ def test_window(work):
     w._closing = True
 
 
+def test_keep_open(work):
+    """Dopo "Rinomina" la finestra resta aperta e riparte dai nomi nuovi; si annulla tutto."""
+    from comicoptimizer.dialogs import RenameDialog
+    from comicoptimizer.main_window import MainWindow
+
+    paths = []
+    for n in ("berserk_1.cbz", "berserk_2.cbz"):
+        p = os.path.join(work, n)
+        open(p, "wb").write(b"x")
+        paths.append(p)
+    w = MainWindow()
+    w.import_files([(p, 1) for p in paths])
+    d = RenameDialog(paths, w, on_rename=w._do_renames)
+    d.show()
+    # 1° passaggio: _ → spazio e maiuscole
+    d.b_us.setChecked(True)
+    d.b_cap.setChecked(True)
+    d.schema.lineEdit().returnPressed.emit()                       # Invio: rinomina senza chiudere
+    assert d.isVisible() and d.status.text() == "✓ 2 rinominati"
+    first = [os.path.join(work, "Berserk 1.cbz"), os.path.join(work, "Berserk 2.cbz")]
+    assert all(os.path.exists(p) for p in first) and d.paths == first
+    assert d.table.item(0, 0).text() == "Berserk 1.cbz" and d.schema.currentText() == "<nome>"
+    assert not d.b_us.isChecked() and d.renames() == [] and not d.b_ok.isEnabled()
+    # 2° passaggio sui nomi nuovi, con il campo Autore
+    d.fields["autore"].setText("Kentaro Miura")
+    d.schema.setEditText("<parte1> (<autore>) Vol. <parte2:2>")
+    d.b_ok.click()
+    final = [os.path.join(work, f"Berserk (Kentaro Miura) Vol. 0{i}.cbz") for i in (1, 2)]
+    assert d.paths == final and all(os.path.exists(p) for p in final)
+    assert d.fields["autore"].text() == "Kentaro Miura"            # le caselle restano
+    assert sorted(w.cards) == final
+    # 🔍 Cerca (ricerca finta, senza rete): titolo proposto dal nome, scelta, casella riempita
+    import comicoptimizer.dialogs as dg
+    import comicoptimizer.online as online
+    from PyQt6.QtTest import QTest
+    asked = []
+    dg.QInputDialog.getText = lambda *a, **k: (asked.append(k.get("text")), ("Berserk", True))[1]
+    dg.QInputDialog.getItem = lambda parent, title, label, items, *a: (items[1], True)
+    online.search_authors = lambda title: [
+        {"title": "Berserk", "desc": "film", "source": "Wikidata", "authors": ["Qualcuno"]},
+        {"title": "Berserk", "desc": "manga", "source": "Wikidata", "authors": ["Kentarō Miura", "Kouji Mori"]}]
+    d.fields["autore"].clear()
+    d.b_search.click()
+    for _ in range(100):
+        QTest.qWait(20)
+        if d.b_search.isEnabled():
+            break
+    assert asked == ["Berserk"], asked                            # titolo pulito proposto
+    assert d.fields["autore"].text() == "Kentarō Miura, Kouji Mori"
+    # Chiudi: "Annulla rinomina" annulla tutti e due i passaggi
+    d.reject()
+    w._set_undo(d.done_pairs)
+    w.undo_rename()
+    assert all(os.path.exists(p) for p in paths) and sorted(w.cards) == sorted(paths)
+    w._closing = True
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
@@ -297,4 +393,6 @@ if __name__ == "__main__":
         test_dialog(os.path.join(work, "d"))
         os.makedirs(os.path.join(work, "w"))
         test_window(os.path.join(work, "w"))
+        os.makedirs(os.path.join(work, "k"))
+        test_keep_open(os.path.join(work, "k"))
     print("TUTTO OK")

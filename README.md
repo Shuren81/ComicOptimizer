@@ -112,7 +112,7 @@ pip install -r requirements.txt
 * **Unione:** "Unisci" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
 * **Ottimizzazione:** scegli se riparare i file (uniformare i numeri di pagina e convertire in .CBZ) o convertire le pagine in WebP per risparmiare spazio.
 * **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Doppio click su una pagina per vederla in grande (frecce ← → o pulsanti ◀ ▶ per scorrere, Esc per chiudere). Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
-* **Rinomina:** doppio click sul nome nella card, tasto `F2` o il pulsante "Rinomina". Scrivi lo schema del nuovo nome (es. `<parte1> #<parte2> - <parte3>`; nel menu a tendina ci sono gli ultimi schemi usati e tre schemi pronti per serie, storie e testate contenitore; l'Aiuto spiega come conviene chiamare i file), sistema i nomi con Cerca/Sostituisci (jolly `?` e `*`, anche in Sostituisci per tenere il testo trovato: `[*]` → `*` toglie solo le parentesi) e gli interruttori "_ → spazio" e "Iniziali Maiuscole": la colonna "Nuovo nome" si aggiorna in tempo reale. Selezioni le righe con un click o trascinando (con righe selezionate si rinominano solo quelle), correggi a mano le celle se serve, poi "Rinomina". "Annulla rinomina" rimette i nomi di prima. Le righe rosse non vengono toccate. Il pulsante "Aiuto" (o `F1`) spiega tutti i comandi.
+* **Rinomina:** doppio click sul nome nella card, tasto `F2` o il pulsante "Rinomina". Scrivi lo schema del nuovo nome (es. `<parte1> #<parte2> - <parte3>`; autore, editore, edizione e lingua si scrivono nelle loro caselle (l'autore si può anche cercare online con "🔍 Cerca") e si inseriscono con `<autore>`, `<editore>`, `<edizione>`, `<lingua>`; nel menu a tendina ci sono gli ultimi schemi usati e sette schemi pronti per manga e comics americani (con `<autore>`, `<anno>`, editore e lingua), storie e testate contenitore; l'Aiuto spiega come conviene chiamare i file), sistema i nomi con Cerca/Sostituisci (jolly `?` e `*`, anche in Sostituisci per tenere il testo trovato: `[*]` → `*` toglie solo le parentesi) e gli interruttori "_ → spazio" e "Iniziali Maiuscole": la colonna "Nuovo nome" si aggiorna in tempo reale. Selezioni le righe con un click o trascinando (con righe selezionate si rinominano solo quelle), correggi a mano le celle se serve, poi "Rinomina": la finestra resta aperta per altri passaggi. "Annulla rinomina" rimette i nomi di prima. Le righe rosse non vengono toccate. Il pulsante "Aiuto" (o `F1`) spiega tutti i comandi.
 * **Log:** il pulsante "Log" (o il tasto `L`) apre la finestra del log, con filtro per livello, ricerca e pulsante "Salva".
 
 ### 🧩 Struttura del progetto
@@ -134,7 +134,7 @@ comicoptimizer/
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
-tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py)
+tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_online.py)
 tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
 tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
 tools/build_appimage.sh   compila l'AppImage in locale
@@ -154,7 +154,7 @@ Gli script usano le stesse opzioni della compilazione automatica su GitHub (`.gi
 
 ### 🛡️ Privacy e Sicurezza
 
-**100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC.
+**100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC. Unica eccezione, solo se la usi tu: il pulsante *Cerca* dell'autore (finestra Rinomina) invia a Wikidata e AniList **solo il titolo** che confermi, mai i file né il percorso. Senza premerlo l'app non usa Internet.
 
 **Resilienza:** Se interrompi un'operazione, i tuoi file originali rimangono intatti: vengono spostati nel cestino solo dopo che il nuovo archivio è stato creato e verificato. Se il cestino non è disponibile (per esempio su un disco di rete) l'originale resta al suo posto: nulla viene mai cancellato definitivamente. Le cartelle temporanee vengono sempre ripulite.
 

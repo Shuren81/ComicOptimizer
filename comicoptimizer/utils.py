@@ -254,7 +254,11 @@ _PART_SEP = re.compile(r'[\s_]+-[\s_]*|[\s_]*-[\s_]+')
 # numero "staccato" (anche con # davanti): "titolo 43 sottotitolo"; "X-Men2" e "Vol.3" non dividono
 _NUM_PART = re.compile(r'[\s_]*(?<![^\s_])#?(\d+)(?![^\s_])[\s_]*')
 # <segnaposto> oppure <segnaposto:cifre>, es. <parte4:1> (cifre solo per quel segnaposto)
-_SCHEMA_TOKEN = re.compile(r'<(nome|num|n|parte(\d+))(?::(\d))?>')
+# campi scritti a mano nella finestra (non si ricavano dal nome del file)
+FREE_FIELDS = ("autore", "editore", "edizione", "lingua")
+_SCHEMA_TOKEN = re.compile(r'<(nome|num|n|anno|autore|editore|edizione|lingua|parte(\d+))(?::(\d))?>')
+_YEAR_PAREN = re.compile(r'\((19\d\d|20\d\d)\)')
+_YEAR = re.compile(r'(?<!\d)(19\d\d|20\d\d)(?!\d)')
 
 def name_parts(stem, split_numbers=True):
     """Pezzi del nome: separati da " - " e, con `split_numbers`, anche dai numeri staccati."""
@@ -266,12 +270,14 @@ def name_parts(stem, split_numbers=True):
 def _pad(num, digits):
     return num.lstrip("0").zfill(digits)
 
-def apply_schema(stem, schema, n, digits, split_numbers=True):
+def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None):
     """
     Nuovo nome da uno schema con <nome> (nome attuale), <num> (primo numero
-    del nome), <n> (progressivo) e <parte1>, <parte2>… (pezzi separati da " - "
+    del nome), <n> (progressivo), <anno> (anno nel nome, preferito quello tra
+    parentesi) e <parte1>, <parte2>… (pezzi separati da " - "
     e dai numeri, vedi name_parts; una parte di sole cifre prende le cifre scelte).
     Con <segnaposto:C> le cifre sono C solo per quel segnaposto (:1 = numero com'è).
+    <autore>, <editore>, <edizione>, <lingua> vengono da `fields` (scritti a mano).
     Solleva ValueError se nel nome manca il numero o la parte richiesta.
     """
     parts = name_parts(stem, split_numbers)
@@ -283,6 +289,16 @@ def apply_schema(stem, schema, n, digits, split_numbers=True):
             return stem
         if key == "n":
             return str(n).zfill(d)
+        if key in FREE_FIELDS:
+            value = (fields or {}).get(key, "").strip()
+            if not value:
+                raise ValueError(f"campo {key} vuoto")
+            return value
+        if key == "anno":
+            found = _YEAR_PAREN.search(stem) or _YEAR.search(stem)
+            if not found:
+                raise ValueError("anno non trovato")
+            return found.group(1)
         if key == "num":
             found = re.search(r'\d+', stem)
             if not found:

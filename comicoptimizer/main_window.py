@@ -901,6 +901,9 @@ class MainWindow(QMainWindow):
     def show_privacy(self):
         msg = ("<b>Informativa sulla Privacy (100% Locale)</b><br><br><b>Sicurezza Integrale: I tuoi file non lasciano mai il PC.</b><br><br>"
                "La riservatezza dei tuoi dati e della tua collezione è la nostra priorità assoluta. ComicOptimizer è progettato secondo il principio della privacy-by-design.<br><br>"
+               "<b>Unica eccezione, solo se la usi tu:</b> il pulsante <i>Cerca</i> dell'autore, nella finestra "
+               "Rinomina, invia a Wikidata e AniList <b>solo il titolo</b> che vedi e confermi (mai i file, "
+               "il percorso o il nome completo). Senza premere quel pulsante l'app non usa Internet.<br><br>"
                "La tua libreria rimane sotto il tuo controllo.")
         QMessageBox.information(self, "Privacy", msg)
 
@@ -1066,12 +1069,10 @@ class MainWindow(QMainWindow):
         """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card."""
         if not self._free():
             return
-        dlg = RenameDialog(paths, self)
-        if not dlg.exec():
-            return
-        done = self._do_renames(dlg.renames())
-        if done:
-            self._set_undo(done)
+        dlg = RenameDialog(paths, self, on_rename=self._do_renames)
+        dlg.exec()   # resta aperta per più passaggi: ogni "Rinomina" chiama _do_renames
+        if dlg.done_pairs:
+            self._set_undo(dlg.done_pairs)   # "Annulla rinomina" annulla tutti i passaggi
 
     def undo_rename(self):
         """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""
