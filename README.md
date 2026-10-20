@@ -134,7 +134,7 @@ comicoptimizer/
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
-tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_online.py)
+tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_online.py, test_maximize.py)
 tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
 tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
 tools/build_appimage.sh   compila l'AppImage in locale

@@ -195,6 +195,7 @@ class MainWindow(QMainWindow):
         self._last_renames   = []      # [(vecchio, nuovo)] dell'ultima rinomina, per annullarla
         self._thumb_queue    = deque() # miniature in attesa: ne girano poche alla volta
         self._thumbs_running = 0
+        self._grid_cols      = 0       # colonne attuali della griglia
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -336,16 +337,39 @@ class MainWindow(QMainWindow):
         # Se n è piccolo (0,1,2,3), restituisce 4.
         # Se n è tra 4 e 7, restituisce n.
         # Se n è superiore a 7, restituisce 7.
+        # Finestra massimizzata: tutte le colonne che stanno nella sua larghezza.
+        if self.isMaximized():
+            return self._cols_fit(self.width(), 50)
         return min(max(COLS_DEFAULT, min(n, COLS_MAX)), self._cols_fit_screen())
 
-    def _cols_fit_screen(self):
-        """Quante colonne di card entrano nella larghezza dello schermo (almeno 1)."""
-        avail = QApplication.primaryScreen().availableGeometry().width()
-        cols = COLS_MAX
+    def _cols_fit(self, avail, most):
+        """Quante colonne di card (al massimo `most`, almeno 1) entrano in `avail` pixel."""
+        cols = most
         # + 12: la barra di scorrimento verticale della griglia (vedi STYLESHEET)
         while cols > 1 and self._win_width_for_cols(cols) + 12 > avail:
             cols -= 1
         return cols
+
+    def _cols_fit_screen(self):
+        """Quante colonne di card entrano nella larghezza dello schermo (almeno 1)."""
+        return self._cols_fit(QApplication.primaryScreen().availableGeometry().width(), COLS_MAX)
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QEvent.Type.WindowStateChange:
+            if self.isMaximized():
+                # massimizzata: niente larghezza fissa, la griglia usa tutto lo spazio
+                self.setMinimumWidth(0)
+                self.setMaximumWidth(16777215)
+            QTimer.singleShot(0, self.refresh_grid)   # ripristinata: torna la larghezza calcolata
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.isMaximized():
+            if self.cards and self._cols_for_count(len(self.cards)) != self._grid_cols:
+                self.refresh_grid()
+            else:
+                self._apply_window_width(self._grid_cols)   # solo il banner
 
     def _refit_width(self):
         """Riadatta la larghezza quando compaiono/spariscono i pulsanti della barra."""
@@ -353,7 +377,15 @@ class MainWindow(QMainWindow):
         self._apply_window_width(self._cols_for_count(n))
 
     def _apply_window_width(self, cols):
-        """Ridimensiona la finestra alla larghezza giusta per `cols` colonne."""
+        """Ridimensiona la finestra alla larghezza giusta per `cols` colonne.
+        Massimizzata: la finestra non si tocca, si adatta solo il banner."""
+        m = self.centralWidget().layout().contentsMargins()
+        if self.isMaximized():
+            if not self._banner.isNull():
+                self.title_lbl.setPixmap(self._banner.scaledToWidth(
+                    min(self.width() - m.left() - m.right(), self._banner.width()),
+                    Qt.TransformationMode.SmoothTransformation))
+            return
         screen = QApplication.primaryScreen().availableGeometry()
         # La larghezza deve bastare anche per le barre dei pulsanti sopra e sotto
         # alla griglia (altrimenti su schermi stretti alcuni pulsanti finiscono
@@ -366,7 +398,6 @@ class MainWindow(QMainWindow):
         if not self._banner.isNull():
             # largo quanto la griglia, non quanto la finestra: se si allarga per i pulsanti
             # il banner non cambia altezza e le card non si spostano sotto il mouse
-            m = self.centralWidget().layout().contentsMargins()
             self.title_lbl.setPixmap(self._banner.scaledToWidth(
                 min(self._win_width_for_cols(cols), w) - m.left() - m.right(),
                 Qt.TransformationMode.SmoothTransformation))
@@ -379,7 +410,7 @@ class MainWindow(QMainWindow):
     def _fit_height(self):
         """Con dei fumetti, una fila intera di card deve stare senza barra di scorrimento:
         la finestra si allunga (fin dove arriva lo schermo), poi se serve il banner si abbassa."""
-        if not self.cards:
+        if not self.cards or self.isMaximized():
             return
         self.centralWidget().layout().activate()
         m = self.grid_l.contentsMargins()
@@ -1325,7 +1356,11 @@ class MainWindow(QMainWindow):
 
         n    = len(self.cards)
         cols = self._cols_for_count(n)
+        self._grid_cols = cols
         self._apply_window_width(cols)
+        # massimizzata: la griglia al centro (lo spazio avanzato si divide ai due lati)
+        self.grid_l.setAlignment(Qt.AlignmentFlag.AlignTop | (
+            Qt.AlignmentFlag.AlignHCenter if self.isMaximized() else Qt.AlignmentFlag.AlignLeft))
 
         for i, p in enumerate(sorted(self.cards.keys(), key=get_natural_sort_key)):
             self.grid_l.addWidget(self.cards[p], i // cols, i % cols)
