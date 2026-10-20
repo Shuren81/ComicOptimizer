@@ -934,12 +934,15 @@ class RenameDialog(QDialog):
         done = self.on_rename(pairs)
         self.done_pairs += done
         new_of = dict(done)
+        renamed = [i for i, p in enumerate(self.paths) if p in new_of]
+        # prima i nomi nuovi, poi la selezione: togliere la selezione ricalcola la tabella,
+        # che con i nomi vecchi cercherebbe file che non ci sono più
+        for i in renamed:
+            self.paths[i] = new_of[self.paths[i]]
+            self.table.item(i, 0).setText(os.path.basename(self.paths[i]))
         self.table.clearSelection()                   # esce anche dal "nome singolo"
-        for i, p in enumerate(self.paths):
-            if p in new_of:
-                self.paths[i] = new_of[p]
-                self.table.item(i, 0).setText(os.path.basename(new_of[p]))
-                self._manual.pop(i, None)
+        for i in renamed:
+            self._manual.pop(i, None)
         # si riparte dai nomi nuovi: tutto "invariato"; le caselle Autore/Editore/… restano
         for w in (self.find, self.repl):
             w.blockSignals(True)

@@ -12,12 +12,30 @@ from .config import IS_MAC, IS_WIN, RES_DIR, TMP_PREFIX
 from .logsetup import log
 
 
+def _is_network_path(path):
+    """Windows: file su un disco di rete (NAS, unità mappata, \\\\server\\…), che non ha cestino."""
+    if not IS_WIN:
+        return False
+    try:
+        import ctypes
+        root = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
+        return ctypes.windll.kernel32.GetDriveTypeW(root) == 4          # DRIVE_REMOTE
+    except Exception as e:
+        log.warning(f"Tipo di disco non riconosciuto per '{path}': {e}")
+        return True                                   # nel dubbio non si cestina: il file resta
+
+
 # --- TRASH HELPER (cross-platform) FIX #2 ---
 def _trash_file_cross_platform(path):
     """
     Sposta il file nel cestino in modo cross-platform.
     Prova send2trash se disponibile, altrimenti fallback per piattaforma.
+    False se non si può: il file resta dov'è (mai cancellazioni definitive).
     """
+    # su un disco di rete Windows "cestina" cancellando per sempre e in silenzio
+    if _is_network_path(path):
+        log.warning(f"Disco di rete senza cestino: '{path}' resta al suo posto")
+        return False
     try:
         import send2trash
         send2trash.send2trash(path)
@@ -483,10 +501,15 @@ def split_name(path):
 def rename_problem(old, new_path, taken):
     """Perché `old` non si può rinominare in `new_path` (None se si può).
     `taken` = destinazioni già scelte per le righe precedenti (normcase)."""
+    if not os.path.exists(old):                       # spostato o cancellato fuori dall'app
+        return "file non trovato"
     if os.path.normcase(new_path) in taken:
         return "nome ripetuto"
-    if os.path.exists(new_path) and not os.path.samefile(old, new_path):
-        return "esiste già"
+    try:
+        if os.path.exists(new_path) and not os.path.samefile(old, new_path):
+            return "esiste già"
+    except OSError as e:
+        return f"non accessibile ({e.strerror})"
     return None
 
 def find_comicinfo(folder):

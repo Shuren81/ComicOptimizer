@@ -712,7 +712,7 @@ class MainWindow(QMainWindow):
         if not self._free():
             return
         if self.skip_trash_confirm:
-            self.trash_file(path)
+            self.trash_files([path])
             return
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Question)
@@ -726,7 +726,7 @@ class MainWindow(QMainWindow):
         if msg.clickedButton() == b_yes:
             if cb.isChecked():
                 self.skip_trash_confirm = True
-            self.trash_file(path)
+            self.trash_files([path])
 
     def run_analysis(self, auto=True):
         if not self.cards:
@@ -905,15 +905,16 @@ class MainWindow(QMainWindow):
         self.set_working(False)
 
     def show_news(self):
-        msg = (f"<b>⚡ ComicOptimizer {APP_VERSION}: più sicuro e più veloce</b><br><br>"
+        msg = (f"<b>⚡ ComicOptimizer {APP_VERSION}: la tua libreria in ordine</b><br><br>"
+               "&nbsp;&nbsp;🏷️ <b>Marca i pezzi del nome:</b> nella finestra Rinomina selezioni un pezzo col mouse "
+               "e col tasto destro dici cos'è (titolo, numero, autore…): vale per tutti i file simili.<br>"
+               "&nbsp;&nbsp;📋 <b>Schemi pronti:</b> manga, graphic novel e serie americane; 🧹 svuota i recenti.<br>"
+               "&nbsp;&nbsp;✏️ <b>Rinomina in gruppo:</b> schemi, Cerca/Sostituisci con i jolly, più passaggi "
+               "e \"Annulla rinomina\".<br>"
+               "&nbsp;&nbsp;🔍 <b>Autore online:</b> cercato su Wikidata e AniList (solo il titolo, solo se lo chiedi).<br>"
+               "&nbsp;&nbsp;📚 <b>Unisci e cartelle:</b> più fumetti in uno; una cartella di immagini diventa un fumetto.<br>"
                "&nbsp;&nbsp;🛡️ <b>Originali al sicuro:</b> il nuovo CBZ viene verificato prima di toccare "
-               "l'originale, che finisce nel cestino invece di essere cancellato.<br>"
-               "&nbsp;&nbsp;📄 <b>Nessuna pagina persa:</b> le pagine leggere (bianche, crediti) non vengono più scartate.<br>"
-               "&nbsp;&nbsp;🏷️ <b>Metadati conservati:</b> ComicInfo.xml resta nell'archivio.<br>"
-               "&nbsp;&nbsp;🚀 <b>WebP su più core:</b> conversione molto più veloce, senza ricomprimere pagine già WebP.<br>"
-               "&nbsp;&nbsp;📚 <b>PDF migliori:</b> le scansioni vengono estratte in qualità originale.<br>"
-               "&nbsp;&nbsp;🔍 <b>Duplicati per contenuto:</b> trovati anche con nomi diversi.<br>"
-               "&nbsp;&nbsp;🔔 <b>Fine lavoro:</b> riepilogo con spazio risparmiato, notifica e suono.<br><br>"
+               "l'originale, che finisce nel cestino; se il cestino non c'è, l'originale resta dov'è.<br><br>"
                "Mettiti comodo, al disordine ci pensiamo noi.")
         QMessageBox.information(self, f"Novità v{APP_VERSION}", msg)
 
@@ -1148,19 +1149,28 @@ class MainWindow(QMainWindow):
                                 + "\n".join(errors[:8]))
         return done
 
-    # FIX #2: trash cross-platform con feedback in caso di errore
     def trash_file(self, p):
+        """Sposta nel cestino; se non si può il file resta dov'è. True se spostato."""
         log.info(f"Cestino: '{os.path.basename(p)}'")
         if _trash_file_cross_platform(p):
             log.info("  → spostato nel cestino con successo.")
             self.rem(p)
-        else:
-            log.error(f"  → FALLITO. Impossibile cestinare '{p}'")
+            return True
+        log.error(f"  → non spostato nel cestino, resta al suo posto: '{p}'")
+        return False
+
+    def trash_files(self, paths):
+        """Più file: un solo messaggio per quelli che non si sono potuti spostare."""
+        failed = [p for p in paths if not self.trash_file(p)]
+        if failed:
+            names = "\n".join(os.path.basename(p) for p in failed[:8])
+            more = f"\n… e altri {len(failed) - 8}" if len(failed) > 8 else ""
             QMessageBox.warning(
-                self, "Errore Cestino",
-                f"Impossibile spostare nel cestino:\n{p}\n\n"
-                "Installa 'send2trash':\n  pip install send2trash"
-            )
+                self, "Cestino",
+                f"{len(failed)} file non spostati nel cestino: il disco non ne ha uno "
+                f"(es. disco di rete) o il file non è accessibile.\n"
+                f"Sono rimasti al loro posto, niente è stato cancellato.\n\n{names}{more}")
+        self.reset_ui()
 
     def trash_selected(self):
         if not self._free():
@@ -1169,20 +1179,16 @@ class MainWindow(QMainWindow):
         if sel and QMessageBox.question(
             self, "Cestina", f"Spostare {len(sel)} file nel cestino?"
         ) == QMessageBox.StandardButton.Yes:
-            for p in sel:
-                self.trash_file(p)
-            self.reset_ui()
+            self.trash_files(sel)
 
     def trash_all_duplicates(self):
         if not self._free():
             return
         dupes = [p for p, c in self.cards.items() if c.status_code == 4]
         if dupes and QMessageBox.question(
-            self, "Cestina", "Eliminare i duplicati?"
+            self, "Cestina", "Spostare i duplicati nel cestino?"
         ) == QMessageBox.StandardButton.Yes:
-            for p in dupes:
-                self.trash_file(p)
-            self.reset_ui()
+            self.trash_files(dupes)
 
     def repair_trigger(self):
         """SISTEMA: con una selezione chiede se sistemare i selezionati o tutti."""

@@ -507,6 +507,66 @@ def test_marks_utils():
         assert apply_schema(stem, "<tit>", 1, 3) == apply_schema(stem, "<titolo>", 1, 3) == want
 
 
+def test_rename_selected(work):
+    """Rinomina con righe selezionate e finestra aperta (prima: crash, cercava i file coi nomi vecchi)."""
+    from comicoptimizer.dialogs import RenameDialog
+    from comicoptimizer.main_window import MainWindow
+    paths = make_files(work, ["Absolute Batman 024 (2026).cbz", "Absolute Batman 025 (2026).cbz"])
+    w = MainWindow()
+    w.import_files([(p, 1) for p in paths])
+    import comicoptimizer.dialogs as dialogs
+    check = dialogs.rename_problem
+
+    def strict(old, new, taken):                       # la tabella non deve mai cercare un file sparito
+        assert os.path.exists(old), f"cerca il nome vecchio: {old}"
+        return check(old, new, taken)
+    dialogs.rename_problem = strict
+    d = RenameDialog(paths, w, on_rename=w._do_renames)
+    d.show()
+    d.table.selectRow(0)                               # una sola riga: lo Schema mostra il suo nome
+    d.schema.setEditText("Absolute Batman - #024 (2026)")
+    d.b_ok.click()
+    assert d.paths[0] == os.path.join(work, "Absolute Batman - #024 (2026).cbz") and os.path.exists(d.paths[0])
+    assert d.table.item(0, 2).text() == ".cbz · invariato" and d.table.selectedIndexes() == []
+    d.table.selectAll()                                # più righe selezionate
+    d.schema.setEditText("<tit> #<num>")
+    d.b_ok.click()
+    assert [os.path.basename(p) for p in d.paths] == ["Absolute Batman #024.cbz", "Absolute Batman #025.cbz"]
+    assert all(os.path.exists(p) for p in d.paths) and d.status.text() == "✓ 2 rinominati"
+    dialogs.rename_problem = check
+    d.reject()
+    w._closing = True
+
+
+def test_error_hook():
+    """Un errore non previsto in un comando: messaggio e log, l'app non si chiude."""
+    import comicoptimizer.app as appmod
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QPushButton
+    shown = []
+    appmod.QMessageBox.critical = lambda parent, title, text: shown.append(text)
+    old_hook, sys.excepthook = sys.excepthook, appmod._on_unexpected_error
+    b = QPushButton()
+    b.clicked.connect(lambda: 1 / 0)
+    b.click()                                          # senza il gancio: "core dump"
+    QTimer.singleShot(0, lambda: None)
+    QApplication.processEvents()
+    sys.excepthook = old_hook
+    assert len(shown) == 1 and "ZeroDivisionError" in shown[0] and "log" in shown[0], shown
+
+
+def test_missing_file(work):
+    """Un file sparito mentre la finestra è aperta: riga rossa, nessun crash."""
+    from comicoptimizer.dialogs import RenameDialog
+    a, b = make_files(work, ["Absolute Batman 024 (2026).cbz", "Absolute Batman 025 (2026).cbz"])
+    d = RenameDialog([a, b])
+    os.remove(a)
+    d.schema.setEditText("<tit> - #<num>")
+    assert d.table.item(0, 2).text() == "⚠ file non trovato"
+    assert [os.path.basename(t) for _, t in d.renames()] == ["Absolute Batman - #025.cbz"]
+    d.reject()
+
+
 def select_text(d, text):
     from PyQt6.QtGui import QTextCursor
     a = d._shown_stem.index(text)
@@ -629,6 +689,7 @@ if __name__ == "__main__":
         # impostazioni (schemi recenti) in una cartella temporanea, non in quelle vere
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, work)
         test_utils()
+        test_error_hook()
         test_marks_utils()
         os.makedirs(os.path.join(work, "d"))
         test_dialog(os.path.join(work, "d"))
@@ -640,4 +701,8 @@ if __name__ == "__main__":
         test_marks_dialog(os.path.join(work, "m"))
         os.makedirs(os.path.join(work, "p"))
         test_marks_partial(os.path.join(work, "p"))
+        os.makedirs(os.path.join(work, "x"))
+        test_missing_file(os.path.join(work, "x"))
+        os.makedirs(os.path.join(work, "s"))
+        test_rename_selected(os.path.join(work, "s"))
     print("TUTTO OK")

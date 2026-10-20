@@ -213,7 +213,8 @@ class AdvancedEditor(QDialog):
         exts = "Immagini (*.jpg *.jpeg *.png *.webp *.bmp *.gif *.tiff *.tif *.avif)"
         fs, _ = QFileDialog.getOpenFileNames(self, "Aggiungi immagini", "", exts)
         for f in fs:
-            dst = os.path.join(self.temp_dir, f"ext_{os.path.basename(f)}")
+            # numero davanti: due immagini con lo stesso nome (o 01.png e 01.jpg) restano distinte
+            dst = os.path.join(self.temp_dir, f"ext_{len(self._added_paths)}_{os.path.basename(f)}")
             shutil.copy2(f, dst)
             self._added_paths.add(dst)
             self.add_page(dst, len(self.page_widgets) + 1, is_new=True)

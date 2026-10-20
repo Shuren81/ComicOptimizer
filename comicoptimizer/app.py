@@ -3,7 +3,7 @@
 import os
 import sys
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QThread, Qt
 from PyQt6.QtGui import QColor, QIcon, QPalette
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -15,7 +15,32 @@ from .style import STYLESHEET
 from .utils import cleanup_stale_temp
 
 
+_showing_error = False
+
+
+def _on_unexpected_error(etype, value, tb):
+    """Errore non previsto in un comando: nel log e in un messaggio, e l'app resta aperta
+    (senza questo, PyQt6 chiude tutto di colpo con "core dump")."""
+    global _showing_error
+    if issubclass(etype, KeyboardInterrupt):
+        sys.__excepthook__(etype, value, tb)
+        return
+    log.critical(f"Errore non previsto: {value}", exc_info=(etype, value, tb))
+    app = QApplication.instance()
+    # il messaggio solo dal thread dell'interfaccia, e uno alla volta
+    if app is None or QThread.currentThread() is not app.thread() or _showing_error:
+        return
+    _showing_error = True
+    try:
+        QMessageBox.critical(QApplication.activeWindow(), "ComicOptimizer — errore",
+                             f"Errore non previsto: il comando è stato interrotto.\n\n{etype.__name__}: {value}"
+                             f"\n\nDettagli nel log:\n{LOG_PATH}")
+    finally:
+        _showing_error = False
+
+
 def main():
+    sys.excepthook = _on_unexpected_error
     app = QApplication(sys.argv)
     app.setApplicationName("ComicOptimizer")
     app.setApplicationVersion(APP_VERSION)

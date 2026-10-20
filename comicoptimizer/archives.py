@@ -146,36 +146,26 @@ def get_archive_file_list(path):
                         f"provo unrar/7z (real_fmt={real_fmt})")
             # Ricade nel ramo RAR sotto
             effective_fmt = 'rar'
+        except OSError as e:                          # senza permesso di lettura, disco staccato…
+            log.warning(f"get_archive_file_list: '{path}' non leggibile: {e}")
+            return []
 
-    if effective_fmt in ('rar', '7z'):
-        imgs = []
-        # Prova unrar lb
-        try:
-            res = run_tool(['unrar', 'lb', path],
-                                 capture_output=True, text=True, timeout=10)
-            if res.returncode == 0:
-                imgs = [f.strip() for f in res.stdout.splitlines() if is_page_file(f.strip())]
-        except Exception as e:
-            log.debug(f"unrar lb fallito su '{path}': {e}")
-        # Fallback 7z
-        if not imgs:
-            imgs = _parse_7z_list(path)
-        imgs.sort(key=get_natural_sort_key)
-        return imgs
-
-    # Formato sconosciuto: prova entrambi
+    # qui il formato è 'rar' o '7z': unrar, poi 7z
     imgs = []
+    # Prova unrar lb
     try:
         res = run_tool(['unrar', 'lb', path],
                              capture_output=True, text=True, timeout=10)
         if res.returncode == 0:
             imgs = [f.strip() for f in res.stdout.splitlines() if is_page_file(f.strip())]
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"unrar lb fallito su '{path}': {e}")
+    # Fallback 7z
     if not imgs:
         imgs = _parse_7z_list(path)
     imgs.sort(key=get_natural_sort_key)
     return imgs
+
 
 def check_integrity(path):
     """
@@ -218,43 +208,33 @@ def check_integrity(path):
             log.warning(f"check_integrity zip errore '{path}': {e}")
             return False
 
-    if effective_fmt in ('rar', '7z'):
-        # Prova unrar t per i RAR
-        if effective_fmt == 'rar':
-            try:
-                res = run_tool(
-                    ['unrar', 't', '-y', path],
-                    capture_output=True, timeout=60
-                )
-                if res.returncode == 0:
-                    return True
-                log.debug(f"unrar t fallito (rc={res.returncode}) su '{path}', provo 7z...")
-            except FileNotFoundError:
-                log.debug("unrar non trovato, uso 7z per il test di integrità")
-            except subprocess.TimeoutExpired:
-                log.warning(f"check_integrity unrar timeout su '{path}'")
-                return False
-            except Exception as e:
-                log.debug(f"unrar t eccezione su '{path}': {e}")
-
-        # Fallback / 7z nativo: 7z t
+    # qui il formato è 'rar' o '7z'
+    if effective_fmt == 'rar':
         try:
-            res = run_tool(['7z', 't', path], capture_output=True, timeout=60)
-            return res.returncode == 0
+            res = run_tool(
+                ['unrar', 't', '-y', path],
+                capture_output=True, timeout=60
+            )
+            if res.returncode == 0:
+                return True
+            log.debug(f"unrar t fallito (rc={res.returncode}) su '{path}', provo 7z...")
+        except FileNotFoundError:
+            log.debug("unrar non trovato, uso 7z per il test di integrità")
         except subprocess.TimeoutExpired:
-            log.warning(f"check_integrity 7z timeout su '{path}'")
+            log.warning(f"check_integrity unrar timeout su '{path}'")
             return False
         except Exception as e:
-            log.warning(f"check_integrity 7z errore su '{path}': {e}")
-            return False
+            log.debug(f"unrar t eccezione su '{path}': {e}")
 
-    # Formato sconosciuto: prova 7z come ultimo tentativo
-    log.debug(f"check_integrity: formato sconosciuto per '{path}', provo 7z t")
+    # Fallback / 7z nativo: 7z t
     try:
         res = run_tool(['7z', 't', path], capture_output=True, timeout=60)
         return res.returncode == 0
+    except subprocess.TimeoutExpired:
+        log.warning(f"check_integrity 7z timeout su '{path}'")
+        return False
     except Exception as e:
-        log.warning(f"check_integrity fallback 7z errore '{path}': {e}")
+        log.warning(f"check_integrity 7z errore su '{path}': {e}")
         return False
 
 # --- ESTRAZIONE ARCHIVI ---

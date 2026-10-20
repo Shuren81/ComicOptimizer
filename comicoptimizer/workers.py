@@ -71,7 +71,11 @@ class ImportWorker(QThread):
                 all_to_check.append(p)
         total = len(all_to_check)
         for i, p in enumerate(all_to_check):
-            flist = get_archive_file_list(p)
+            try:
+                flist = get_archive_file_list(p)
+            except Exception as e:                    # un file strano non blocca l'importazione
+                log.warning(f"Importazione: '{p}' saltato: {e}")
+                flist = []
             if flist:
                 valid.append((p, len(flist)))
             self.progress.emit(i + 1, total)
@@ -283,6 +287,8 @@ class ProcessingWorker(QThread):
                     log.warning(f"Impossibile rimuovere tmp orfano '{tmp_zip}': {e}")
 
             try:
+                if not img_list:                      # es. editor con tutte le pagine tolte
+                    raise RuntimeError("nessuna pagina: il fumetto non viene sostituito")
                 pages = self._build_pages(pool, img_list, out, orig_p, start_p, summary)
                 if pages is None:
                     log.info("ProcessingWorker: abort_now() ricevuto.")
@@ -500,13 +506,24 @@ class LoadingWorker(QThread):
         self.loose_last = loose_last
 
     def run(self):
+        try:
+            self._load()
+        except Exception as e:                        # senza segnale l'app resterebbe "occupata"
+            log.error(f"LoadingWorker '{self.path}': {e}", exc_info=True)
+            self.error.emit(f"Errore durante l'apertura: {e}")
+
+    def _load(self):
         if os.path.isdir(self.path):
             # cartella di immagini: l'editor lavora sugli originali, nella cartella
             # temporanea vanno solo ComicInfo.xml e le pagine aggiunte
             tmp = make_temp_dir()
             ci  = folder_comicinfo(self.path)
             if ci:
-                shutil.copy2(ci, tmp)
+                try:
+                    shutil.copy2(ci, tmp)
+                except OSError:
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    raise
             self.finished.emit(self.path, tmp, list_folder_pages(self.path, self.loose_last))
             return
         if not get_archive_file_list(self.path):
@@ -541,55 +558,67 @@ class BatchPrepWorker(QThread):
         tasks = []
         total = len(self.paths)
         for i, p in enumerate(self.paths):
-            if os.path.isdir(p):
-                tasks += self._folder_task(p)
-                self.progress.emit(i + 1, total)
-                continue
-            tmp = make_temp_dir()
-            log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' → '{tmp}'")
-            ok = False
             try:
-                name = os.path.basename(p)
-                ok = extract_archive(
-                    p, tmp,
-                    lambda v, t, name=name: self.page_progress.emit(name, v, t, total))
-            except Exception as e:
-                log.error(f"BatchPrepWorker eccezione su '{p}': {e}")
-
-            extracted = list_page_files(tmp)
-            expected  = len(get_archive_file_list(p))
-
-            # Controllo: TUTTE le pagine devono essere state estratte.
-            # (Sostituisce il vecchio filtro "< 5 KB" che scartava in silenzio
-            #  pagine bianche o pagine WebP leggere.)
-            if not ok or not extracted:
-                log.error(f"  ✗ Nessuna immagine estratta da '{os.path.basename(p)}' — file saltato")
-                shutil.rmtree(tmp, ignore_errors=True)
-            elif len(extracted) < expected:
-                log.error(f"  ✗ Estratte solo {len(extracted)} pagine su {expected} da "
-                          f"'{os.path.basename(p)}' — file saltato, originale intatto")
-                shutil.rmtree(tmp, ignore_errors=True)
-            else:
-                unreadable = []
-                for fp in extracted:
-                    try:
-                        with Image.open(fp) as im:
-                            im.size
-                    except Exception:
-                        unreadable.append(os.path.basename(fp))
-                if unreadable:
-                    log.warning(f"  {len(unreadable)} pagine non leggibili (conservate "
-                                f"comunque così come sono): {', '.join(unreadable[:5])}")
-                comicinfo = find_comicinfo(tmp)
-                log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
-                         f"{' + ComicInfo.xml' if comicinfo else ''}")
-                tasks.append({'src': p, 'images': extracted, 'tmp': tmp,
-                              'comicinfo': comicinfo, 'edited': False})
-
+                tasks += self._prepare(p, total)
+            except Exception as e:                    # senza "ready" l'app resterebbe "occupata"
+                log.error(f"  ✗ '{os.path.basename(p)}' saltato: {e}", exc_info=True)
             self.progress.emit(i + 1, total)
 
         log.info(f"BatchPrep completato: {len(tasks)}/{total} file pronti per l'elaborazione")
         self.ready.emit(tasks, self.to_webp)
+
+    def _prepare(self, p, total):
+        """Il task di un fumetto ([] se non si può elaborare)."""
+        if os.path.isdir(p):
+            return self._folder_task(p)
+        tmp = make_temp_dir()
+        try:
+            return self._archive_task(p, tmp, total)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    def _archive_task(self, p, tmp, total):
+        log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' → '{tmp}'")
+        ok = False
+        try:
+            name = os.path.basename(p)
+            ok = extract_archive(
+                p, tmp,
+                lambda v, t, name=name: self.page_progress.emit(name, v, t, total))
+        except Exception as e:
+            log.error(f"BatchPrepWorker eccezione su '{p}': {e}")
+
+        extracted = list_page_files(tmp)
+        expected  = len(get_archive_file_list(p))
+
+        # Controllo: TUTTE le pagine devono essere state estratte.
+        # (Sostituisce il vecchio filtro "< 5 KB" che scartava in silenzio
+        #  pagine bianche o pagine WebP leggere.)
+        if not ok or not extracted:
+            log.error(f"  ✗ Nessuna immagine estratta da '{os.path.basename(p)}' — file saltato")
+            shutil.rmtree(tmp, ignore_errors=True)
+        elif len(extracted) < expected:
+            log.error(f"  ✗ Estratte solo {len(extracted)} pagine su {expected} da "
+                      f"'{os.path.basename(p)}' — file saltato, originale intatto")
+            shutil.rmtree(tmp, ignore_errors=True)
+        else:
+            unreadable = []
+            for fp in extracted:
+                try:
+                    with Image.open(fp) as im:
+                        im.size
+                except Exception:
+                    unreadable.append(os.path.basename(fp))
+            if unreadable:
+                log.warning(f"  {len(unreadable)} pagine non leggibili (conservate "
+                            f"comunque così come sono): {', '.join(unreadable[:5])}")
+            comicinfo = find_comicinfo(tmp)
+            log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
+                     f"{' + ComicInfo.xml' if comicinfo else ''}")
+            return [{'src': p, 'images': extracted, 'tmp': tmp,
+                     'comicinfo': comicinfo, 'edited': False}]
+        return []
 
     def _folder_task(self, p):
         """Cartella di sole immagini: le pagine si leggono direttamente, senza estrazione."""

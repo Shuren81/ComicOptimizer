@@ -2,6 +2,15 @@
 
 ## [3.1.0] — 2026-10-21
 
+### Sicurezza e stabilità
+- **Corretto:** su Windows, per i file su un disco di rete (NAS, unità mappata, `\\server\…`) "spostare nel cestino" li cancellava per sempre, in silenzio, perché lì il cestino non c'è. Ora quei file non vengono toccati: dopo una conversione l'originale resta dov'è, e "Cestina"/"Pulisci duplicati" li lasciano al loro posto.
+- **Corretto:** un file senza permesso di lettura bloccava l'importazione su "Importazione…": ora viene saltato.
+- **Corretto:** salvare dall'editor un fumetto senza pagine lo sostituiva con un CBZ vuoto: ora è un errore e l'originale resta com'è.
+- **Corretto:** un errore imprevisto nella preparazione di un fumetto o nell'apertura dell'editor (disco pieno, `ComicInfo.xml` illeggibile…) lasciava l'app "occupata" per sempre: ora quel fumetto viene saltato o compare un messaggio.
+- **Corretto:** nell'editor, due immagini aggiunte con lo stesso nome (o `01.png` e `01.jpg`) diventavano la stessa pagina e una andava persa.
+- **Cambiato:** se il cestino non è disponibile per più file, un solo messaggio con l'elenco (prima una finestra per file, con un consiglio sbagliato su `send2trash`); i file restano al loro posto.
+- **Cambiato:** la finestra "Novità" descrive le funzioni della 3.x.
+
 ### Rinomina: marcatura dei pezzi del nome
 - **Nuovo:** riquadro col nome del fumetto (la riga selezionata o l'ultima cliccata) sopra lo Schema. Selezioni col mouse un pezzo del nome e col tasto destro dici cos'è: Titolo, Numero, Anno, Autore, Editore, Edizione, Lingua, oppure P1, P2… (il successivo libero o un numero a scelta). Si marca esattamente il testo selezionato, a parole intere (una parola presa per più di metà conta): se è solo una parte di un pezzo, il pezzo si divide lì da solo. I gruppi tra parentesi, come `(Shiryuu Nakatake)`, sono pezzi a sé. Ogni pezzo ha uno sfondo più chiaro e in cima al menu compare il testo che verrà marcato.
 - **Nuovo:** la marcatura è una regola per tutti i file della finestra, basata sulla posizione del pezzo ("il terzo pezzo"), non sulle lettere: funziona anche con titoli di lunghezza diversa. I file con una struttura diversa (pezzi in più o in meno) diventano rossi con "⚠ schema non applicabile" e non vengono rinominati.
@@ -15,6 +24,8 @@
 - **Nuovo:** l'Aiuto (F1) spiega la marcatura con un esempio passo per passo.
 - **Cambiato:** gli schemi pronti nel menu a tendina diventano tre: Manga `<aut> - <tit> - Cap #<num>`, Graphic novel `<aut> - <tit> (<anno>) (<lang>)`, Serie americane `<tit> (<anno>) - #<num> - <sott> (<lang>)`. L'Aiuto ("Come conviene chiamare i file") usa questi tre.
 - **Nuovo:** segnaposto `<sott>` (anche `<sottotitolo>`): il pezzo marcato come Sottotitolo o, senza marcature, l'ultimo pezzo di testo dopo il titolo (senza i gruppi tra parentesi); nel menu del tasto destro c'è il ruolo "Sottotitolo".
+- **Corretto:** crash della finestra Rinomina dopo "Rinomina" con delle righe selezionate: la tabella cercava i file con i nomi vecchi. Se un file sparisce davvero (spostato o cancellato fuori dall'app) la riga è rossa con "⚠ file non trovato" e non viene rinominata.
+- **Nuovo:** un errore non previsto non chiude più l'app di colpo: viene scritto nel log e mostrato in un messaggio, e il programma resta aperto.
 - **Nuovo:** pulsante 🧹 accanto allo Schema: svuota gli schemi recenti (con conferma), nel menu restano solo i predefiniti.
 
 ## [3.0.0] — 2026-10-14

@@ -213,6 +213,71 @@ def main(work):
         del sys.modules["send2trash"]
     assert seen[0][-1] == evil and not any(evil in a for a in seen[0][:-1])
 
+    # --- audit: errori che prima bloccavano l'app o rovinavano un fumetto
+    au = os.path.join(work, "audit")
+    os.makedirs(au)
+    # fumetto senza pagine (editor con tutte le pagine tolte): errore, originale intatto
+    keep = cbz(os.path.join(au, "Intatto.cbz"), [R])
+    before = open(keep, "rb").read()
+    summ = []
+    pw = workers.ProcessingWorker([{"src": keep, "images": [], "tmp": None, "comicinfo": None,
+                                    "edited": True}])
+    pw.job_done.connect(summ.append)
+    pw.run()
+    assert summ[0]["done"] == 0 and summ[0]["errors"] and open(keep, "rb").read() == before
+    # file senza permesso di lettura: l'importazione lo salta e finisce
+    locked = cbz(os.path.join(au, "Bloccato.cbz"), [R])
+    os.chmod(locked, 0)
+    got = []
+    iw = workers.ImportWorker([au])
+    iw.finished.connect(got.append)
+    iw.run()
+    os.chmod(locked, 0o644)
+    assert got and [p for p, _ in got[0]] == [keep], got
+    # errore imprevisto nella preparazione: quel fumetto è saltato, "ready" arriva comunque
+    real_tmp = workers.make_temp_dir
+    workers.make_temp_dir = lambda: (_ for _ in ()).throw(OSError("disco pieno"))
+    ready = []
+    bw = workers.BatchPrepWorker([keep], False)
+    bw.ready.connect(lambda t, m: ready.append(t))
+    bw.run()
+    workers.make_temp_dir = real_tmp
+    assert ready == [[]]
+    # editor su una cartella con ComicInfo.xml illeggibile: messaggio di errore, non blocco
+    fold = os.path.join(au, "Cartella")
+    png(os.path.join(fold, "1.jpg"), R)
+    ci_path = os.path.join(fold, "ComicInfo.xml")
+    open(ci_path, "w").write("<ComicInfo/>")
+    os.chmod(ci_path, 0)
+    errs = []
+    lw = workers.LoadingWorker(fold)
+    lw.error.connect(errs.append)
+    lw.run()
+    os.chmod(ci_path, 0o644)
+    assert errs and "apertura" in errs[0]
+    # Windows, disco di rete: niente "cestino" (cancellerebbe per sempre), il file resta
+    assert utils._is_network_path(keep) is False                 # non Windows
+    real_net = utils._is_network_path
+    utils._is_network_path = lambda p: True
+    assert utils._trash_file_cross_platform(keep) is False and os.path.exists(keep)
+    utils._is_network_path = real_net
+
+    # --- editor: due immagini aggiunte con lo stesso nome restano due pagine diverse
+    import comicoptimizer.editor as ed
+    etmp = os.path.join(au, "editor_tmp")
+    png(os.path.join(etmp, "0001.png"), R)
+    png(os.path.join(au, "a", "01.png"), G)
+    png(os.path.join(au, "b", "01.png"), B)
+    ed.QFileDialog.getOpenFileNames = lambda *a: ([os.path.join(au, "a", "01.png"),
+                                                    os.path.join(au, "b", "01.png")], "")
+    dlg = ed.AdvancedEditor(keep, etmp, [os.path.join(etmp, "0001.png")])
+    dlg.add_ext()
+    paths = dlg.get_paths()
+    assert len(paths) == 3 and len(set(paths)) == 3, paths
+    colors = [Image.open(p).convert("RGB").getpixel((5, 5)) for p in paths[1:]]
+    assert colors[0][1] > 200 and colors[1][2] > 200, colors
+    dlg.reject()
+
     window_checks(app, work)
     print("TUTTO OK")
 
@@ -292,6 +357,13 @@ def window_checks(app, work):
     w.repair_trigger()
     assert calls == ["all", "sel", "all"], calls
     assert w.btn_all.text() == "SISTEMA" and w.btn_rename.text() == "RINOMINA"
+
+    # cestino non disponibile per più file: un solo messaggio, i file restano
+    warns = []
+    mw.QMessageBox.warning = lambda *a: warns.append(a[-1])
+    mw._trash_file_cross_platform = lambda p: False
+    w.trash_files(list(w.cards)[:3])
+    assert len(warns) == 1 and "3 file non spostati" in warns[0] and len(w.cards) == 30
     w._closing = True
 
 
