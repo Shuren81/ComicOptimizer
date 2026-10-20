@@ -69,6 +69,20 @@ def test_utils():
         except ValueError as e:
             assert str(e) == f"campo {key} vuoto"
     assert apply_schema("Berserk 3", "<parte1>", 1, 3, fields={}) == "Berserk"     # campi non usati: ignorati
+    # segnaposto corti (<p1>, <aut>, <pub>, <edz>, <lang>) e lunghi di prima: stesso risultato
+    short = apply_schema("Berserk 3", "<p1> (<aut>) (<pub>) (<edz>) Vol. <p2:2> [<lang>]", 1, 3, fields=full)
+    assert short == "Berserk (Kentaro Miura) (Panini) (Ultimate) Vol. 03 [ITA]", short
+    assert apply_schema("a 45 b", "<p1>-<parte2:4>-<p3>", 1, 3) == "a-0045-b"
+    try:
+        apply_schema("x", "<pub>", 1, 3, fields={})
+        raise AssertionError("doveva fallire")
+    except ValueError as e:
+        assert str(e) == "campo editore vuoto"
+    # numero tra quadre: divide; tra tonde no
+    assert name_parts("Y L'ultimo Uomo [01] Senza Uomini") == ["Y L'ultimo Uomo", "01", "Senza Uomini"]
+    assert apply_schema("Y L'Ultimo Uomo [11] La variabile Y", "<p1> #<p2> - <p3>", 1, 3) == \
+        "Y L'Ultimo Uomo #011 - La variabile Y"
+    assert name_parts("Batman 050 (2016)") == ["Batman", "050", "(2016)"]
     # cifre per singolo segnaposto
     assert apply_schema("a 45 b 2", "<parte2> <parte4:1> <num:4> <n:2>", 7, 3) == "045 2 0045 07"
     corvo = apply_schema("romanzi_a_fumetti_008_il_corvo_2", "<parte1> #<parte2> - <parte3> (Vol. <parte4:1>)", 1, 3)
@@ -253,9 +267,9 @@ def test_dialog(work):
     assert items[:10] == ["S5 <n>"] + [f"S{i} <n>" for i in (11, 10, 9, 8, 7, 6, 4, 3, 2)], items
     assert items[10] == "" and "X 1" not in items                  # separatore, poi gli schemi pronti
     assert [recent.itemData(i) for i in range(11, recent.count())] == [s for s, _ in RenameDialog.PRESETS]
-    assert items[11] == "Manga a volumi  ·  <parte1> (<autore>) Vol. <parte2:2>"   # con la descrizione
+    assert items[11] == "Manga a volumi  ·  <p1> (<aut>) Vol. <p2:2>"   # con la descrizione
     recent.activated.emit(11)                                      # scelto dal menu: nel campo solo lo schema
-    assert recent.currentText() == "<parte1> (<autore>) Vol. <parte2:2>"
+    assert recent.currentText() == "<p1> (<aut>) Vol. <p2:2>"
     # uno schema pronto già tra i recenti non compare due volte
     dd = RenameDialog([e1, e2])
     dd.schema.setEditText(RenameDialog.PRESETS[1][0])
@@ -383,16 +397,156 @@ def test_keep_open(work):
     w._closing = True
 
 
+def test_marks_utils():
+    from comicoptimizer.utils import name_spans, new_rule, rule_values
+    # i pezzi con la loro posizione danno gli stessi pezzi di name_parts
+    for stem in ("Batman #12 La notte", "Y L'ultimo Uomo [01] Senza Uomini", "zagor_-_45_-_il_ritorno_-_2",
+                 "Spider-Man 2099 - Nuovo", " - a -  b", "123"):
+        for split in (True, False):
+            assert [stem[a:b] for a, b in name_spans(stem, split)] == name_parts(stem, split), stem
+    # regola marcata su un nome, applicata a nomi simili con titoli di lunghezza diversa
+    sample = "Dylan Dog 001 - L'alba dei morti viventi (1986)"
+    rule = new_rule(sample)
+    assert rule["kinds"] == ("T", "N", "T")
+    rule["cuts"][2] = ("end", 1)                      # Dividi: "(1986)" staccato dalla storia
+    rule["marks"] = {"titolo": ((0, 0), (0, 0)), "num": ((1, 0), (1, 0)),
+                     "p3": ((2, 0), (2, 0)), "anno": ((2, 1), (2, 1))}
+    schema = "<tit> #<num> - <p3> (<anno>)"
+    assert apply_schema(sample, schema, 1, 3, rule=rule) == "Dylan Dog #001 - L'alba dei morti viventi (1986)"
+    assert apply_schema("Dylan Dog 12 - Il ritorno del mostro (1987)", schema, 1, 3, rule=rule) == \
+        "Dylan Dog #012 - Il ritorno del mostro (1987)"
+    assert rule_values("Dylan Dog 12 - Il ritorno (1987)", rule)["anno"] == "1987"   # senza parentesi
+    # struttura diversa (un pezzo in più): non applicabile, niente nome sbagliato
+    for stem in ("Dylan Dog Speciale 4 - Mostri - 2 (1990)", "Dylan Dog 5 - (1990)"):
+        try:
+            apply_schema(stem, schema, 1, 3, rule=rule)
+            raise AssertionError(stem)
+        except ValueError as e:
+            assert str(e) == "schema non applicabile", e
+    assert apply_schema("Dylan Dog Speciale 4 - x - y", "<nome>", 1, 3, rule=rule) == "Dylan Dog Speciale 4 - x - y"
+    # Unisci: un ruolo su più pezzi prende il testo originale con i separatori interni
+    r2 = new_rule("Tex 100 Il ritorno")
+    r2["marks"] = {"titolo": ((0, 0), (1, 0))}
+    assert apply_schema("Tex 701 La valle", "<tit>!", 1, 3, rule=r2) == "Tex 701!"
+    # autore: vince il nome; se la struttura è diversa vale la casella; casella vuota → errore
+    r3 = new_rule("Berserk - Kentaro Miura - 03")
+    r3["marks"] = {"autore": ((1, 0), (1, 0))}
+    f = {"autore": "Miura"}
+    assert apply_schema("Berserk - Kentaro Miura - 03", "<p1> (<aut>)", 1, 3, fields=f, rule=r3) == \
+        "Berserk (Kentaro Miura)"
+    assert apply_schema("Berserk 03", "<p1> (<aut>)", 1, 3, fields=f, rule=r3) == "Berserk (Miura)"
+    try:
+        apply_schema("Berserk 03", "<p1> (<aut>)", 1, 3, rule=r3)
+        raise AssertionError("casella vuota")
+    except ValueError as e:
+        assert str(e) == "schema non applicabile"
+    # senza marcature: tutto come prima (anche con una regola vuota); <tit> = primo pezzo
+    for stem in ("Batman 050 (2016)", "Zagor 045 - Il ritorno", "Y L'ultimo Uomo [01] Senza Uomini"):
+        for sch in ("<p1> (<anno>) #<p2>", "<p1> #<p2> - <p3>", "<nome> <num:4> <n>"):
+            try:
+                want = apply_schema(stem, sch, 7, 3)
+            except ValueError as e:
+                want = str(e)
+            for rule in (None, new_rule(stem)):
+                try:
+                    got = apply_schema(stem, sch, 7, 3, rule=rule)
+                except ValueError as e:
+                    got = str(e)
+                assert got == want, (stem, sch, got, want)
+        assert apply_schema(stem, "<tit>", 1, 3) == apply_schema(stem, "<titolo>", 1, 3) == name_parts(stem)[0]
+
+
+def select_text(d, text):
+    from PyQt6.QtGui import QTextCursor
+    a = d._shown_stem.index(text)
+    cur = d.name_box.textCursor()
+    cur.setPosition(a)
+    cur.setPosition(a + len(text), QTextCursor.MoveMode.KeepAnchor)
+    d.name_box.setTextCursor(cur)
+    picked = d._picked()
+    return picked[0][0], picked[-1][0]
+
+
+def test_marks_dialog(work):
+    from comicoptimizer.dialogs import RenameDialog
+    names = ["Dylan Dog 001 - L'alba dei morti viventi (1986).cbz",
+             "Dylan Dog 012 - Il ritorno del mostro (1987).cbz",
+             "Dylan Dog Speciale 4 - Mostri - 2 (1990).cbz"]
+    paths = []
+    for n in names:
+        paths.append(os.path.join(work, n))
+        open(paths[-1], "wb").write(b"x")
+    d = RenameDialog(paths)
+    d.show()
+    col = lambda: [d.table.item(i, 1).text() for i in range(3)]
+    assert d.name_box.toPlainText() == "Dylan Dog 001 - L'alba dei morti viventi (1986)"
+    import comicoptimizer.dialogs as dialogs
+    menus = []                                         # il menu non si apre: si leggono le voci
+    dialogs.QMenu.exec = lambda self, *a: menus.append({x.text(): x.isEnabled() for x in self.actions() if x.text()})
+    d._name_menu(d.name_box.rect().center())
+    assert menus[-1] == {"Seleziona prima un pezzo del nome": False, "Azzera marcature": False}
+    select_text(d, "L'alba")
+    d._name_menu(d.name_box.rect().center())
+    m = menus[-1]
+    assert m["Titolo   <tit>"] and m["P1   <p1>   (il successivo libero)"] and m["Lingua   <lang>"]
+    assert not m["Unisci in un solo pezzo"] and not m["Ignora (togli il ruolo)"]
+    assert m["Dividi: queste parole diventano un pezzo a sé"]
+    d.mark("titolo", *select_text(d, "Dog"))          # la selezione si aggancia al pezzo intero
+    assert d.schema.currentText() == "<tit>"           # "<nome>" sostituito dal segnaposto
+    assert col()[:2] == ["Dylan Dog", "Dylan Dog"]
+    d.schema.lineEdit().setCursorPosition(len("<tit>"))
+    d.schema.lineEdit().insert(" #")
+    d.mark("num", *select_text(d, "001"))
+    assert d.schema.currentText() == "<tit> #<num>"
+    d.mark("num", *select_text(d, "001"))              # già nello schema: non si ripete
+    assert d.schema.currentText() == "<tit> #<num>"
+    # Dividi: "(1986)" diventa un pezzo a sé, poi Anno; il resto della storia è P3
+    select_text(d, "(1986)")
+    cut = d._cut_info(d._picked())
+    assert cut == (2, "end", 1), cut
+    d.cut(*cut)
+    d.mark("anno", *select_text(d, "1986"))
+    assert d._next_p() == 1
+    d.schema.setEditText("<tit> #<num> - <p3> (<anno>)")
+    d.mark("p3", *select_text(d, "alba"))
+    assert col()[:2] == ["Dylan Dog #001 - L'alba dei morti viventi (1986)",
+                         "Dylan Dog #012 - Il ritorno del mostro (1987)"], col()
+    assert d.table.item(2, 2).text() == "⚠ schema non applicabile"            # struttura diversa
+    assert [os.path.basename(t) for _, t in d.renames()] == [n + ".cbz" for n in col()[:2]]
+    assert "Titolo" in d.legend.text() and "&lt;anno&gt;" in d.legend.text()
+    # cambiare la selezione delle righe non azzera; il riquadro mostra la riga scelta
+    d.table.selectRow(2)
+    assert d._rule is not None and d._shown_units is None and "struttura diversa" in d.legend.text()
+    d.table.clearSelection()
+    assert d.schema.currentText() == "<tit> #<num> - <p3> (<anno>)" and d._rule["marks"]
+    assert d.name_box.toPlainText().startswith("Dylan Dog Speciale")   # l'ultima cliccata
+    d.table.setCurrentCell(0, 0)
+    d.table.clearSelection()
+    d.unmark(*select_text(d, "1986"))                  # Ignora
+    assert "anno" not in d._rule["marks"] and col()[1].endswith("(1987)")   # <anno> di nuovo automatico
+    d.reset_marks()                                    # Azzera: si torna all'automatico
+    assert d._rule is None and not d.b_reset.isEnabled()
+    d.schema.setEditText("<p1> #<p2>")
+    assert col() == ["Dylan Dog #001", "Dylan Dog #012", "Dylan Dog Speciale #004"]
+    d.mark("titolo", *select_text(d, "Dylan Dog"))
+    d.split_numbers.setChecked(False)                  # i pezzi cambiano: marcature azzerate
+    assert d._rule is None and "azzerate" in d.status.text()
+    d.reject()
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
         # impostazioni (schemi recenti) in una cartella temporanea, non in quelle vere
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, work)
         test_utils()
+        test_marks_utils()
         os.makedirs(os.path.join(work, "d"))
         test_dialog(os.path.join(work, "d"))
         os.makedirs(os.path.join(work, "w"))
         test_window(os.path.join(work, "w"))
         os.makedirs(os.path.join(work, "k"))
         test_keep_open(os.path.join(work, "k"))
+        os.makedirs(os.path.join(work, "m"))
+        test_marks_dialog(os.path.join(work, "m"))
     print("TUTTO OK")

@@ -252,53 +252,153 @@ def clean_filename(name):
 # "-" con spazi o "_" almeno da un lato: "Spider-Man" resta una parte sola
 _PART_SEP = re.compile(r'[\s_]+-[\s_]*|[\s_]*-[\s_]+')
 # numero "staccato" (anche con # davanti): "titolo 43 sottotitolo"; "X-Men2" e "Vol.3" non dividono
-_NUM_PART = re.compile(r'[\s_]*(?<![^\s_])#?(\d+)(?![^\s_])[\s_]*')
-# <segnaposto> oppure <segnaposto:cifre>, es. <parte4:1> (cifre solo per quel segnaposto)
-# campi scritti a mano nella finestra (non si ricavano dal nome del file)
+# anche tra quadre ("[01]"); le tonde no: "(2016)" è un anno o un'etichetta
+_NUM_PART = re.compile(r'[\s_]*(?<![^\s_])(?:#?(\d+)|\[(\d+)\])(?![^\s_])[\s_]*')
+# campi scritti a mano nella finestra (non si ricavano dal nome del file) e il loro segnaposto corto
 FREE_FIELDS = ("autore", "editore", "edizione", "lingua")
-_SCHEMA_TOKEN = re.compile(r'<(nome|num|n|anno|autore|editore|edizione|lingua|parte(\d+))(?::(\d))?>')
+FIELD_TAGS = {"autore": "aut", "editore": "pub", "edizione": "edz", "lingua": "lang"}
+_FIELD_OF = {**{f: f for f in FREE_FIELDS}, **{t: f for f, t in FIELD_TAGS.items()}}
+# <segnaposto> oppure <segnaposto:cifre>, es. <p4:1> (cifre solo per quel segnaposto).
+# Valgono anche le forme lunghe di prima (<parte1>, <autore>…): gli schemi salvati restano validi.
+_SCHEMA_TOKEN = re.compile(
+    r'<(nome|num|n|anno|tit(?:olo)?|aut(?:ore)?|pub|editore|edz|edizione|lang|lingua|(?:parte|p)(\d+))'
+    r'(?::(\d))?>')
+# ruoli che si marcano col mouse nel nome (oltre a p1, p2…) e il segnaposto che inseriscono
+ROLE_TAGS = {"titolo": "tit", "num": "num", "anno": "anno", **FIELD_TAGS}
 _YEAR_PAREN = re.compile(r'\((19\d\d|20\d\d)\)')
 _YEAR = re.compile(r'(?<!\d)(19\d\d|20\d\d)(?!\d)')
 
+def name_spans(stem, split_numbers=True):
+    """(inizio, fine) dei pezzi del nome: separati da " - " e, con `split_numbers`,
+    anche dai numeri staccati (di "#12" e "[12]" il pezzo è solo "12")."""
+    spans, pos = [], 0
+    for sep in [*_PART_SEP.finditer(stem), None]:
+        a, end = pos, (sep.start() if sep else len(stem))
+        pos = sep.end() if sep else end
+        seg, last = stem[a:end], 0
+        for m in (_NUM_PART.finditer(seg) if split_numbers else ()):
+            g = 1 if m.group(1) is not None else 2
+            spans += [(a + last, a + m.start())] if m.start() > last else []
+            spans.append((a + m.start(g), a + m.end(g)))
+            last = m.end()
+        if last < len(seg):
+            spans.append((a + last, end))
+    return spans
+
 def name_parts(stem, split_numbers=True):
     """Pezzi del nome: separati da " - " e, con `split_numbers`, anche dai numeri staccati."""
-    parts = _PART_SEP.split(stem)
-    if split_numbers:
-        parts = [q for p in parts for q in _NUM_PART.split(p)]
-    return [p for p in parts if p]
+    return [stem[a:b] for a, b in name_spans(stem, split_numbers)]
+
+# --- marcatura manuale dei pezzi (finestra Rinomina) ---
+# Una regola è posizionale, non legata ai caratteri: vale per tutti i nomi con la stessa struttura.
+#   split: "Dividi anche ai numeri"; kinds: "N"/"T" (numero/testo) di ogni pezzo del nome d'esempio
+#   cuts:  {pezzo: ("start"|"end", k)}  Dividi: le prime/ultime k parole diventano un'unità a sé
+#   joins: {unità}                      Unisci: l'unità va insieme alla successiva
+#   marks: {ruolo: (prima unità, ultima unità)}; un'unità è (pezzo, 0) o, se divisa, (pezzo, 0|1)
+_WORD = re.compile(r'[^\s_]+')
+
+def new_rule(stem, split_numbers=True):
+    kinds = tuple("N" if stem[a:b].isdigit() else "T" for a, b in name_spans(stem, split_numbers))
+    return {"split": split_numbers, "kinds": kinds, "cuts": {}, "joins": set(), "marks": {}}
+
+def rule_units(stem, rule):
+    """[(unità, inizio, fine)] del nome secondo la regola; None se la struttura è diversa."""
+    spans = name_spans(stem, rule["split"])
+    if new_rule(stem, rule["split"])["kinds"] != rule["kinds"]:
+        return None
+    units = []
+    for i, (a, b) in enumerate(spans):
+        if i not in rule["cuts"]:
+            units.append(((i, 0), a, b))
+            continue
+        side, k = rule["cuts"][i]
+        words = [(a + m.start(), a + m.end()) for m in _WORD.finditer(stem[a:b])]
+        if len(words) <= k:
+            return None
+        cut = k if side == "start" else len(words) - k
+        units += [((i, 0), a, words[cut - 1][1]), ((i, 1), words[cut][0], b)]
+    return units
+
+def _strip_value(v):
+    v = v.strip(" _-")
+    m = re.fullmatch(r'\((.*)\)|\[(.*)\]|\{(.*)\}', v)
+    return (next(g for g in m.groups() if g is not None).strip(" _-") if m else v)
+
+def rule_values(stem, rule):
+    """{ruolo: testo} dei pezzi marcati in questo nome; None se la struttura è diversa."""
+    units = rule_units(stem, rule)
+    if units is None:
+        return None
+    pos = {key: (a, b) for key, a, b in units}
+    out = {}
+    for role, (k1, k2) in rule["marks"].items():
+        v = _strip_value(stem[pos[k1][0]:pos[k2][1]])
+        year = _YEAR.search(v) if role == "anno" else None
+        out[role] = year.group(1) if year else v
+    return out
+
+def _role_of(m):
+    """Ruolo di un segnaposto dello schema (None per <nome> e <n>)."""
+    key = m.group(1)
+    if m.group(2):
+        return f"p{int(m.group(2))}"
+    if key in ("tit", "titolo"):
+        return "titolo"
+    return _FIELD_OF.get(key) or (key if key in ("num", "anno") else None)
+
+def schema_roles(schema):
+    return {_role_of(m) for m in _SCHEMA_TOKEN.finditer(schema)} - {None}
 
 def _pad(num, digits):
     return num.lstrip("0").zfill(digits)
 
-def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None):
+def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=None):
     """
     Nuovo nome da uno schema con <nome> (nome attuale), <num> (primo numero
     del nome), <n> (progressivo), <anno> (anno nel nome, preferito quello tra
-    parentesi) e <parte1>, <parte2>… (pezzi separati da " - "
+    parentesi) e <p1>, <p2>… (pezzi separati da " - "
     e dai numeri, vedi name_parts; una parte di sole cifre prende le cifre scelte).
     Con <segnaposto:C> le cifre sono C solo per quel segnaposto (:1 = numero com'è).
-    <autore>, <editore>, <edizione>, <lingua> vengono da `fields` (scritti a mano).
+    <aut>, <pub>, <edz>, <lang> vengono da `fields` (scritti a mano).
+    <tit> è il titolo: senza marcature, il primo pezzo.
+    Con `rule` (marcatura manuale) i ruoli marcati vengono dal pezzo marcato; se la
+    struttura del nome è diversa: autore/editore/… dalla casella, altrimenti errore.
     Solleva ValueError se nel nome manca il numero o la parte richiesta.
     """
     parts = name_parts(stem, split_numbers)
+    marks = rule["marks"] if rule else {}
+    cache = []                                        # rule_values calcolato una volta, se serve
 
     def sub(m):
         key = m.group(1)
         d = int(m.group(3)) if m.group(3) else digits
+        role = _role_of(m)
+        if role in marks:
+            if not cache:
+                cache.append(rule_values(stem, rule) or {})
+            value = cache[0].get(role)
+            if value:
+                return _pad(value, d) if value.isdigit() and role != "anno" else value
+            if not (role in FREE_FIELDS and (fields or {}).get(role, "").strip()):
+                raise ValueError("schema non applicabile")
         if key == "nome":
             return stem
         if key == "n":
             return str(n).zfill(d)
-        if key in FREE_FIELDS:
-            value = (fields or {}).get(key, "").strip()
+        if key in _FIELD_OF:
+            value = (fields or {}).get(_FIELD_OF[key], "").strip()
             if not value:
-                raise ValueError(f"campo {key} vuoto")
+                raise ValueError(f"campo {_FIELD_OF[key]} vuoto")
             return value
         if key == "anno":
             found = _YEAR_PAREN.search(stem) or _YEAR.search(stem)
             if not found:
                 raise ValueError("anno non trovato")
             return found.group(1)
+        if role == "titolo":
+            if not parts:
+                raise ValueError("titolo non trovato")
+            return parts[0]
         if key == "num":
             found = re.search(r'\d+', stem)
             if not found:
