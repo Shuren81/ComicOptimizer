@@ -261,10 +261,10 @@ _FIELD_OF = {**{f: f for f in FREE_FIELDS}, **{t: f for f, t in FIELD_TAGS.items
 # <segnaposto> oppure <segnaposto:cifre>, es. <p4:1> (cifre solo per quel segnaposto).
 # Valgono anche le forme lunghe di prima (<parte1>, <autore>…): gli schemi salvati restano validi.
 _SCHEMA_TOKEN = re.compile(
-    r'<(nome|num|n|anno|tit(?:olo)?|aut(?:ore)?|pub|editore|edz|edizione|lang|lingua|(?:parte|p)(\d+))'
+    r'<(nome|num|n|anno|tit(?:olo)?|sott(?:otitolo)?|aut(?:ore)?|pub|editore|edz|edizione|lang|lingua|(?:parte|p)(\d+))'
     r'(?::(\d))?>')
 # ruoli che si marcano col mouse nel nome (oltre a p1, p2…) e il segnaposto che inseriscono
-ROLE_TAGS = {"titolo": "tit", "num": "num", "anno": "anno", **FIELD_TAGS}
+ROLE_TAGS = {"titolo": "tit", "num": "num", "sottotitolo": "sott", "anno": "anno", **FIELD_TAGS}
 _YEAR_PAREN = re.compile(r'\((19\d\d|20\d\d)\)')
 _YEAR = re.compile(r'(?<!\d)(19\d\d|20\d\d)(?!\d)')
 
@@ -292,31 +292,59 @@ def name_parts(stem, split_numbers=True):
 # --- marcatura manuale dei pezzi (finestra Rinomina) ---
 # Una regola è posizionale, non legata ai caratteri: vale per tutti i nomi con la stessa struttura.
 #   split: "Dividi anche ai numeri"; kinds: "N"/"T" (numero/testo) di ogni pezzo del nome d'esempio
-#   cuts:  {pezzo: ("start"|"end", k)}  Dividi: le prime/ultime k parole diventano un'unità a sé
+#   cuts:  {pezzo: [("start", k) | ("end", k), …]}  il pezzo si divide dopo le prime k parole o prima
+#          delle ultime k (in ordine di posizione); le parti sono le unità (pezzo, 0), (pezzo, 1)…
 #   joins: {unità}                      Unisci: l'unità va insieme alla successiva
-#   marks: {ruolo: (prima unità, ultima unità)}; un'unità è (pezzo, 0) o, se divisa, (pezzo, 0|1)
+#   marks: {ruolo: (prima unità, ultima unità)}
 _WORD = re.compile(r'[^\s_]+')
+_BRACKET = re.compile(r'\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}')
+_TRIM = re.compile(r'[^\s_-](?:.*[^\s_-])?', re.S)
+
+def mark_spans(stem, split_numbers=True):
+    """Pezzi per la marcatura: quelli di name_spans, con i gruppi tra parentesi come pezzi a sé
+    ("Titolo (Autore) Ch." → Titolo · (Autore) · Ch.)."""
+    out = []
+    for a, b in name_spans(stem, split_numbers):
+        pos = a
+        for m in [*_BRACKET.finditer(stem, a, b), None]:
+            end = m.start() if m else b
+            t = _TRIM.search(stem, pos, end)
+            if t:
+                out.append(t.span())
+            if m:
+                out.append(m.span())
+                pos = m.end()
+    return out
 
 def new_rule(stem, split_numbers=True):
-    kinds = tuple("N" if stem[a:b].isdigit() else "T" for a, b in name_spans(stem, split_numbers))
+    kinds = tuple("N" if stem[a:b].isdigit() else "T" for a, b in mark_spans(stem, split_numbers))
     return {"split": split_numbers, "kinds": kinds, "cuts": {}, "joins": set(), "marks": {}}
+
+def piece_words(stem, a, b):
+    return [(a + m.start(), a + m.end()) for m in _WORD.finditer(stem[a:b])]
+
+def cut_points(n, cuts):
+    """Indici di parola dove si divide un pezzo di n parole; None se le divisioni non ci stanno."""
+    pts = [k if side == "start" else n - k for side, k in cuts]
+    if all(0 < p < n for p in pts) and all(x < y for x, y in zip(pts, pts[1:])):
+        return pts
+    return None
 
 def rule_units(stem, rule):
     """[(unità, inizio, fine)] del nome secondo la regola; None se la struttura è diversa."""
-    spans = name_spans(stem, rule["split"])
     if new_rule(stem, rule["split"])["kinds"] != rule["kinds"]:
         return None
     units = []
-    for i, (a, b) in enumerate(spans):
-        if i not in rule["cuts"]:
+    for i, (a, b) in enumerate(mark_spans(stem, rule["split"])):
+        if not rule["cuts"].get(i):
             units.append(((i, 0), a, b))
             continue
-        side, k = rule["cuts"][i]
-        words = [(a + m.start(), a + m.end()) for m in _WORD.finditer(stem[a:b])]
-        if len(words) <= k:
+        words = piece_words(stem, a, b)
+        pts = cut_points(len(words), rule["cuts"][i])
+        if pts is None:
             return None
-        cut = k if side == "start" else len(words) - k
-        units += [((i, 0), a, words[cut - 1][1]), ((i, 1), words[cut][0], b)]
+        bounds = [0, *pts, len(words)]
+        units += [((i, j), words[x][0], words[y - 1][1]) for j, (x, y) in enumerate(zip(bounds, bounds[1:]))]
     return units
 
 def _strip_value(v):
@@ -344,6 +372,8 @@ def _role_of(m):
         return f"p{int(m.group(2))}"
     if key in ("tit", "titolo"):
         return "titolo"
+    if key in ("sott", "sottotitolo"):
+        return "sottotitolo"
     return _FIELD_OF.get(key) or (key if key in ("num", "anno") else None)
 
 def schema_roles(schema):
@@ -360,7 +390,8 @@ def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=
     e dai numeri, vedi name_parts; una parte di sole cifre prende le cifre scelte).
     Con <segnaposto:C> le cifre sono C solo per quel segnaposto (:1 = numero com'è).
     <aut>, <pub>, <edz>, <lang> vengono da `fields` (scritti a mano).
-    <tit> è il titolo: senza marcature, il primo pezzo.
+    <tit> è il titolo: senza marcature, il primo pezzo di testo; <sott> l'ultimo dopo il titolo
+    (i gruppi tra parentesi non contano).
     Con `rule` (marcatura manuale) i ruoli marcati vengono dal pezzo marcato; se la
     struttura del nome è diversa: autore/editore/… dalla casella, altrimenti errore.
     Solleva ValueError se nel nome manca il numero o la parte richiesta.
@@ -395,10 +426,15 @@ def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=
             if not found:
                 raise ValueError("anno non trovato")
             return found.group(1)
-        if role == "titolo":
-            if not parts:
-                raise ValueError("titolo non trovato")
-            return parts[0]
+        if role in ("titolo", "sottotitolo"):
+            # pezzi di testo, senza i gruppi tra parentesi ("(2016)", "[ITA]": dati, non titolo)
+            text = [stem[a:b] for a, b in mark_spans(stem, split_numbers)]
+            text = [t for t in text if not t.isdigit() and not _BRACKET.fullmatch(t)]
+            if role == "titolo" and text:
+                return text[0]
+            if role == "sottotitolo" and len(text) > 1:
+                return text[-1]                       # l'ultimo pezzo di testo dopo il titolo
+            raise ValueError(f"{role} non trovato")
         if key == "num":
             found = re.search(r'\d+', stem)
             if not found:

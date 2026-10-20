@@ -3,7 +3,7 @@
 import os
 
 from PyQt6.QtCore import QEvent, QSettings, Qt
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -31,7 +31,6 @@ from .logsetup import _qt_log_handler, log
 from .style import set_variant
 from .online import AuthorSearchWorker, clean_title, result_label
 from .utils import (
-    _WORD,
     FIELD_TAGS,
     FREE_FIELDS,
     ROLE_TAGS,
@@ -40,8 +39,9 @@ from .utils import (
     clean_filename,
     get_natural_sort_key,
     merge_name_hint,
-    name_spans,
+    mark_spans,
     new_rule,
+    piece_words,
     rename_problem,
     rule_units,
     schema_roles,
@@ -277,6 +277,7 @@ _U = QTextCharFormat.UnderlineStyle
 # daltonici; la sottolineatura diversa è il secondo segno
 MARK_ROLES = {"titolo": ("Titolo", "#E69F00", _U.SingleUnderline),
               "num": ("Numero", "#56B4E9", _U.DashUnderline),
+              "sottotitolo": ("Sottotitolo", "#2EC4B6", _U.DotLine),     # + corsivo
               "anno": ("Anno", "#009E73", _U.DashDotLine),
               "autore": ("Autore", "#F0E442", _U.WaveUnderline),
               "editore": ("Editore", "#CC79A7", _U.DashDotDotLine),
@@ -307,15 +308,9 @@ class RenameDialog(QDialog):
     """
     SETTINGS = ("Shuren", "ComicOptimizer")
     RECENT_MAX = 10
-    # l'autore dove è uno solo per tutta la serie; non per Bonelli e contenitori (cambia a ogni numero)
-    PRESETS = [("<p1> (<aut>) Vol. <p2:2>", "Manga a volumi"),
-               ("<p1> (<aut>) Ch. <p2>", "Manga a capitoli"),
-               ("<p1> (<aut>) (<pub>) Vol. <p2:2> [<lang>]",
-                "Manga, edizione completa (editore e lingua)"),
-               ("<p1> (<anno>) (<aut>) #<p2>", "Comics americani"),
-               ("<p1> (<anno>) (<aut>) #<p2> - <p3>", "Comics americani con sottotitolo"),
-               ("<p1> #<p2> - <p3>", "Una storia per numero (Bonelli…)"),
-               ("<p1> #<p2> - <p3> (Vol. <p4:1>)", "Contenitore con storie a volumi")]
+    PRESETS = [("<aut> - <tit> - Cap #<num>", "Manga"),
+               ("<aut> - <tit> (<anno>) (<lang>)", "Graphic novel"),
+               ("<tit> (<anno>) - #<num> - <sott> (<lang>)", "Serie americane")]
 
     def __init__(self, paths, parent=None, on_rename=None):
         super().__init__(parent)
@@ -343,17 +338,20 @@ class RenameDialog(QDialog):
                                               | Qt.TextInteractionFlag.TextSelectableByKeyboard)
         self.name_box.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.name_box.customContextMenuRequested.connect(self._name_menu)
-        self.name_box.setFixedHeight(self.name_box.fontMetrics().lineSpacing() * 2 + 14)
+        f = self.name_box.font()
+        f.setPixelSize(19)
+        self.name_box.setFont(f)
+        self.name_box.setFixedHeight(QFontMetrics(f).lineSpacing() * 2 + 18)
         # fondo scuro fisso: i colori dei ruoli (anche il giallo e le tinte chiare dei P) restano leggibili
         self.name_box.setStyleSheet("QTextEdit { background: #1b1b1f; border: 1px solid #444; "
-                                    "border-radius: 6px; font-size: 14px; padding: 2px 4px; }")
+                                    "border-radius: 6px; font-size: 19px; padding: 2px 4px; }")
         self.name_box.setToolTip("Seleziona un pezzo del nome e premi il tasto destro per dirne il ruolo\n"
                                  "(Titolo, Numero, Anno, P1…): la regola vale per tutti i file della finestra")
         l.addWidget(self.name_box)
         row = QHBoxLayout()
         self.legend = QLabel()
         self.legend.setWordWrap(True)
-        self.legend.setStyleSheet("color: #aaa; font-size: 11px;")
+        self.legend.setStyleSheet("color: #bbb; font-size: 13px;")
         self.b_reset = QPushButton("Azzera marcature")
         self.b_reset.setProperty("sz", "small")
         set_variant(self.b_reset, "muted")
@@ -369,18 +367,19 @@ class RenameDialog(QDialog):
         self.schema = QComboBox()
         self.schema.setEditable(True)
         self.schema.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        recent = self._recent()
-        self.schema.addItems(recent)
-        presets = [(s, d) for s, d in self.PRESETS if s not in recent]
-        if recent and presets:
-            self.schema.insertSeparator(len(recent))
-        for s, d in presets:   # nel menu: tipo di fumetto · schema; nel campo entra solo lo schema
-            self.schema.addItem(f"{d}  ·  {s}", s)
+        self._fill_presets()
         self.schema.activated.connect(
             lambda i: self.schema.setEditText(self.schema.itemData(i) or self.schema.itemText(i)))
         self.schema.setEditText(split_name(self.paths[0])[0] if single else "<nome>")
-        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e sette schemi pronti\n"
-                               "(manga a volumi e a capitoli, comics americani, storie, contenitori)")
+        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e tre schemi pronti\n"
+                               "(manga, graphic novel, serie americane)")
+        self.b_clear = QPushButton("🧹")
+        self.b_clear.setProperty("sz", "small")
+        set_variant(self.b_clear, "muted")
+        self.b_clear.setAutoDefault(False)
+        self.b_clear.setToolTip("Svuota gli schemi recenti: nel menu restano solo i predefiniti")
+        self.b_clear.clicked.connect(self.clear_recent)
+        self.b_clear.setEnabled(bool(self._recent()))
         self.digits = QSpinBox()
         self.digits.setRange(1, 6)
         self.digits.setValue(3)
@@ -389,6 +388,7 @@ class RenameDialog(QDialog):
         self.start.setValue(1)
         row.addWidget(QLabel("Schema:"))
         row.addWidget(self.schema, 1)
+        row.addWidget(self.b_clear)
         row.addWidget(QLabel("Cifre:"))
         row.addWidget(self.digits)
         row.addWidget(QLabel("Parti da:"))
@@ -396,6 +396,7 @@ class RenameDialog(QDialog):
         l.addLayout(row)
         row = QHBoxLayout()
         hint = QLabel("Segnaposto: <nome> nome attuale · <tit> titolo · <num> numero già nel nome · "
+                      "<sott> sottotitolo · "
                       "<n> progressivo · <anno> anno nel nome · <p1>, <p2>… pezzi del nome · "
                       "<aut> <pub> <edz> <lang> dalle caselle qui sotto")
         hint.setStyleSheet("color: #aaa; font-size: 11px;")
@@ -591,7 +592,7 @@ class RenameDialog(QDialog):
             units = rule_units(stem, self._rule)
         else:
             units = [((i, 0), a, b) for i, (a, b) in
-                     enumerate(name_spans(stem, self.split_numbers.isChecked()))]
+                     enumerate(mark_spans(stem, self.split_numbers.isChecked()))]
         self._shown_stem, self._shown_units = stem, units
         # shortcut: posizioni Python = posizioni Qt finché il nome non ha emoji (fuori dal BMP)
         self.name_box.setPlainText(stem)
@@ -600,10 +601,12 @@ class RenameDialog(QDialog):
         def paint(a, b, color, ul=None, role=None):
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(color))
+            if color != "#666":
+                fmt.setBackground(QColor("#2e2e38"))
             if ul is not None:
                 fmt.setUnderlineStyle(ul)
                 fmt.setUnderlineColor(QColor(color))
-                fmt.setFontItalic(role == "edizione")
+                fmt.setFontItalic(role in ("edizione", "sottotitolo"))
                 if role == "lingua":
                     fmt.setFontWeight(QFont.Weight.Bold)
             cur.setPosition(a)
@@ -634,37 +637,80 @@ class RenameDialog(QDialog):
         c = self.name_box.textCursor()
         return c.selectionStart(), c.selectionEnd()
 
-    def _picked(self):
-        """Le unità intere toccate dalla selezione nel riquadro, comprese quelle unite."""
+    @staticmethod
+    def _covered(spans, s, e):
+        """Indici degli intervalli presi dalla selezione s…e: per più di metà, così sconfinare di
+        qualche lettera nel pezzo accanto non lo prende; se nessuno, quello toccato di più."""
+        over = [min(b, e) - max(a, s) for a, b in spans]
+        hit = [j for j, (o, (a, b)) in enumerate(zip(over, spans)) if o > 0 and 2 * o > b - a]
+        if not hit and s < e and max(over, default=0) > 0:
+            hit = [over.index(max(over))]
+        return hit
+
+    def _sel_range(self):
+        """(inizio, fine) di ciò che si marca: le parole prese dalla selezione (per più di metà).
+        Se sono pezzi interi, comprende anche quelli uniti con Unisci. None se non c'è selezione."""
         s, e = self._selection()
         units = self._shown_units or []
-        hit = [j for j, (_, a, b) in enumerate(units) if a < e and b > s]
-        if s == e or not hit:
-            return []
-        lo, hi = hit[0], hit[-1]
-        joins = self._rule["joins"] if self._rule else set()
-        while lo > 0 and units[lo - 1][0] in joins:
-            lo -= 1
-        while hi < len(units) - 1 and units[hi][0] in joins:
-            hi += 1
-        return units[lo:hi + 1]
+        words = [w for _, a, b in units for w in piece_words(self._shown_stem, a, b)]
+        hit = self._covered(words, s, e)
+        if not hit:
+            return None
+        start, end = words[hit[0]][0], words[hit[-1]][1]
+        starts, ends = [a for _, a, _ in units], [b for _, _, b in units]
+        if start in starts and end in ends:
+            lo, hi = starts.index(start), ends.index(end)
+            joins = self._rule["joins"] if self._rule else set()
+            while lo > 0 and units[lo - 1][0] in joins:
+                lo -= 1
+            while hi < len(units) - 1 and units[hi][0] in joins:
+                hi += 1
+            start, end = units[lo][1], units[hi][2]
+        return start, end
 
-    def _cut_info(self, picked):
-        """(pezzo, lato, k) se la selezione prende le prime o le ultime parole di un pezzo non ancora
-        diviso (non tutte): Dividi ne fa un'unità a sé. Altrimenti None."""
-        if len(picked) != 1 or (self._rule and picked[0][0][0] in self._rule["cuts"]):
-            return None
-        (i, _), a, b = picked[0]
-        s, e = self._selection()
-        words = [(a + m.start(), a + m.end()) for m in _WORD.finditer(self._shown_stem[a:b])]
-        hit = [j for j, (x, y) in enumerate(words) if x < e and y > s]
-        if not hit or len(hit) == len(words):
-            return None
-        if hit[0] == 0:
-            return i, "start", len(hit)
-        if hit[-1] == len(words) - 1:
-            return i, "end", len(hit)
+    def _whole_units(self, rng):
+        """Le unità che coprono esattamente rng, o None se rng taglia un pezzo."""
+        units = self._shown_units or []
+        inside = [u for u in units if rng[0] <= u[1] and u[2] <= rng[1]]
+        if inside and inside[0][1] == rng[0] and inside[-1][2] == rng[1]:
+            return inside
         return None
+
+    def _mark_ranges(self):
+        """{ruolo: (inizio, fine)} dei pezzi marcati nel nome mostrato."""
+        if not (self._rule and self._shown_units):
+            return {}
+        pos = {k: (a, b) for k, a, b in self._shown_units}
+        return {r: (pos[k1][0], pos[k2][1]) for r, (k1, k2) in self._rule["marks"].items()}
+
+    def _keys(self, start, end):
+        """(prima, ultima unità) esattamente da start a end: se la selezione prende solo una parte
+        di un pezzo, il pezzo si divide lì (dopo le prime k parole o prima delle ultime k)."""
+        rule, stem = self._ensure_rule(), self._shown_stem
+        for c, side in ((start, 1), (end, 2)):
+            if any(u[side] == c for u in rule_units(stem, rule)):
+                continue
+            i, (a, b) = next((i, sp) for i, sp in enumerate(mark_spans(stem, rule["split"]))
+                             if sp[0] < c < sp[1])
+            words = piece_words(stem, a, b)
+            p, n = sum(1 for _, y in words if y <= c), len(words)
+            self._add_cut(i, ("start", p) if p <= n - p else ("end", n - p), n)
+        units = rule_units(stem, rule)
+        return next(k for k, a, _ in units if a == start), next(k for k, _, b in units if b == end)
+
+    def _add_cut(self, i, spec, n):
+        """Aggiunge una divisione al pezzo i, tenendo le marcature dove sono."""
+        rule, stem = self._rule, self._shown_stem
+        old = {k: (a, b) for k, a, b in rule_units(stem, rule)}
+        marks = {r: (old[k1][0], old[k2][1]) for r, (k1, k2) in rule["marks"].items()}
+        joins = {old[k][0] for k in rule["joins"] if k[0] != i}
+        cuts = rule["cuts"].setdefault(i, [])
+        cuts.append(spec)
+        cuts.sort(key=lambda c: c[1] if c[0] == "start" else n - c[1])
+        new = rule_units(stem, rule)
+        by_a, by_b = {a: k for k, a, _ in new}, {b: k for k, _, b in new}
+        rule["marks"] = {r: (by_a[a], by_b[b]) for r, (a, b) in marks.items()}
+        rule["joins"] = {by_a[a] for a in joins}
 
     def _next_p(self):
         used = {int(r[1:]) for r in (self._rule["marks"] if self._rule else {}) if r not in MARK_ROLES}
@@ -682,21 +728,21 @@ class RenameDialog(QDialog):
             if fn:
                 act.triggered.connect(lambda _=False: fn())
 
-        picked = self._picked()
-        if picked:
-            k1, k2 = picked[0][0], picked[-1][0]
+        rng = self._sel_range()
+        if rng:
+            text = self._shown_stem[rng[0]:rng[1]]
+            add(f"«{text if len(text) <= 40 else text[:39] + '…'}» è:")      # cosa verrà marcato
             for role, (label, _, _) in MARK_ROLES.items():
-                add(f"{label}   <{ROLE_TAGS[role]}>", lambda r=role: self.mark(r, k1, k2))
+                add(f"{label}   <{ROLE_TAGS[role]}>", lambda r=role: self.mark(r, rng))
             n = self._next_p()
-            add(f"P{n}   <p{n}>   (il successivo libero)", lambda: self.mark(f"p{n}", k1, k2))
-            add("P…   (scegli il numero)", lambda: self._ask_p(k1, k2))
+            add(f"P{n}   <p{n}>   (il successivo libero)", lambda: self.mark(f"p{n}", rng))
+            add("P…   (scegli il numero)", lambda: self._ask_p(rng))
             menu.addSeparator()
-            marks = self._rule["marks"] if self._rule else {}
-            add("Ignora (togli il ruolo)", lambda: self.unmark(k1, k2),
-                any(a <= k2 and k1 <= b for a, b in marks.values()))
-            add("Unisci in un solo pezzo", lambda: self.join(picked), len(picked) > 1)
-            cut = self._cut_info(picked)
-            add("Dividi: queste parole diventano un pezzo a sé", lambda: self.cut(*cut), cut is not None)
+            whole = self._whole_units(rng)
+            add("Ignora (togli il ruolo)", lambda: self.unmark(rng),
+                any(a < rng[1] and b > rng[0] for a, b in self._mark_ranges().values()))
+            add("Unisci in un solo pezzo", lambda: self.join(rng), bool(whole) and len(whole) > 1)
+            add("Dividi: la selezione diventa un pezzo a sé", lambda: self.cut(rng), not whole)
         elif self._shown_units is None:
             add("Struttura diversa dal nome d'esempio: qui non si marca")
         else:
@@ -705,19 +751,24 @@ class RenameDialog(QDialog):
         add("Azzera marcature", self.reset_marks, self._rule is not None)
         menu.exec(self.name_box.mapToGlobal(pos))
 
-    def _ask_p(self, k1, k2):
+    def _ask_p(self, rng):
         n, ok = QInputDialog.getInt(self, "Pezzo", "Numero del pezzo (P1, P2…):", self._next_p(), 1, 99)
         if ok:
-            self.mark(f"p{n}", k1, k2)
+            self.mark(f"p{n}", rng)
 
     def _ensure_rule(self):
         if self._rule is None:
             self._rule = new_rule(self._shown_stem, self.split_numbers.isChecked())
         return self._rule
 
-    def mark(self, role, k1, k2):
-        """Dà il ruolo alle unità k1…k2 (un ruolo, un pezzo) e mette il segnaposto nello Schema."""
-        marks = self._ensure_rule()["marks"]
+    def mark(self, role, rng=None):
+        """Dà il ruolo al testo selezionato (un ruolo, un pezzo) e mette il segnaposto nello Schema.
+        Se la selezione è solo una parte di un pezzo, il pezzo si divide lì."""
+        rng = rng or self._sel_range()
+        if not rng:
+            return
+        k1, k2 = self._keys(*rng)
+        marks = self._rule["marks"]
         for r, (a, b) in list(marks.items()):
             if r == role or (a <= k2 and k1 <= b):
                 del marks[r]
@@ -732,23 +783,21 @@ class RenameDialog(QDialog):
                 le.insert(tag)                        # alla posizione del cursore
         self._fill()
 
-    def unmark(self, k1, k2):
-        marks = self._rule["marks"]
-        for r, (a, b) in list(marks.items()):
-            if a <= k2 and k1 <= b:
-                del marks[r]
+    def unmark(self, rng=None):
+        rng = rng or self._sel_range()
+        for r, (a, b) in self._mark_ranges().items():
+            if a < rng[1] and b > rng[0]:
+                del self._rule["marks"][r]
         self._fill()
 
-    def join(self, units):
+    def join(self, rng=None):
+        units = self._whole_units(rng or self._sel_range())
         self._ensure_rule()["joins"].update(key for key, _, _ in units[:-1])
         self._fill()
 
-    def cut(self, i, side, k):
-        """Dividi il pezzo i: le prime/ultime k parole diventano un'unità; via le marcature su quel pezzo."""
-        rule = self._ensure_rule()
-        rule["cuts"][i] = (side, k)
-        rule["marks"] = {r: (a, b) for r, (a, b) in rule["marks"].items() if not a[0] <= i <= b[0]}
-        rule["joins"] = {key for key in rule["joins"] if key[0] != i}
+    def cut(self, rng=None):
+        """Dividi: la selezione diventa un pezzo a sé (senza ruolo)."""
+        self._keys(*(rng or self._sel_range()))
         self._fill()
 
     def reset_marks(self):
@@ -838,11 +887,36 @@ class RenameDialog(QDialog):
     def _recent(self):
         return QSettings(*self.SETTINGS).value("rinomina/schemi_recenti", [], type=list)
 
+    def _fill_presets(self):
+        """Menu dello Schema: i recenti, poi gli schemi pronti (tipo di fumetto · schema)."""
+        text = self.schema.currentText()
+        self.schema.blockSignals(True)
+        self.schema.clear()
+        recent = self._recent()
+        self.schema.addItems(recent)
+        presets = [(s, d) for s, d in self.PRESETS if s not in recent]
+        if recent and presets:
+            self.schema.insertSeparator(len(recent))
+        for s, d in presets:   # nel campo entra solo lo schema
+            self.schema.addItem(f"{d}  ·  {s}", s)
+        self.schema.setEditText(text)
+        self.schema.blockSignals(False)
+
+    def clear_recent(self):
+        if QMessageBox.question(self, "Schemi recenti", "Svuotare gli schemi recenti?\n"
+                                "Nel menu restano solo gli schemi predefiniti.") != QMessageBox.StandardButton.Yes:
+            return
+        QSettings(*self.SETTINGS).remove("rinomina/schemi_recenti")
+        self._fill_presets()
+        self.b_clear.setEnabled(False)
+
     def _save_recent(self):
         schema = self.schema.currentText()
         if "<" in schema:   # solo schemi veri, non un nome scritto per un singolo fumetto
             recent = [schema] + [x for x in self._recent() if x != schema]
             QSettings(*self.SETTINGS).setValue("rinomina/schemi_recenti", recent[:self.RECENT_MAX])
+            if hasattr(self, "b_clear"):
+                self.b_clear.setEnabled(True)
 
     def accept(self):
         self._save_recent()
@@ -957,7 +1031,7 @@ class RenameDialog(QDialog):
 RENAME_HELP = """
 <h3>Come si rinomina</h3>
 <ol>
-<li><b>Schema</b>: scrivi il formato del nuovo nome (nel menu a tendina: gli schemi usati di recente e sette schemi pronti).</li>
+<li><b>Schema</b>: scrivi il formato del nuovo nome (nel menu a tendina: gli schemi usati di recente e tre schemi pronti; 🧹 svuota i recenti).</li>
 <li><b>Cerca / Sostituisci</b> e i tasti <b>_ → spazio</b>, <b>Iniziali Maiuscole</b>: sistemano i nomi.</li>
 <li><b>A mano</b>: doppio click su una cella di <i>Nuovo nome</i> per correggere un caso particolare.</li>
 <li><b>Rinomina</b>: cambia il nome dei soli file validi. Le righe rosse e quelle invariate non vengono toccate.</li>
@@ -969,8 +1043,10 @@ Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i>
 <h3>Segnaposto dello schema</h3>
 <table cellspacing="4">
 <tr><td><b>&lt;nome&gt;</b></td><td>il nome attuale</td></tr>
+<tr><td><b>&lt;sott&gt;</b></td><td>il sottotitolo: il pezzo marcato come <i>Sottotitolo</i> o, senza marcature,
+ l'ultimo pezzo di testo dopo il titolo (<code>Batman 050 - The Wedding</code> → <code>The Wedding</code>)</td></tr>
 <tr><td><b>&lt;tit&gt;</b></td><td>il titolo: il pezzo marcato come <i>Titolo</i> (vedi sotto) o, senza marcature,
- il primo pezzo del nome (come &lt;p1&gt;)</td></tr>
+ il primo pezzo di testo del nome, senza i gruppi tra parentesi (<code>Batman 050 (2016)</code> → <code>Batman</code>)</td></tr>
 <tr><td><b>&lt;num&gt;</b></td><td>il primo numero già presente nel nome, con le <i>Cifre</i> scelte
  (<code>naruto_12</code> → <code>012</code>). Tiene il numero vero: ideale per numerazioni sparse.</td></tr>
 <tr><td><b>&lt;anno&gt;</b></td><td>l'anno a 4 cifre presente nel nome, preferito quello tra parentesi
@@ -986,7 +1062,7 @@ Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i>
  Una parte fatta solo di cifre prende le <i>Cifre</i> scelte (<code>43</code> → <code>043</code>).
  Non dividono il trattino dentro una parola (<code>Spider-Man</code>) e il numero attaccato (<code>X-Men2</code>).
  Per nomi come <i>Fantastici 4</i> togli la spunta a <i>Dividi anche ai numeri</i>.</td></tr>
-<tr><td colspan="2"><i>Valgono anche i nomi lunghi: &lt;titolo&gt;, &lt;parte1&gt;, &lt;autore&gt;, &lt;editore&gt;,
+<tr><td colspan="2"><i>Valgono anche i nomi lunghi: &lt;titolo&gt;, &lt;sottotitolo&gt;, &lt;parte1&gt;, &lt;autore&gt;, &lt;editore&gt;,
  &lt;edizione&gt;, &lt;lingua&gt;.</i></td></tr>
 <tr><td><b>&lt;…:cifre&gt;</b></td><td>cifre solo per quel segnaposto, al posto del campo <i>Cifre</i>:
  <code>&lt;num:4&gt;</code> → <code>0045</code>, <code>&lt;p4:1&gt;</code> → <code>2</code> (<code>:1</code> = numero così com'è)</td></tr>
@@ -999,13 +1075,16 @@ Si calcola in quest'ordine: schema → Cerca/Sostituisci → <i>_ → spazio</i>
 <h3>Marcare i pezzi del nome col mouse</h3>
 <p>Quando la divisione automatica non va bene, dici tu quali pezzi sono quali. Nel riquadro in alto c'è il nome
 del fumetto selezionato (o dell'ultimo cliccato): <b>selezionalo col mouse</b> e premi il <b>tasto destro</b>.
-La selezione prende sempre pezzi interi. Nel menu:</p>
+Ogni pezzo ha uno sfondo più chiaro; i gruppi tra parentesi, come <code>(Shiryuu Nakatake)</code>, sono pezzi
+a sé. Si marca esattamente ciò che selezioni, a parole intere (una parola presa per più di metà conta):
+se selezioni solo una parte di un pezzo, il pezzo si divide lì da solo. In cima al menu compare il testo
+che verrà marcato. Nel menu:</p>
 <ul>
-<li><b>Titolo</b> &lt;tit&gt;, <b>Numero</b> &lt;num&gt;, <b>Anno</b> &lt;anno&gt;, <b>Autore</b> &lt;aut&gt;,
+<li><b>Titolo</b> &lt;tit&gt;, <b>Numero</b> &lt;num&gt;, <b>Sottotitolo</b> &lt;sott&gt;, <b>Anno</b> &lt;anno&gt;, <b>Autore</b> &lt;aut&gt;,
  <b>Editore</b> &lt;pub&gt;, <b>Edizione</b> &lt;edz&gt;, <b>Lingua</b> &lt;lang&gt;, oppure <b>P1, P2…</b>
  (&lt;p1&gt;, &lt;p2&gt;…: il successivo libero, o il numero che scegli);</li>
 <li><b>Ignora</b>: toglie il ruolo; <b>Unisci</b>: più pezzi diventano uno solo;
- <b>Dividi</b>: le prime o le ultime parole selezionate di un pezzo diventano un pezzo a sé;</li>
+ <b>Dividi</b>: la selezione diventa un pezzo a sé, senza ruolo;</li>
 <li><b>Azzera marcature</b> (anche col pulsante): si torna alla divisione automatica.</li>
 </ul>
 <p>Il segnaposto entra nello <b>Schema</b> dove c'è il cursore (al posto di <code>&lt;nome&gt;</code> se lo schema è
@@ -1016,7 +1095,7 @@ le lettere, quindi funziona anche con titoli di lunghezza diversa. Esempio:</p>
 <ol>
 <li>nome: <code>Dylan Dog 001 - L'alba dei morti viventi (1986)</code>;</li>
 <li>selezioni <code>Dylan Dog</code> → <i>Titolo</i>; <code>001</code> → <i>Numero</i>;</li>
-<li>selezioni <code>(1986)</code> → <i>Dividi</i>, poi di nuovo → <i>Anno</i>; <code>L'alba…</code> → <i>P3</i>;</li>
+<li>selezioni <code>(1986)</code> → <i>Anno</i>; <code>L'alba…</code> → <i>P3</i>;</li>
 <li>schema <code>&lt;tit&gt; #&lt;num&gt; - &lt;p3&gt; (&lt;anno&gt;)</code>: anche
  <code>Dylan Dog 012 - Il ritorno del mostro (1987)</code> diventa <code>Dylan Dog #012 - Il ritorno del mostro (1987)</code>.</li>
 </ol>
@@ -1032,34 +1111,23 @@ automatici. Cambiando righe selezionate le marcature restano; cambiando <i>Divid
 <p>Nomi che i lettori di fumetti (Komga, Kavita, YACReader) e i programmi di catalogazione
 (ComicTagger, Mylar) riconoscono da soli, e che si ordinano bene ovunque:</p>
 <table cellspacing="4">
-<tr><td>Manga a volumi</td><td><code>Berserk (Kentaro Miura) Vol. 03.cbz</code> · schema <code>&lt;p1&gt; (&lt;aut&gt;) Vol. &lt;p2:2&gt;</code><br>
- completo: <code>Berserk (Kentaro Miura) (Panini) Vol. 03 [ITA]</code> · <code>&lt;p1&gt; (&lt;aut&gt;) (&lt;pub&gt;) Vol. &lt;p2:2&gt; [&lt;lang&gt;]</code><br>
- niente <code>#</code> con i volumi: per i lettori <code>#</code> è il numero dell'albo o del capitolo</td></tr>
-<tr><td>Manga a capitoli</td><td><code>Juujika no Rokunin (Shiryuu Nakatake) Ch. 012.cbz</code> · schema <code>&lt;p1&gt; (&lt;aut&gt;) Ch. &lt;p2&gt;</code></td></tr>
-<tr><td>Comics americani</td><td><code>Batman (2016) #050 - The Wedding.cbz</code><br>
- schema <code>&lt;p1&gt; (&lt;anno&gt;) (&lt;aut&gt;) #&lt;p2&gt;</code> (<code>Batman (2016) (Tom King) #050</code>),
- con sottotitolo <code>… - &lt;p3&gt;</code><br>
- l'anno è quello di <b>inizio della serie</b> (distingue Batman 1940, 2016, 2025); il sottotitolo va dopo " - ",
- senza parentesi (le parentesi sono lette come dati, tipo anno o "Digital")</td></tr>
-<tr><td>Una storia per numero</td><td><code>Zagor #045 - Il ritorno.cbz</code> · schema <code>&lt;p1&gt; #&lt;p2&gt; - &lt;p3&gt;</code><br>
- storia che continua: <code>(2)</code>, <code>(3)</code> in fondo; più storie nello stesso numero: <code>La grande rapina + Il ponte</code></td></tr>
-<tr><td>Contenitori, storie a volumi</td><td><code>Romanzi a Fumetti #008 - Il Corvo (Vol. 2).cbz</code><br>
- schema <code>&lt;p1&gt; #&lt;p2&gt; - &lt;p3&gt; (Vol. &lt;p4:1&gt;)</code></td></tr>
+<tr><td>Manga</td><td><code>Kentaro Miura - Berserk - Cap #012.cbz</code><br>
+ schema <code>&lt;aut&gt; - &lt;tit&gt; - Cap #&lt;num&gt;</code></td></tr>
+<tr><td>Graphic novel</td><td><code>Zerocalcare - Kobane Calling (2016) (ITA).cbz</code><br>
+ schema <code>&lt;aut&gt; - &lt;tit&gt; (&lt;anno&gt;) (&lt;lang&gt;)</code></td></tr>
+<tr><td>Serie americane</td><td><code>Batman (2016) - #050 - The Wedding (ENG).cbz</code><br>
+ schema <code>&lt;tit&gt; (&lt;anno&gt;) - #&lt;num&gt; - &lt;sott&gt; (&lt;lang&gt;)</code><br>
+ l'anno è quello di <b>inizio della serie</b> (distingue Batman 1940, 2016, 2025)</td></tr>
 </table>
-<p>Regole comuni: la <b>testata per prima</b>, scritta sempre uguale; numeri con gli zeri davanti
-(<code>#007</code>, <code>Vol. 03</code>); <b>niente etichette</b> come <code>(Digital)</code> o <code>(Pyrate-…)</code>.
-I sette schemi sono pronti nel menu a tendina dello Schema; quelli con <code>&lt;aut&gt;</code> usano la casella
-Autore (riempibile con 🔍 Cerca). Per Bonelli e contenitori l'autore non c'è, perché cambia da un numero all'altro.</p>
+<p>I tre schemi sono pronti nel menu a tendina dello Schema, dopo gli schemi usati di recente; il pulsante
+<b>🧹</b> accanto svuota i recenti e lascia solo questi. <code>&lt;aut&gt;</code> e <code>&lt;lang&gt;</code>
+vengono dal pezzo marcato nel nome o dalle caselle Autore e Lingua (l'autore si può cercare con 🔍 Cerca).
+Regole comuni: la serie scritta sempre uguale, numeri con gli zeri davanti (<code>#007</code>),
+<b>niente etichette</b> come <code>(Digital)</code> o <code>(Pyrate-…)</code>.</p>
 <p><b>Una cartella per serie</b>, con lo stesso nome della serie, è il miglioramento più grande:
 <code>Comics/Absolute Batman (2024)/Absolute Batman (2024) #001.cbz</code>,
 <code>Manga/Jujika no Rokunin/Jujika no Rokunin Vol. 01.cbz</code>. Komga e Kavita usano la cartella come serie
 (copertina, ordine, "prossimo da leggere"); il nome del file ripete la serie, così si capisce anche fuori dalla cartella.</p>
-<p><b>Autore, editore, edizione</b> tra parentesi dopo il titolo, la <b>lingua</b> tra quadre in fondo:
-<code>Berserk (Kentaro Miura) (Panini) Vol. 03 [ITA]</code> con lo schema
-<code>&lt;p1&gt; (&lt;aut&gt;) (&lt;pub&gt;) Vol. &lt;p2:2&gt; [&lt;lang&gt;]</code>.
-I lettori leggono parentesi e quadre come dati e non come titolo, così la serie resta "Berserk".
-Usa solo quello che distingue davvero (l'editore se hai la stessa serie da due editori, la lingua se hai più lingue).
-Nella cartella della serie va bene lo stesso: <code>Manga/Berserk (Kentaro Miura)/</code>.</p>
 <p>I lettori si fidano ancora di più dei dati dentro il CBZ (<b>ComicInfo.xml</b>: serie, numero, anno, titolo),
 che ComicOptimizer conserva sempre.</p>
 

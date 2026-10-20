@@ -267,9 +267,9 @@ def test_dialog(work):
     assert items[:10] == ["S5 <n>"] + [f"S{i} <n>" for i in (11, 10, 9, 8, 7, 6, 4, 3, 2)], items
     assert items[10] == "" and "X 1" not in items                  # separatore, poi gli schemi pronti
     assert [recent.itemData(i) for i in range(11, recent.count())] == [s for s, _ in RenameDialog.PRESETS]
-    assert items[11] == "Manga a volumi  ·  <p1> (<aut>) Vol. <p2:2>"   # con la descrizione
+    assert items[11] == "Manga  ·  <aut> - <tit> - Cap #<num>"     # con la descrizione
     recent.activated.emit(11)                                      # scelto dal menu: nel campo solo lo schema
-    assert recent.currentText() == "<p1> (<aut>) Vol. <p2:2>"
+    assert recent.currentText() == "<aut> - <tit> - Cap #<num>"
     # uno schema pronto già tra i recenti non compare due volte
     dd = RenameDialog([e1, e2])
     dd.schema.setEditText(RenameDialog.PRESETS[1][0])
@@ -278,6 +278,23 @@ def test_dialog(work):
     items = [combo.itemText(i) for i in range(combo.count())]
     schemas = [combo.itemData(i) or items[i] for i in range(combo.count())]
     assert schemas.count(RenameDialog.PRESETS[1][0]) == 1 and items[0] == RenameDialog.PRESETS[1][0]
+    # 🧹 svuota i recenti (dopo conferma): restano solo i predefiniti, lo Schema scritto non cambia
+    import comicoptimizer.dialogs as dialogs
+    dd = RenameDialog([e1, e2])
+    dd.schema.setEditText("Y <n>")
+    assert dd.b_clear.isEnabled()
+    ask = dialogs.QMessageBox.question
+    dialogs.QMessageBox.question = lambda *a: dialogs.QMessageBox.StandardButton.No
+    dd.clear_recent()
+    assert dd.schema.count() > len(RenameDialog.PRESETS)                       # "No": niente cambia
+    dialogs.QMessageBox.question = lambda *a: dialogs.QMessageBox.StandardButton.Yes
+    dd.clear_recent()
+    dialogs.QMessageBox.question = ask
+    assert [dd.schema.itemData(i) for i in range(dd.schema.count())] == [s for s, _ in RenameDialog.PRESETS]
+    assert dd.schema.currentText() == "Y <n>" and not dd.b_clear.isEnabled()
+    assert not RenameDialog([e1]).b_clear.isEnabled()
+    dd.accept()                                                    # un nuovo schema torna tra i recenti
+    assert RenameDialog([e1]).schema.itemText(0) == "Y <n>"
 
 
 def test_window(work):
@@ -398,19 +415,21 @@ def test_keep_open(work):
 
 
 def test_marks_utils():
-    from comicoptimizer.utils import name_spans, new_rule, rule_values
+    from comicoptimizer.utils import mark_spans, name_spans, new_rule, rule_values
     # i pezzi con la loro posizione danno gli stessi pezzi di name_parts
     for stem in ("Batman #12 La notte", "Y L'ultimo Uomo [01] Senza Uomini", "zagor_-_45_-_il_ritorno_-_2",
                  "Spider-Man 2099 - Nuovo", " - a -  b", "123"):
         for split in (True, False):
             assert [stem[a:b] for a, b in name_spans(stem, split)] == name_parts(stem, split), stem
+    # per marcare, i gruppi tra parentesi sono pezzi a sé
+    stem = "Juujika no Rokunin (Shiryuu  Nakatake) Ch. 015"
+    assert [stem[a:b] for a, b in mark_spans(stem)] == ["Juujika no Rokunin", "(Shiryuu  Nakatake)", "Ch.", "015"]
     # regola marcata su un nome, applicata a nomi simili con titoli di lunghezza diversa
     sample = "Dylan Dog 001 - L'alba dei morti viventi (1986)"
     rule = new_rule(sample)
-    assert rule["kinds"] == ("T", "N", "T")
-    rule["cuts"][2] = ("end", 1)                      # Dividi: "(1986)" staccato dalla storia
+    assert rule["kinds"] == ("T", "N", "T", "T")
     rule["marks"] = {"titolo": ((0, 0), (0, 0)), "num": ((1, 0), (1, 0)),
-                     "p3": ((2, 0), (2, 0)), "anno": ((2, 1), (2, 1))}
+                     "p3": ((2, 0), (2, 0)), "anno": ((3, 0), (3, 0))}
     schema = "<tit> #<num> - <p3> (<anno>)"
     assert apply_schema(sample, schema, 1, 3, rule=rule) == "Dylan Dog #001 - L'alba dei morti viventi (1986)"
     assert apply_schema("Dylan Dog 12 - Il ritorno del mostro (1987)", schema, 1, 3, rule=rule) == \
@@ -424,6 +443,19 @@ def test_marks_utils():
         except ValueError as e:
             assert str(e) == "schema non applicabile", e
     assert apply_schema("Dylan Dog Speciale 4 - x - y", "<nome>", 1, 3, rule=rule) == "Dylan Dog Speciale 4 - x - y"
+    # divisioni dentro un pezzo: "le ultime k parole" valgono anche con titoli più lunghi
+    r1 = new_rule("Naruto Vol. 03")
+    r1["cuts"][0] = [("end", 1)]
+    r1["marks"] = {"titolo": ((0, 0), (0, 0)), "num": ((1, 0), (1, 0))}
+    assert apply_schema("One Piece Vol. 12", "<tit> - <num>", 1, 3, rule=r1) == "One Piece - 012"
+    r1["cuts"][0] = [("start", 1), ("end", 1)]         # anche in mezzo: "Dylan | Dog | Speciale"
+    r1["marks"] = {"titolo": ((0, 1), (0, 1))}
+    assert apply_schema("Dylan Dog Speciale 4", "<tit>", 1, 3, rule=r1) == "Dog"
+    try:
+        apply_schema("Dylan Vol. 4", "<tit>", 1, 3, rule=r1)       # due parole: le divisioni non ci stanno
+        raise AssertionError("divisioni")
+    except ValueError as e:
+        assert str(e) == "schema non applicabile"
     # Unisci: un ruolo su più pezzi prende il testo originale con i separatori interni
     r2 = new_rule("Tex 100 Il ritorno")
     r2["marks"] = {"titolo": ((0, 0), (1, 0))}
@@ -440,7 +472,25 @@ def test_marks_utils():
         raise AssertionError("casella vuota")
     except ValueError as e:
         assert str(e) == "schema non applicabile"
-    # senza marcature: tutto come prima (anche con una regola vuota); <tit> = primo pezzo
+    # i tre schemi pronti
+    f = {"autore": "Kentaro Miura", "lingua": "ENG"}
+    assert apply_schema("berserk 12", "<aut> - <tit> - Cap #<num>", 1, 3, fields=f) == "Kentaro Miura - berserk - Cap #012"
+    assert apply_schema("Kobane Calling (2016)", "<aut> - <tit> (<anno>) (<lang>)", 1, 3, fields=f) == \
+        "Kentaro Miura - Kobane Calling (2016) (ENG)"         # <tit> automatico: senza le parentesi
+    assert apply_schema("Batman 050 - The Wedding", "<tit> (2016) - #<num> - <sott> (<lang>)", 1, 3, fields=f) == \
+        "Batman (2016) - #050 - The Wedding (ENG)"
+    # <sott>: automatico = l'ultimo pezzo di testo dopo il titolo; marcato = quel pezzo; se manca, errore
+    assert apply_schema("Zagor 45 Il ritorno 2", "<sott>", 1, 3) == "Il ritorno"
+    assert apply_schema("Batman 050 - The Wedding (2016) [ENG]", "<sottotitolo>", 1, 3) == "The Wedding"
+    try:
+        apply_schema("Batman 050", "<sott>", 1, 3)
+        raise AssertionError("sottotitolo")
+    except ValueError as e:
+        assert str(e) == "sottotitolo non trovato"
+    r4 = new_rule("Batman 050 - The Wedding - Parte 1")
+    r4["marks"] = {"sottotitolo": ((2, 0), (2, 0))}
+    assert apply_schema("Batman 051 - Il ritorno - Parte 2", "<sott>", 1, 3, rule=r4) == "Il ritorno"
+    # senza marcature: tutto come prima (anche con una regola vuota); <tit> = primo pezzo di testo
     for stem in ("Batman 050 (2016)", "Zagor 045 - Il ritorno", "Y L'ultimo Uomo [01] Senza Uomini"):
         for sch in ("<p1> (<anno>) #<p2>", "<p1> #<p2> - <p3>", "<nome> <num:4> <n>"):
             try:
@@ -453,7 +503,8 @@ def test_marks_utils():
                 except ValueError as e:
                     got = str(e)
                 assert got == want, (stem, sch, got, want)
-        assert apply_schema(stem, "<tit>", 1, 3) == apply_schema(stem, "<titolo>", 1, 3) == name_parts(stem)[0]
+        want = {"Batman 050 (2016)": "Batman", "Zagor 045 - Il ritorno": "Zagor"}.get(stem, "Y L'ultimo Uomo")
+        assert apply_schema(stem, "<tit>", 1, 3) == apply_schema(stem, "<titolo>", 1, 3) == want
 
 
 def select_text(d, text):
@@ -463,20 +514,21 @@ def select_text(d, text):
     cur.setPosition(a)
     cur.setPosition(a + len(text), QTextCursor.MoveMode.KeepAnchor)
     d.name_box.setTextCursor(cur)
-    picked = d._picked()
-    return picked[0][0], picked[-1][0]
 
 
-def test_marks_dialog(work):
-    from comicoptimizer.dialogs import RenameDialog
-    names = ["Dylan Dog 001 - L'alba dei morti viventi (1986).cbz",
-             "Dylan Dog 012 - Il ritorno del mostro (1987).cbz",
-             "Dylan Dog Speciale 4 - Mostri - 2 (1990).cbz"]
+def make_files(work, names):
     paths = []
     for n in names:
         paths.append(os.path.join(work, n))
         open(paths[-1], "wb").write(b"x")
-    d = RenameDialog(paths)
+    return paths
+
+
+def test_marks_dialog(work):
+    from comicoptimizer.dialogs import RenameDialog
+    d = RenameDialog(make_files(work, ["Dylan Dog 001 - L'alba dei morti viventi (1986).cbz",
+                                       "Dylan Dog 012 - Il ritorno del mostro (1987).cbz",
+                                       "Dylan Dog Speciale 4 - Mostri - 2 (1990).cbz"]))
     d.show()
     col = lambda: [d.table.item(i, 1).text() for i in range(3)]
     assert d.name_box.toPlainText() == "Dylan Dog 001 - L'alba dei morti viventi (1986)"
@@ -488,27 +540,29 @@ def test_marks_dialog(work):
     select_text(d, "L'alba")
     d._name_menu(d.name_box.rect().center())
     m = menus[-1]
-    assert m["Titolo   <tit>"] and m["P1   <p1>   (il successivo libero)"] and m["Lingua   <lang>"]
+    assert "«L'alba» è:" in m and m["Titolo   <tit>"] and m["P1   <p1>   (il successivo libero)"]
     assert not m["Unisci in un solo pezzo"] and not m["Ignora (togli il ruolo)"]
-    assert m["Dividi: queste parole diventano un pezzo a sé"]
-    d.mark("titolo", *select_text(d, "Dog"))          # la selezione si aggancia al pezzo intero
+    assert m["Dividi: la selezione diventa un pezzo a sé"]      # solo una parte del pezzo
+    select_text(d, "Dylan Dog 001")
+    d._name_menu(d.name_box.rect().center())
+    assert menus[-1]["Unisci in un solo pezzo"] and not menus[-1]["Dividi: la selezione diventa un pezzo a sé"]
+    select_text(d, "ylan Do")                          # parole prese per più di metà: "Dylan Dog"
+    d.mark("titolo")
     assert d.schema.currentText() == "<tit>"           # "<nome>" sostituito dal segnaposto
-    assert col()[:2] == ["Dylan Dog", "Dylan Dog"]
+    assert col()[:2] == ["Dylan Dog", "Dylan Dog"] and d._rule["cuts"] == {}
     d.schema.lineEdit().setCursorPosition(len("<tit>"))
     d.schema.lineEdit().insert(" #")
-    d.mark("num", *select_text(d, "001"))
+    select_text(d, "001")
+    d.mark("num")
     assert d.schema.currentText() == "<tit> #<num>"
-    d.mark("num", *select_text(d, "001"))              # già nello schema: non si ripete
+    d.mark("num")                                      # già nello schema: non si ripete
     assert d.schema.currentText() == "<tit> #<num>"
-    # Dividi: "(1986)" diventa un pezzo a sé, poi Anno; il resto della storia è P3
-    select_text(d, "(1986)")
-    cut = d._cut_info(d._picked())
-    assert cut == (2, "end", 1), cut
-    d.cut(*cut)
-    d.mark("anno", *select_text(d, "1986"))
+    select_text(d, "(1986)")                           # le parentesi sono già un pezzo a sé
+    d.mark("anno")
     assert d._next_p() == 1
     d.schema.setEditText("<tit> #<num> - <p3> (<anno>)")
-    d.mark("p3", *select_text(d, "alba"))
+    select_text(d, "L'alba dei morti viventi")
+    d.mark("p3")
     assert col()[:2] == ["Dylan Dog #001 - L'alba dei morti viventi (1986)",
                          "Dylan Dog #012 - Il ritorno del mostro (1987)"], col()
     assert d.table.item(2, 2).text() == "⚠ schema non applicabile"            # struttura diversa
@@ -522,15 +576,50 @@ def test_marks_dialog(work):
     assert d.name_box.toPlainText().startswith("Dylan Dog Speciale")   # l'ultima cliccata
     d.table.setCurrentCell(0, 0)
     d.table.clearSelection()
-    d.unmark(*select_text(d, "1986"))                  # Ignora
+    select_text(d, "1986")
+    d.unmark()                                         # Ignora
     assert "anno" not in d._rule["marks"] and col()[1].endswith("(1987)")   # <anno> di nuovo automatico
     d.reset_marks()                                    # Azzera: si torna all'automatico
     assert d._rule is None and not d.b_reset.isEnabled()
     d.schema.setEditText("<p1> #<p2>")
     assert col() == ["Dylan Dog #001", "Dylan Dog #012", "Dylan Dog Speciale #004"]
-    d.mark("titolo", *select_text(d, "Dylan Dog"))
+    select_text(d, "Dylan Dog")
+    d.mark("titolo")
     d.split_numbers.setChecked(False)                  # i pezzi cambiano: marcature azzerate
     assert d._rule is None and "azzerate" in d.status.text()
+    # selezione che sconfina di poco nel pezzo accanto: si prende solo il pezzo voluto
+    cov = RenameDialog._covered
+    spans = [(0, 15), (17, 19), (21, 33)]              # "Y L'ultimo Uomo [01] Senza Uomini"
+    assert cov(spans, 0, 18) == [0] and cov(spans, 3, 10) == [0] and cov(spans, 1, 19) == [0, 1]
+    assert cov(spans, 14, 22) == [1] and cov(spans, 5, 5) == []
+    d.reject()
+
+
+def test_marks_partial(work):
+    """Si marca esattamente il testo selezionato: un pezzo preso in parte si divide lì."""
+    from comicoptimizer.dialogs import RenameDialog
+    d = RenameDialog(make_files(work, [f"Juujika no Rokunin (Shiryuu  Nakatake) Ch. {n}.cbz"
+                                       for n in ("015", "016")] + ["Kaiju No. 8 (Matsumoto) Ch. 3.cbz"]))
+    col = lambda: [d.table.item(i, 1).text() for i in range(3)]
+    for text, role in (("Juujika no Rokunin", "titolo"), ("Shiryuu  Nakatake", "autore"), ("015", "num")):
+        select_text(d, text)
+        d.mark(role)
+    d.schema.setEditText("<tit> - <num> [<aut>]")
+    assert col()[:2] == ["Juujika no Rokunin - 015 [Shiryuu  Nakatake]",
+                         "Juujika no Rokunin - 016 [Shiryuu  Nakatake]"], col()
+    assert d._rule["cuts"] == {}                       # tutti pezzi interi
+    assert d.table.item(2, 2).text() == "⚠ schema non applicabile"            # Kaiju: un pezzo in più
+    select_text(d, "Rokunin")                          # ultima parola del titolo: P1, il titolo resta
+    d.mark("p1")
+    assert d._rule["cuts"] == {0: [("end", 1)]} and "titolo" not in d._rule["marks"]
+    select_text(d, "Juujika no")
+    d.mark("titolo")
+    select_text(d, "no")                               # in mezzo: il pezzo si divide ai due lati
+    d.mark("p2")
+    assert d._rule["cuts"] == {0: [("start", 1), ("end", 1)]}
+    assert d._mark_ranges()["p1"] == (11, 18) and d._mark_ranges()["autore"] == (19, 38)
+    d.schema.setEditText("<p1> <p2> <num>")
+    assert col()[:2] == ["Rokunin no 015", "Rokunin no 016"]
     d.reject()
 
 
@@ -549,4 +638,6 @@ if __name__ == "__main__":
         test_keep_open(os.path.join(work, "k"))
         os.makedirs(os.path.join(work, "m"))
         test_marks_dialog(os.path.join(work, "m"))
+        os.makedirs(os.path.join(work, "p"))
+        test_marks_partial(os.path.join(work, "p"))
     print("TUTTO OK")

@@ -3,16 +3,19 @@
 ## [3.1.0] — 2026-10-21
 
 ### Rinomina: marcatura dei pezzi del nome
-- **Nuovo:** riquadro col nome del fumetto (la riga selezionata o l'ultima cliccata) sopra lo Schema. Selezioni col mouse un pezzo del nome e col tasto destro dici cos'è: Titolo, Numero, Anno, Autore, Editore, Edizione, Lingua, oppure P1, P2… (il successivo libero o un numero a scelta). La selezione si aggancia sempre ai pezzi interi.
+- **Nuovo:** riquadro col nome del fumetto (la riga selezionata o l'ultima cliccata) sopra lo Schema. Selezioni col mouse un pezzo del nome e col tasto destro dici cos'è: Titolo, Numero, Anno, Autore, Editore, Edizione, Lingua, oppure P1, P2… (il successivo libero o un numero a scelta). Si marca esattamente il testo selezionato, a parole intere (una parola presa per più di metà conta): se è solo una parte di un pezzo, il pezzo si divide lì da solo. I gruppi tra parentesi, come `(Shiryuu Nakatake)`, sono pezzi a sé. Ogni pezzo ha uno sfondo più chiaro e in cima al menu compare il testo che verrà marcato.
 - **Nuovo:** la marcatura è una regola per tutti i file della finestra, basata sulla posizione del pezzo ("il terzo pezzo"), non sulle lettere: funziona anche con titoli di lunghezza diversa. I file con una struttura diversa (pezzi in più o in meno) diventano rossi con "⚠ schema non applicabile" e non vengono rinominati.
 - **Nuovo:** marcando un pezzo, il suo segnaposto entra nello Schema dove c'è il cursore (al posto di `<nome>` se lo schema è solo quello); poi lo sposti o lo cancelli come sempre.
-- **Nuovo:** segnaposto `<tit>` (anche `<titolo>`): il pezzo marcato come Titolo o, senza marcature, il primo pezzo del nome.
-- **Nuovo:** nel menu anche "Ignora" (toglie il ruolo), "Unisci" (più pezzi diventano uno) e "Dividi" (le prime o le ultime parole di un pezzo diventano un pezzo a sé, es. `(1986)` in fondo alla storia), più "Azzera marcature", anche come pulsante.
+- **Nuovo:** segnaposto `<tit>` (anche `<titolo>`): il pezzo marcato come Titolo o, senza marcature, il primo pezzo di testo del nome (senza i gruppi tra parentesi: `Batman 050 (2016)` → `Batman`).
+- **Nuovo:** nel menu anche "Ignora" (toglie il ruolo), "Unisci" (più pezzi diventano uno) e "Dividi" (la selezione diventa un pezzo a sé, senza ruolo), più "Azzera marcature", anche come pulsante.
 - **Nuovo:** ogni ruolo ha un colore (palette leggibile anche dai daltonici) e una sottolineatura propria; il testo non marcato è grigio. La legenda sotto il riquadro mostra i ruoli marcati e il loro segnaposto.
 - **Nuovo:** Autore, Editore, Edizione e Lingua: se il pezzo marcato c'è nel nome vince quello; se in un file non c'è, si usa la casella sotto (il valore scritto a mano o trovato con 🔍 non viene sovrascritto). Le parentesi attorno al pezzo si tolgono: `(1986)` → `1986`, `[ITA]` → `ITA`.
-- **Cambiato:** senza marcature tutto funziona come prima (schemi recenti e i sette schemi pronti compresi); con delle marcature, i segnaposto dei ruoli non marcati restano automatici. Le marcature restano cambiando le righe selezionate; si azzerano cambiando "Dividi anche ai numeri" e dopo "Rinomina".
+- **Cambiato:** senza marcature tutto funziona come prima (schemi recenti compresi); con delle marcature, i segnaposto dei ruoli non marcati restano automatici. Le marcature restano cambiando le righe selezionate; si azzerano cambiando "Dividi anche ai numeri" e dopo "Rinomina".
 - **Corretto:** uscendo dal "nome singolo" (una sola riga selezionata) con dei segnaposto nello Schema, la riga teneva lo schema scritto (es. `<tit>`) invece del nome calcolato.
 - **Nuovo:** l'Aiuto (F1) spiega la marcatura con un esempio passo per passo.
+- **Cambiato:** gli schemi pronti nel menu a tendina diventano tre: Manga `<aut> - <tit> - Cap #<num>`, Graphic novel `<aut> - <tit> (<anno>) (<lang>)`, Serie americane `<tit> (<anno>) - #<num> - <sott> (<lang>)`. L'Aiuto ("Come conviene chiamare i file") usa questi tre.
+- **Nuovo:** segnaposto `<sott>` (anche `<sottotitolo>`): il pezzo marcato come Sottotitolo o, senza marcature, l'ultimo pezzo di testo dopo il titolo (senza i gruppi tra parentesi); nel menu del tasto destro c'è il ruolo "Sottotitolo".
+- **Nuovo:** pulsante 🧹 accanto allo Schema: svuota gli schemi recenti (con conferma), nel menu restano solo i predefiniti.
 
 ## [3.0.0] — 2026-10-14
 
