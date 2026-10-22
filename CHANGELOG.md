@@ -3,6 +3,7 @@
 ## [3.1.0] — 2026-10-21
 
 ### Sicurezza e stabilità
+- **Corretto:** l'exe per Windows non partiva ("No such file or directory … pymupdf\layout\…") se compilato con PyMuPDF 2.0, uscita da poco: `requirements.txt` resta sotto la 2.0, e se PyMuPDF non funziona l'app parte lo stesso con i PDF disattivati.
 - **Corretto:** su Windows, per i file su un disco di rete (NAS, unità mappata, `\\server\…`) "spostare nel cestino" li cancellava per sempre, in silenzio, perché lì il cestino non c'è. Ora quei file non vengono toccati: dopo una conversione l'originale resta dov'è, e "Cestina"/"Pulisci duplicati" li lasciano al loro posto.
 - **Corretto:** un file senza permesso di lettura bloccava l'importazione su "Importazione…": ora viene saltato.
 - **Corretto:** salvare dall'editor un fumetto senza pagine lo sostituiva con un CBZ vuoto: ora è un errore e l'originale resta com'è.

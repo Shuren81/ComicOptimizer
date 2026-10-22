@@ -14,14 +14,17 @@ from .utils import fmt_duration
 # --- IMPORT PDF (opzionale) ---
 # "fitz" è deprecato nelle versioni recenti di PyMuPDF: si usa "pymupdf"
 # e si ripiega su "fitz" solo per le versioni vecchie.
+# Qualsiasi errore (non solo "non installato") spegne i PDF invece di impedire l'avvio dell'app.
 try:
     import pymupdf as fitz
     HAS_PDF = True
-except ImportError:
+except Exception as e:
+    if not isinstance(e, ImportError):
+        log.error(f"PyMuPDF non utilizzabile, PDF disattivati: {e}")
     try:
         import fitz
         HAS_PDF = True
-    except ImportError:
+    except Exception:
         HAS_PDF = False
 
 # --- PDF ---
