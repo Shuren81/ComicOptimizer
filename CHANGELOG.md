@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.2.0] — 2026-10-24
+
+### Info del fumetto (ComicInfo.xml)
+- **Nuovo:** pulsante **INFO** (compare con una selezione) e finestra "Info del fumetto": una riga per fumetto con Serie, Numero, Titolo, Anno, Autore, Editore, Edizione, Lingua e Manga, da scrivere nel file ComicInfo.xml che Komga, Kavita e YACReader leggono.
+- **Nuovo:** le celle si riempiono da sole: dal ComicInfo.xml già presente nel fumetto (CBZ e cartelle) o, se non c'è, dal nome del file con le stesse regole della Rinomina. Doppio click per cambiare una cella; le caselle in alto (con 🔍 Cerca per l'autore) valgono per le righe selezionate o per tutte.
+- **Nuovo:** il nome dalle info: con uno Schema (gli stessi schemi pronti e recenti della Rinomina) il fumetto prende anche il nome nuovo, costruito dai valori della tabella. Info e nome si salvano insieme.
+- **Nuovo:** nella Rinomina, il pulsante **Info…** porta le righe selezionate (con le marcature e le caselle) nella finestra Info.
+- **Cambiato:** `<tit>` e `<sott>` automatici non prendono più i pezzi che sono solo un'etichetta di numero (`Ch.`, `Cap.`, `Vol.`…; una lettera sola solo col punto, così "V" di *V for Vendetta* resta un titolo): in `Juujika no Rokunin (Shiryuu Nakatake) Ch. 015` il sottotitolo non è più "Ch.".
+- **Nuovo:** l'Anno deve essere di 4 cifre (in ComicInfo è un numero), altrimenti la riga è rossa; la Lingua si può scrivere anche per esteso (Italiano, English, Giapponese…) e diventa il codice standard.
+- **Nuovo:** "Applica alle selezionate" è istantaneo anche con centinaia di righe, e il riepilogo di fine lavoro dice "salvati con le info".
+- **Nuovo:** "Salva" usa la procedura sicura di "Solo Ripara": pagine copiate senza ricompressione, nuovo CBZ verificato, originale nel cestino. CBR, PDF e cartelle diventano CBZ. Gli altri campi del ComicInfo.xml (trama, disegnatore…) restano; la lingua diventa il codice standard (ITA → it, ENG → en…). Le righe già uguali al file ("invariato") non vengono riscritte.
+
 ## [3.1.0] — 2026-10-21
 
 ### Sicurezza e stabilità

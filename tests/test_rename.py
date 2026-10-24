@@ -319,6 +319,8 @@ def test_window(work):
     new_a = os.path.join(work, "Naruto - #010.cbz")
 
     class FakeDialog:
+        info_request = None                                         # niente "Info…"
+
         def __init__(self, paths, parent=None, on_rename=None):
             self.on_rename = on_rename
 

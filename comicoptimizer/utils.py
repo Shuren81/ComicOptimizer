@@ -317,6 +317,8 @@ def name_parts(stem, split_numbers=True):
 _WORD = re.compile(r'[^\s_]+')
 _BRACKET = re.compile(r'\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}')
 _TRIM = re.compile(r'[^\s_-](?:.*[^\s_-])?', re.S)
+# pezzi che sono solo un'etichetta di numero ("Ch.", "Vol.", "Cap"): non sono titoli
+_LABEL = re.compile(r'(?i)(?:vol(?:ume)?|ch(?:apter)?|cap(?:itolo)?|ep|tomo|no|nr|num|#)\.?|[vcn]\.')
 
 def mark_spans(stem, split_numbers=True):
     """Pezzi per la marcatura: quelli di name_spans, con i gruppi tra parentesi come pezzi a sé
@@ -400,7 +402,7 @@ def schema_roles(schema):
 def _pad(num, digits):
     return num.lstrip("0").zfill(digits)
 
-def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=None):
+def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=None, values=None):
     """
     Nuovo nome da uno schema con <nome> (nome attuale), <num> (primo numero
     del nome), <n> (progressivo), <anno> (anno nel nome, preferito quello tra
@@ -412,6 +414,8 @@ def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=
     (i gruppi tra parentesi non contano).
     Con `rule` (marcatura manuale) i ruoli marcati vengono dal pezzo marcato; se la
     struttura del nome è diversa: autore/editore/… dalla casella, altrimenti errore.
+    Con `values` ({ruolo: testo}, dalla finestra Info) i ruoli presenti prendono quel valore,
+    prima di tutto il resto; un valore vuoto è un errore.
     Solleva ValueError se nel nome manca il numero o la parte richiesta.
     """
     parts = name_parts(stem, split_numbers)
@@ -422,6 +426,11 @@ def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=
         key = m.group(1)
         d = int(m.group(3)) if m.group(3) else digits
         role = _role_of(m)
+        if values is not None and role in values:
+            value = str(values[role]).strip()
+            if not value:
+                raise ValueError(f"{'numero' if role == 'num' else role} vuoto")
+            return _pad(value, d) if value.isdigit() and role != "anno" else value
         if role in marks:
             if not cache:
                 cache.append(rule_values(stem, rule) or {})
@@ -447,7 +456,8 @@ def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=
         if role in ("titolo", "sottotitolo"):
             # pezzi di testo, senza i gruppi tra parentesi ("(2016)", "[ITA]": dati, non titolo)
             text = [stem[a:b] for a, b in mark_spans(stem, split_numbers)]
-            text = [t for t in text if not t.isdigit() and not _BRACKET.fullmatch(t)]
+            text = [t for t in text if not t.isdigit() and not _BRACKET.fullmatch(t)
+                    and not _LABEL.fullmatch(t)]
             if role == "titolo" and text:
                 return text[0]
             if role == "sottotitolo" and len(text) > 1:
@@ -464,6 +474,17 @@ def apply_schema(stem, schema, n, digits, split_numbers=True, fields=None, rule=
         return _pad(parts[i - 1], d) if parts[i - 1].isdigit() else parts[i - 1]
 
     return _SCHEMA_TOKEN.sub(sub, schema)
+
+def name_info(stem, split_numbers=True, fields=None, rule=None):
+    """{ruolo: valore} ricavati dal nome come nella Rinomina (automatici o marcati, caselle
+    comprese); "" dove il nome non li ha. Il numero resta com'è ("007" → "7")."""
+    out = {}
+    for role, tag in ROLE_TAGS.items():
+        try:
+            out[role] = apply_schema(stem, f"<{tag}>", 1, 1, split_numbers, fields, rule)
+        except ValueError:
+            out[role] = ""
+    return out
 
 def _fill_jolly(repl, found):
     """In `repl` ogni * o ? diventa, in ordine, il testo trovato dal jolly corrispondente di Cerca."""

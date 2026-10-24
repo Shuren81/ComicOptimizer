@@ -37,7 +37,7 @@ from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
 from .cbz import file_status
 from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
-from .dialogs import LogWindow, MergeDialog, RenameDialog, StopDialog
+from .dialogs import InfoDialog, LogWindow, MergeDialog, RenameDialog, StopDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -514,6 +514,13 @@ class MainWindow(QMainWindow):
         self.btn_rename.setVisible(False)
         self.btn_rename.clicked.connect(self.rename_selected)
 
+        self.btn_info = QPushButton("INFO")
+        self.btn_info.setMinimumHeight(42)
+        self.btn_info.setToolTip("Info dei fumetti selezionati (ComicInfo.xml): serie, numero, autore…\n"
+                                 "e, se vuoi, il nome nuovo costruito dalle info")
+        self.btn_info.setVisible(False)
+        self.btn_info.clicked.connect(self.info_selected)
+
         self.btn_undo_rename = QPushButton("ANNULLA RINOMINA")
         self.btn_undo_rename.setMinimumHeight(42)
         set_variant(self.btn_undo_rename, "muted")
@@ -533,6 +540,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_sel_all)
         top_bar.addWidget(self.btn_merge)
         top_bar.addWidget(self.btn_rename)
+        top_bar.addWidget(self.btn_info)
         top_bar.addWidget(self.btn_undo_rename)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
@@ -577,7 +585,7 @@ class MainWindow(QMainWindow):
         self.status_stack.addWidget(work_w)
 
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_undo_rename,
+        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_info, self.btn_undo_rename,
                    self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
@@ -792,7 +800,7 @@ class MainWindow(QMainWindow):
         else:
             icon, title = QMessageBox.Icon.Information, "Lavoro completato"
 
-        verb = "convertiti in WebP" if s['mode'] == 'webp' else "riparati"
+        verb = {"webp": "convertiti in WebP", "info": "salvati con le info"}.get(s['mode'], "riparati")
         short = f"{s['done']} di {s['total']} fumetti {verb}"
         if n_err:
             short += f", {n_err} con errori"
@@ -959,6 +967,7 @@ class MainWindow(QMainWindow):
         sel_n = sum(1 for c in self.cards.values() if c.selected)
         self.btn_merge.setVisible(sel_n > 1)
         self.btn_rename.setVisible(sel_n > 0)
+        self.btn_info.setVisible(sel_n > 0)
         self.btn_trash_sel.setVisible(sel_n > 0)
         self.btn_sel_all.setVisible(bool(self.cards))
         self.btn_sel_all.setText("DESELEZIONA TUTTO" if sel_n else "SELEZIONA TUTTO")
@@ -1105,6 +1114,37 @@ class MainWindow(QMainWindow):
         dlg.exec()   # resta aperta per più passaggi: ogni "Rinomina" chiama _do_renames
         if dlg.done_pairs:
             self._set_undo(dlg.done_pairs)   # "Annulla rinomina" annulla tutti i passaggi
+        if dlg.info_request:                 # "Info…": le stesse righe, con le marcature
+            self.open_info(*dlg.info_request)
+
+    def info_selected(self):
+        sel = [p for p, c in self.cards.items() if c.selected]
+        if sel:
+            self.open_info(sel)
+
+    def open_info(self, paths, rule=None, fields=None, split_numbers=True):
+        """Finestra Info; "Salva" scrive ComicInfo.xml (e il nome nuovo) con la catena di "Solo Ripara"."""
+        if not self._free():
+            return
+        dlg = InfoDialog(paths, self, rule, fields, split_numbers)
+        if not dlg.exec() or not dlg.jobs():
+            return
+        jobs = dlg.jobs()
+        log.info(f"Info: {len(jobs)} fumetti da salvare")
+        self.set_working(True, "Preparazione...")
+        bw = BatchPrepWorker(list(jobs), False, self._loose_last)
+        bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
+        bw.page_progress.connect(self._on_prep_pages)
+
+        def ready(tasks, to_webp):
+            self._discard_thread(bw)
+            for t in tasks:
+                t['info'], t['dest'] = jobs[t['src']]
+            self.start_processing(tasks, to_webp)
+
+        bw.ready.connect(ready)
+        bw.start()
+        self._add_thread(bw)
 
     def undo_rename(self):
         """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""

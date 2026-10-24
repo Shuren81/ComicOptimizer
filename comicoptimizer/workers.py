@@ -172,7 +172,8 @@ class ProcessingWorker(QThread):
     def __init__(self, tasks, to_webp=False):
         super().__init__()
         self.tasks   = tasks            # lista di dict: src, images, tmp, comicinfo, edited
-                                        # (unione: anche extra_srcs, extra_tmps, dest, title)
+                                        # (unione: anche extra_srcs, extra_tmps, dest, title;
+                                        #  finestra Info: info, dest)
         self.to_webp = to_webp
         self._is_running = True
         self._stop_after_current = False
@@ -195,7 +196,8 @@ class ProcessingWorker(QThread):
 
     def run(self):
         summary = {
-            'mode': 'webp' if self.to_webp else 'repair',
+            'mode': 'webp' if self.to_webp else (
+                'info' if self.tasks and all(t.get('info') for t in self.tasks) else 'repair'),
             'total': len(self.tasks), 'done': 0, 'skipped': 0,
             'errors': [], 'pages_kept': 0,
             'size_before': 0, 'size_after': 0,
@@ -299,11 +301,12 @@ class ProcessingWorker(QThread):
                     for i, fp in enumerate(pages):
                         z.write(fp, os.path.basename(fp))
                     ci = task.get('comicinfo')
-                    if ci and os.path.exists(ci):
+                    ci = ci if ci and os.path.exists(ci) else None
+                    if ci or task.get('info'):
                         z.writestr("ComicInfo.xml",
                                    build_comicinfo(ci, len(pages), task.get('edited', False),
-                                                   task.get('title')))
-                        log.info("  ComicInfo.xml conservato")
+                                                   task.get('title'), task.get('info')))
+                        log.info("  ComicInfo.xml " + ("con le info nuove" if task.get('info') else "conservato"))
                     mode = "webp" if self.to_webp else "repair"
                     z.comment = f"{CBZ_MARK} {mode}".encode()
 

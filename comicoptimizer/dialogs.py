@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -29,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from .logsetup import _qt_log_handler, log
 from .style import set_variant
+from .cbz import file_status, read_comicinfo
 from .online import AuthorSearchWorker, clean_title, result_label
 from .utils import (
     FIELD_TAGS,
@@ -36,9 +38,11 @@ from .utils import (
     ROLE_TAGS,
     apply_schema,
     capitalize_words,
+    cbz_target,
     clean_filename,
     get_natural_sort_key,
     merge_name_hint,
+    name_info,
     mark_spans,
     new_rule,
     piece_words,
@@ -298,7 +302,136 @@ def _role_order(role):
     return (0, list(MARK_ROLES).index(role)) if role in MARK_ROLES else (1, int(role[1:]))
 
 
-class RenameDialog(QDialog):
+class _SchemaMixin:
+    """Campo Schema condiviso da Rinomina e Info: schemi recenti (salvati) e schemi pronti."""
+    SETTINGS = ("Shuren", "ComicOptimizer")
+    RECENT_MAX = 10
+    PRESETS = [("<aut> - <tit> - Cap #<num>", "Manga"),
+               ("<aut> - <tit> (<anno>) (<lang>)", "Graphic novel"),
+               ("<tit> (<anno>) - #<num> - <sott> (<lang>)", "Serie americane")]
+
+    def _make_schema(self, text):
+        """Campo Schema (con i recenti e gli schemi pronti nel menu) e il pulsante 🧹."""
+        self.schema = QComboBox()
+        self.schema.setEditable(True)
+        self.schema.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._fill_presets()
+        self.schema.activated.connect(
+            lambda i: self.schema.setEditText(self.schema.itemData(i) or self.schema.itemText(i)))
+        self.schema.setEditText(text)
+        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e tre schemi pronti\n"
+                               "(manga, graphic novel, serie americane)")
+        self.b_clear = QPushButton("🧹")
+        self.b_clear.setProperty("sz", "small")
+        set_variant(self.b_clear, "muted")
+        self.b_clear.setAutoDefault(False)
+        self.b_clear.setToolTip("Svuota gli schemi recenti: nel menu restano solo i predefiniti")
+        self.b_clear.clicked.connect(self.clear_recent)
+        self.b_clear.setEnabled(bool(self._recent()))
+
+    def _recent(self):
+        return QSettings(*self.SETTINGS).value("rinomina/schemi_recenti", [], type=list)
+
+    def _fill_presets(self):
+        """Menu dello Schema: i recenti, poi gli schemi pronti (tipo di fumetto · schema)."""
+        text = self.schema.currentText()
+        self.schema.blockSignals(True)
+        self.schema.clear()
+        recent = self._recent()
+        self.schema.addItems(recent)
+        presets = [(s, d) for s, d in self.PRESETS if s not in recent]
+        if recent and presets:
+            self.schema.insertSeparator(len(recent))
+        for s, d in presets:   # nel campo entra solo lo schema
+            self.schema.addItem(f"{d}  ·  {s}", s)
+        self.schema.setEditText(text)
+        self.schema.blockSignals(False)
+
+    def clear_recent(self):
+        if QMessageBox.question(self, "Schemi recenti", "Svuotare gli schemi recenti?\n"
+                                "Nel menu restano solo gli schemi predefiniti.") != QMessageBox.StandardButton.Yes:
+            return
+        QSettings(*self.SETTINGS).remove("rinomina/schemi_recenti")
+        self._fill_presets()
+        self.b_clear.setEnabled(False)
+
+    def _save_recent(self):
+        schema = self.schema.currentText()
+        if "<" in schema:   # solo schemi veri, non un nome scritto per un singolo fumetto
+            recent = [schema] + [x for x in self._recent() if x != schema]
+            QSettings(*self.SETTINGS).setValue("rinomina/schemi_recenti", recent[:self.RECENT_MAX])
+            if hasattr(self, "b_clear"):
+                self.b_clear.setEnabled(True)
+
+
+class _AuthorSearchMixin:
+    """🔍 Cerca autore online. La finestra dà self.b_search, _search_title() e _set_author(testo)."""
+    _search = None
+
+    def search_author(self):
+        title, ok = QInputDialog.getText(
+            self, "Cerca autore", "Titolo da cercare (viene inviato solo questo testo a Wikidata e AniList):",
+            text=self._search_title())
+        if not ok or not title.strip():
+            return
+        self.b_search.setEnabled(False)
+        self.b_search.setText("Ricerca…")
+        self._search = AuthorSearchWorker(title.strip())
+        self._search.found.connect(self._author_found)
+        self._search.failed.connect(self._author_failed)
+        _SEARCHES.add(self._search)                   # vive fino alla fine, anche se la finestra si chiude
+        self._search.finished.connect(lambda w=self._search: _SEARCHES.discard(w))
+        self._search.start()
+
+    def _search_done(self):
+        self.b_search.setEnabled(True)
+        self.b_search.setText("🔍 Cerca")
+
+    def _author_failed(self, err):
+        self._search_done()
+        QMessageBox.warning(self, "Cerca autore", f"Ricerca non riuscita (connessione?):\n{err}")
+
+    def _author_found(self, results):
+        self._search_done()
+        if not results:
+            QMessageBox.information(self, "Cerca autore", "Nessun risultato: prova con il titolo originale "
+                                    "o in inglese, oppure scrivi l'autore a mano.")
+            return
+        if len(results) == 1:
+            pick = results[0]
+        else:
+            labels = [result_label(r) for r in results]
+            text, ok = QInputDialog.getItem(self, "Cerca autore", "Scegli il fumetto giusto:", labels, 0, False)
+            if not ok:
+                return
+            pick = results[labels.index(text)]
+        self._set_author(", ".join(pick["authors"]))
+
+    def done(self, r):
+        # finestra chiusa con una ricerca in corso: il risultato non deve più arrivare qui
+        if self._search and self._search.isRunning():
+            self._search.found.disconnect()
+            self._search.failed.disconnect()
+        super().done(r)
+
+
+def _help_dialog(parent, title, html):
+    """Aiuto in un'area che scorre: il testo è lungo."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(title)
+    fit_dialog_to_screen(dlg, 760, 680, min_w=420, min_h=320)
+    v = QVBoxLayout(dlg)
+    dlg.text = QTextBrowser()
+    dlg.text.setHtml(html)
+    v.addWidget(dlg.text, 1)
+    b = QPushButton("Chiudi")
+    set_variant(b, "info")
+    b.clicked.connect(dlg.accept)
+    v.addWidget(b, alignment=Qt.AlignmentFlag.AlignRight)
+    return dlg
+
+
+class RenameDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
     """
     Rinomina uno o più fumetti. La colonna "Nuovo nome" è ricalcolata a ogni modifica:
     schema → Cerca/Sostituisci → "_ → spazio" → "Iniziali Maiuscole", sulle righe
@@ -306,12 +439,6 @@ class RenameDialog(QDialog):
     corrette a mano restano fisse; svuotandole torna il nome automatico.
     Le righe con un problema (rosse) non vengono rinominate.
     """
-    SETTINGS = ("Shuren", "ComicOptimizer")
-    RECENT_MAX = 10
-    PRESETS = [("<aut> - <tit> - Cap #<num>", "Manga"),
-               ("<aut> - <tit> (<anno>) (<lang>)", "Graphic novel"),
-               ("<tit> (<anno>) - #<num> - <sott> (<lang>)", "Serie americane")]
-
     def __init__(self, paths, parent=None, on_rename=None):
         super().__init__(parent)
         self.setWindowTitle("Rinomina")
@@ -319,7 +446,7 @@ class RenameDialog(QDialog):
         # resta aperta per altri passaggi. Senza, "Rinomina" chiude e restituisce le coppie.
         self.on_rename = on_rename
         self.done_pairs = []         # tutte le rinomine fatte da questa finestra (per annullarle)
-        self._search = None
+        self.info_request = None     # "Info…": (percorsi, marcature, caselle, dividi ai numeri)
         fit_dialog_to_screen(self, 920, 680, min_w=580, min_h=440)
         self.paths = sorted(paths, key=lambda p: get_natural_sort_key(os.path.basename(p)))
         self._schema_err = [None] * len(self.paths)
@@ -364,22 +491,7 @@ class RenameDialog(QDialog):
 
         row = QHBoxLayout()
         single = len(self.paths) == 1
-        self.schema = QComboBox()
-        self.schema.setEditable(True)
-        self.schema.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self._fill_presets()
-        self.schema.activated.connect(
-            lambda i: self.schema.setEditText(self.schema.itemData(i) or self.schema.itemText(i)))
-        self.schema.setEditText(split_name(self.paths[0])[0] if single else "<nome>")
-        self.schema.setToolTip("Nel menu a tendina: gli schemi usati di recente e tre schemi pronti\n"
-                               "(manga, graphic novel, serie americane)")
-        self.b_clear = QPushButton("🧹")
-        self.b_clear.setProperty("sz", "small")
-        set_variant(self.b_clear, "muted")
-        self.b_clear.setAutoDefault(False)
-        self.b_clear.setToolTip("Svuota gli schemi recenti: nel menu restano solo i predefiniti")
-        self.b_clear.clicked.connect(self.clear_recent)
-        self.b_clear.setEnabled(bool(self._recent()))
+        self._make_schema(split_name(self.paths[0])[0] if single else "<nome>")
         self.digits = QSpinBox()
         self.digits.setRange(1, 6)
         self.digits.setValue(3)
@@ -507,12 +619,19 @@ class RenameDialog(QDialog):
         b_help.setToolTip("Come si rinomina (F1)")
         b_help.setAutoDefault(False)
         b_help.clicked.connect(self.show_help)
+        b_info = QPushButton("Info…")
+        set_variant(b_info, "info")
+        b_info.setAutoDefault(False)
+        b_info.setToolTip("Scrivi le info nel fumetto (ComicInfo.xml), ricavate dal nome con le marcature\n"
+                          "fatte qui: si apre la finestra Info con le righe selezionate (o tutte)")
+        b_info.clicked.connect(self.to_info)
         self.b_ok = QPushButton("Rinomina")
         set_variant(self.b_ok, "success")
         self.b_ok.setDefault(True)
         self.b_ok.clicked.connect(self._rename)
         btns.addWidget(b_can)
         btns.addWidget(b_help)
+        btns.addWidget(b_info)
         btns.addSpacing(12)
         btns.addWidget(self.status, 1)
         btns.addWidget(self.b_ok)
@@ -882,42 +1001,6 @@ class RenameDialog(QDialog):
         """[(vecchio percorso, nuovo percorso)] delle sole righe valide e cambiate."""
         return list(self._targets)
 
-    # --- schemi recenti (salvati tra un avvio e l'altro) ---
-
-    def _recent(self):
-        return QSettings(*self.SETTINGS).value("rinomina/schemi_recenti", [], type=list)
-
-    def _fill_presets(self):
-        """Menu dello Schema: i recenti, poi gli schemi pronti (tipo di fumetto · schema)."""
-        text = self.schema.currentText()
-        self.schema.blockSignals(True)
-        self.schema.clear()
-        recent = self._recent()
-        self.schema.addItems(recent)
-        presets = [(s, d) for s, d in self.PRESETS if s not in recent]
-        if recent and presets:
-            self.schema.insertSeparator(len(recent))
-        for s, d in presets:   # nel campo entra solo lo schema
-            self.schema.addItem(f"{d}  ·  {s}", s)
-        self.schema.setEditText(text)
-        self.schema.blockSignals(False)
-
-    def clear_recent(self):
-        if QMessageBox.question(self, "Schemi recenti", "Svuotare gli schemi recenti?\n"
-                                "Nel menu restano solo gli schemi predefiniti.") != QMessageBox.StandardButton.Yes:
-            return
-        QSettings(*self.SETTINGS).remove("rinomina/schemi_recenti")
-        self._fill_presets()
-        self.b_clear.setEnabled(False)
-
-    def _save_recent(self):
-        schema = self.schema.currentText()
-        if "<" in schema:   # solo schemi veri, non un nome scritto per un singolo fumetto
-            recent = [schema] + [x for x in self._recent() if x != schema]
-            QSettings(*self.SETTINGS).setValue("rinomina/schemi_recenti", recent[:self.RECENT_MAX])
-            if hasattr(self, "b_clear"):
-                self.b_clear.setEnabled(True)
-
     def accept(self):
         self._save_recent()
         super().accept()
@@ -958,55 +1041,6 @@ class RenameDialog(QDialog):
         miss = len(pairs) - len(done)
         self.status.setText(f"✓ {len(done)} rinominati" + (f" · {miss} non riusciti" if miss else ""))
 
-    # --- ricerca dell'autore online ---
-
-    def search_author(self):
-        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or [0]
-        title, ok = QInputDialog.getText(
-            self, "Cerca autore", "Titolo da cercare (viene inviato solo questo testo a Wikidata e AniList):",
-            text=clean_title(self.paths[rows[0]]))
-        if not ok or not title.strip():
-            return
-        self.b_search.setEnabled(False)
-        self.b_search.setText("Ricerca…")
-        self._search = AuthorSearchWorker(title.strip())
-        self._search.found.connect(self._author_found)
-        self._search.failed.connect(self._author_failed)
-        _SEARCHES.add(self._search)                   # vive fino alla fine, anche se la finestra si chiude
-        self._search.finished.connect(lambda w=self._search: _SEARCHES.discard(w))
-        self._search.start()
-
-    def _search_done(self):
-        self.b_search.setEnabled(True)
-        self.b_search.setText("🔍 Cerca")
-
-    def _author_failed(self, err):
-        self._search_done()
-        QMessageBox.warning(self, "Cerca autore", f"Ricerca non riuscita (connessione?):\n{err}")
-
-    def _author_found(self, results):
-        self._search_done()
-        if not results:
-            QMessageBox.information(self, "Cerca autore", "Nessun risultato: prova con il titolo originale "
-                                    "o in inglese, oppure scrivi l'autore a mano.")
-            return
-        if len(results) == 1:
-            pick = results[0]
-        else:
-            labels = [result_label(r) for r in results]
-            text, ok = QInputDialog.getItem(self, "Cerca autore", "Scegli il fumetto giusto:", labels, 0, False)
-            if not ok:
-                return
-            pick = results[labels.index(text)]
-        self.fields["autore"].setText(", ".join(pick["authors"]))
-
-    def done(self, r):
-        # finestra chiusa con una ricerca in corso: il risultato non deve più arrivare qui
-        if self._search and self._search.isRunning():
-            self._search.found.disconnect()
-            self._search.failed.disconnect()
-        super().done(r)
-
     def keyPressEvent(self, e):
         if e.key() == Qt.Key.Key_F1:
             self.show_help()
@@ -1017,19 +1051,22 @@ class RenameDialog(QDialog):
         self.help_dialog().exec()
 
     def help_dialog(self):
-        """Aiuto in un'area che scorre: il testo è lungo."""
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Rinomina: aiuto")
-        fit_dialog_to_screen(dlg, 760, 680, min_w=420, min_h=320)
-        v = QVBoxLayout(dlg)
-        dlg.text = QTextBrowser()
-        dlg.text.setHtml(RENAME_HELP)
-        v.addWidget(dlg.text, 1)
-        b = QPushButton("Chiudi")
-        set_variant(b, "info")
-        b.clicked.connect(dlg.accept)
-        v.addWidget(b, alignment=Qt.AlignmentFlag.AlignRight)
-        return dlg
+        return _help_dialog(self, "Rinomina: aiuto", RENAME_HELP)
+
+    def to_info(self):
+        """Chiude e chiede alla finestra principale di aprire Info con queste righe e marcature."""
+        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or range(len(self.paths))
+        self.info_request = ([self.paths[i] for i in rows], self._rule,
+                             {key: e.text() for key, e in self.fields.items()},
+                             self.split_numbers.isChecked())
+        self.reject()
+
+    def _search_title(self):
+        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or [0]
+        return clean_title(self.paths[rows[0]])
+
+    def _set_author(self, text):
+        self.fields["autore"].setText(text)
 
 RENAME_HELP = """
 <h3>Come si rinomina</h3>
@@ -1192,6 +1229,280 @@ Dopo una rinomina, il pulsante <b>Annulla rinomina</b> nella finestra principale
 <p><b>Come aprire la rinomina:</b> doppio click sul nome nella card, tasto <b>F2</b> o pulsante
 <b>Rinomina</b>. In questa finestra, <b>F1</b> apre questo aiuto.</p>
 """
+
+class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
+    """
+    Info del fumetto (ComicInfo.xml), una riga per fumetto, e nome nuovo costruito dalle info.
+    Le celle si riempiono dal ComicInfo.xml già presente, altrimenti dal nome (regole e
+    marcature della Rinomina). jobs() → {percorso: (info, CBZ di destinazione)} delle righe da salvare.
+    """
+    FIELDS = [("titolo", "Serie"), ("num", "Numero"), ("sottotitolo", "Titolo"), ("anno", "Anno"),
+              ("autore", "Autore"), ("editore", "Editore"), ("edizione", "Edizione"), ("lingua", "Lingua")]
+    # colonne: nome attuale, nuovo nome, problema (sempre in vista), poi i campi e Manga
+    C_NEW, C_NOTE, C_FIRST = 1, 2, 3
+    C_MANGA = C_FIRST + len(FIELDS)
+
+    def __init__(self, paths, parent=None, rule=None, fields=None, split_numbers=True):
+        super().__init__(parent)
+        self.setWindowTitle("Info del fumetto")
+        fit_dialog_to_screen(self, 1180, 680, min_w=700, min_h=440)
+        self.paths = sorted(paths, key=lambda p: get_natural_sort_key(os.path.basename(p)))
+        self.split_numbers = split_numbers
+        self.info, self.had_ci, self._orig = [], [], []
+        for p in self.paths:
+            have = read_comicinfo(p)                  # prima le info già nel fumetto, poi il nome
+            guess = name_info(split_name(p)[0], split_numbers, fields, rule)
+            row = {r: have.get(r) or guess.get(r, "") for r, _ in self.FIELDS}
+            row["manga"] = have.get("manga", False)
+            self.info.append(row)
+            self.had_ci.append(bool(have))
+            # quello che c'è davvero nel file: una riga uguale a questo non va riscritta
+            self._orig.append({**{r: have.get(r, "") for r, _ in self.FIELDS}, "manga": row["manga"]})
+        self._is_cbz = [file_status(p) in (1, 3) for p in self.paths]   # letto una volta sola
+        self._jobs = {}
+        l = QVBoxLayout(self)
+
+        hint = QLabel("Le info vengono dal ComicInfo.xml già nel fumetto o, se non c'è, dal nome. "
+                      "Doppio click su una cella per cambiarla; per più righe usa le caselle qui sotto. "
+                      "\"Salva\" scrive le info nel fumetto (un CBR, un PDF o una cartella diventano CBZ) "
+                      "e, con uno Schema, gli dà il nome nuovo.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #aaa; font-size: 11px;")
+        l.addWidget(hint)
+
+        # caselle "per più righe": si applicano alle righe selezionate (o a tutte)
+        grid = QGridLayout()
+        self.bulk = {}
+        for k, (role, label) in enumerate(self.FIELDS):
+            edit = QLineEdit()
+            edit.setPlaceholderText(label)
+            grid.addWidget(QLabel(label + ":"), k // 4, (k % 4) * 2)
+            if role == "autore":
+                box = QHBoxLayout()
+                box.addWidget(edit, 1)
+                self.b_search = QPushButton("🔍 Cerca")
+                self.b_search.setProperty("sz", "small")
+                set_variant(self.b_search, "info")
+                self.b_search.setAutoDefault(False)
+                self.b_search.setToolTip("Cerca l'autore online (Wikidata, AniList) dal titolo del fumetto.\n"
+                                         "Viene inviato solo il titolo, mai i file.")
+                self.b_search.clicked.connect(self.search_author)
+                box.addWidget(self.b_search)
+                grid.addLayout(box, k // 4, (k % 4) * 2 + 1)
+            else:
+                grid.addWidget(edit, k // 4, (k % 4) * 2 + 1)
+            self.bulk[role] = edit
+        self.bulk_manga = QComboBox()
+        self.bulk_manga.addItems(["", "Sì", "No"])
+        self.bulk_manga.setToolTip("Manga: lettura da destra a sinistra")
+        grid.addWidget(QLabel("Manga:"), 2, 0)
+        grid.addWidget(self.bulk_manga, 2, 1)
+        b_apply = QPushButton("Applica alle selezionate (o a tutte)")
+        b_apply.setProperty("sz", "small")
+        set_variant(b_apply, "info")
+        b_apply.setAutoDefault(False)
+        b_apply.setToolTip("Scrive nelle righe le caselle compilate; quelle vuote non cambiano niente")
+        b_apply.clicked.connect(self.apply_bulk)
+        grid.addWidget(b_apply, 2, 3, 1, 3)
+        l.addLayout(grid)
+
+        heads = ["Nome attuale", "Nuovo nome", "Cosa fa"] + [label for _, label in self.FIELDS] + ["Manga"]
+        self.table = QTableWidget(len(self.paths), len(heads))
+        self.table.setHorizontalHeaderLabels(heads)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        fixed = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        self.table.blockSignals(True)
+        for i, p in enumerate(self.paths):
+            self.table.setItem(i, 0, QTableWidgetItem(os.path.basename(p)))
+            self.table.item(i, 0).setFlags(fixed)
+            for c, (role, _) in enumerate(self.FIELDS, self.C_FIRST):
+                self.table.setItem(i, c, QTableWidgetItem(self.info[i][role]))
+            manga = QTableWidgetItem()
+            manga.setFlags(fixed | Qt.ItemFlag.ItemIsUserCheckable)
+            manga.setCheckState(Qt.CheckState.Checked if self.info[i]["manga"] else Qt.CheckState.Unchecked)
+            self.table.setItem(i, self.C_MANGA, manga)
+            for c in (self.C_NEW, self.C_NOTE):
+                self.table.setItem(i, c, QTableWidgetItem())
+                self.table.item(i, c).setFlags(fixed)
+        self.table.blockSignals(False)
+        for c, w in enumerate((240, 240, 120, 150, 60, 150, 60, 130, 90, 80, 60, 55)):
+            self.table.setColumnWidth(c, w)
+        l.addWidget(self.table, 1)
+
+        row = QHBoxLayout()
+        self._make_schema("<nome>")
+        self.digits = QSpinBox()
+        self.digits.setRange(1, 6)
+        self.digits.setValue(3)
+        row.addWidget(QLabel("Nome dalle info, Schema:"))
+        row.addWidget(self.schema, 1)
+        row.addWidget(self.b_clear)
+        row.addWidget(QLabel("Cifre:"))
+        row.addWidget(self.digits)
+        l.addLayout(row)
+        names = QLabel("Con <nome> il nome resta quello di adesso. <tit> Serie · <num> Numero · <sott> Titolo · "
+                       "<anno> · <aut> · <pub> Editore · <edz> Edizione · <lang> Lingua · <n> progressivo")
+        names.setTextFormat(Qt.TextFormat.PlainText)
+        names.setWordWrap(True)
+        names.setStyleSheet("color: #aaa; font-size: 11px;")
+        l.addWidget(names)
+
+        btns = QHBoxLayout()
+        b_can = QPushButton("Annulla")
+        set_variant(b_can, "danger")
+        b_can.setAutoDefault(False)
+        b_can.clicked.connect(self.reject)
+        b_help = QPushButton("? Aiuto")
+        set_variant(b_help, "info")
+        b_help.setAutoDefault(False)
+        b_help.clicked.connect(lambda: _help_dialog(self, "Info del fumetto: aiuto", INFO_HELP).exec())
+        self.b_ok = QPushButton("Salva")
+        set_variant(self.b_ok, "success")
+        self.b_ok.setDefault(True)
+        self.b_ok.clicked.connect(self.accept)
+        btns.addWidget(b_can)
+        btns.addWidget(b_help)
+        btns.addStretch(1)
+        btns.addWidget(self.b_ok)
+        l.addLayout(btns)
+
+        self.table.itemChanged.connect(self._edited)
+        self.schema.editTextChanged.connect(self._refresh)
+        self.digits.valueChanged.connect(self._refresh)
+        self._refresh()
+
+    def _edited(self, item):
+        if self._store(item):
+            self._refresh()
+
+    def _store(self, item):
+        """Cella di info cambiata: va nel dato della riga, in corsivo. False se non è una cella di info."""
+        i, c = item.row(), item.column()
+        if c == self.C_MANGA:
+            self.info[i]["manga"] = item.checkState() == Qt.CheckState.Checked
+        elif self.C_FIRST <= c < self.C_MANGA:
+            self.info[i][self.FIELDS[c - self.C_FIRST][0]] = item.text().strip()
+        else:
+            return False
+        was = self.table.blockSignals(True)
+        f = item.font()
+        f.setItalic(True)
+        item.setFont(f)
+        self.table.blockSignals(was)
+        return True
+
+    def apply_bulk(self):
+        """Le caselle compilate vanno nelle righe selezionate (o in tutte); poi si svuotano."""
+        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or range(len(self.paths))
+        # segnali fermi e un solo ricalcolo alla fine: cella per cella, 300 righe = secondi di blocco
+        was = self.table.blockSignals(True)
+        for c, (role, _) in enumerate(self.FIELDS, self.C_FIRST):
+            value = self.bulk[role].text().strip()
+            if value:
+                for i in rows:
+                    self.table.item(i, c).setText(value)
+                    self._store(self.table.item(i, c))
+                self.bulk[role].clear()
+        manga = self.bulk_manga.currentText()
+        if manga:
+            for i in rows:
+                self.table.item(i, self.C_MANGA).setCheckState(
+                    Qt.CheckState.Checked if manga == "Sì" else Qt.CheckState.Unchecked)
+                self._store(self.table.item(i, self.C_MANGA))
+            self.bulk_manga.setCurrentIndex(0)
+        self.table.blockSignals(was)
+        self._refresh()
+
+    def _refresh(self):
+        """Nuovo nome e problema di ogni riga; righe da salvare in self._jobs."""
+        schema = self.schema.currentText().strip()
+        self._jobs, taken = {}, set()
+        self.table.blockSignals(True)
+        for i, p in enumerate(self.paths):
+            stem = split_name(p)[0]
+            problem = None
+            try:
+                new = stem if schema in ("", "<nome>") else apply_schema(
+                    stem, schema, i + 1, self.digits.value(), self.split_numbers, values=self.info[i])
+            except ValueError as e:
+                new, problem = stem, str(e)
+            name = clean_filename(new)
+            target = os.path.join(os.path.dirname(p), name + ".cbz") if name else ""
+            anno = self.info[i]["anno"]
+            if not problem and anno and not (anno.isdigit() and len(anno) == 4):
+                problem = "anno non valido (4 cifre)"         # in ComicInfo <Year> è un numero
+            if not problem:
+                problem = ("nome vuoto" if not name
+                           else None if target == p else rename_problem(p, target, taken))
+            if target:
+                taken.add(os.path.normcase(target))
+            same = self.had_ci[i] and self.info[i] == self._orig[i] and target == p and self._is_cbz[i]
+            if problem:
+                note = f"⚠ {problem}"
+            elif same:
+                note = "invariato"
+            else:
+                note = "info" + (" + nome" if target != cbz_target(p) else "") + (
+                    "" if self._is_cbz[i] else " · diventa CBZ")
+                self._jobs[p] = (dict(self.info[i]), target)
+            self.table.item(i, self.C_NEW).setText(os.path.basename(target) if target else "")
+            self.table.item(i, self.C_NOTE).setText(note)
+            bg = QColor("#5c1a1a") if problem else QColor(0, 0, 0, 0)
+            for c in range(self.table.columnCount()):
+                self.table.item(i, c).setBackground(bg)
+        self.table.blockSignals(False)
+        n = len(self._jobs)
+        self.b_ok.setText(f"Salva {n} di {len(self.paths)}" if len(self.paths) > 1 else "Salva")
+        self.b_ok.setEnabled(n > 0)
+
+    def jobs(self):
+        """{percorso: (info, CBZ di destinazione)} delle righe valide da salvare."""
+        return dict(self._jobs)
+
+    def accept(self):
+        self._save_recent()
+        super().accept()
+
+    def _search_title(self):
+        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or [0]
+        return self.info[rows[0]]["titolo"] or clean_title(self.paths[rows[0]])
+
+    def _set_author(self, text):
+        self.bulk["autore"].setText(text)
+
+
+INFO_HELP = """
+<h3>Info del fumetto</h3>
+<p>I lettori di fumetti (Komga, Kavita, YACReader) leggono serie, numero, titolo, autore e lingua dal file
+<b>ComicInfo.xml</b> dentro il CBZ. Questa finestra lo scrive per te.</p>
+<ul>
+<li><b>Da dove vengono le info:</b> dal ComicInfo.xml già presente nel fumetto; se non c'è, dal nome del file,
+ con le stesse regole della Rinomina (e con le marcature, se arrivi dalla Rinomina con <i>Info…</i>).</li>
+<li><b>Una cella:</b> doppio click e scrivi. Le celle cambiate sono in corsivo.</li>
+<li><b>Più righe insieme:</b> scrivi nelle caselle in alto (per esempio l'autore, anche con 🔍 Cerca) e premi
+ <i>Applica alle selezionate</i>: valgono per le righe selezionate, o per tutte se non ne selezioni.</li>
+<li><b>Lingua:</b> puoi scrivere ITA, ENG, JPN… o Italiano, Inglese…: nel file diventa il codice standard
+ (it, en, ja…).</li>
+<li><b>Anno:</b> 4 cifre (2016); altrimenti la riga è rossa e non viene salvata.</li>
+<li><b>Manga:</b> spunta per la lettura da destra a sinistra.</li>
+</ul>
+<h3>Il nome dalle info</h3>
+<p>Con uno <b>Schema</b> il fumetto prende anche un nome nuovo, costruito dalle info della tabella:
+<code>&lt;tit&gt;</code> Serie, <code>&lt;num&gt;</code> Numero, <code>&lt;sott&gt;</code> Titolo,
+<code>&lt;anno&gt;</code>, <code>&lt;aut&gt;</code>, <code>&lt;pub&gt;</code>, <code>&lt;edz&gt;</code>,
+<code>&lt;lang&gt;</code>, <code>&lt;n&gt;</code> progressivo. Per esempio
+<code>&lt;tit&gt; (&lt;anno&gt;) - #&lt;num&gt; - &lt;sott&gt; (&lt;lang&gt;)</code>. Con <code>&lt;nome&gt;</code>
+il nome resta quello di adesso. Una riga con un campo dello schema vuoto è rossa e non viene salvata.</p>
+<h3>Salva</h3>
+<p>Le info (e il nome) si scrivono con la stessa procedura sicura di <i>Sistema → Solo Ripara</i>: le pagine sono
+copiate senza ricompressione, il nuovo CBZ viene verificato e solo dopo l'originale va nel cestino.
+Un CBR, un PDF o una cartella di immagini diventano un CBZ. Gli altri campi già presenti nel ComicInfo.xml
+(trama, disegnatore…) restano. Le righe "invariato" non vengono toccate.</p>
+"""
+
 
 class NoWheelSpinBox(QSpinBox):
     def __init__(self, parent=None):
