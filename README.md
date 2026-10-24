@@ -1,12 +1,14 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.2.0
+### 📚 ComicOptimizer v3.3.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v3.3.0: CB7, EPUB e cronologia delle rinomine.** Si importano anche i CB7 (7-Zip) e gli EPUB a fumetti, con le pagine nell'ordine di lettura e le info del libro (titolo, serie, autore, lingua) già pronte per il ComicInfo.xml. Le rinomine restano in una cronologia su disco (🕘 Rinomine): si annullano anche dopo aver chiuso il programma.
 
 **v3.2.0: info del fumetto.** Il pulsante INFO scrive nel fumetto il file ComicInfo.xml (serie, numero, titolo, anno, autore, editore, lingua, manga) che Komga, Kavita e YACReader leggono. Le info si riempiono dal ComicInfo già presente o dal nome; con uno schema il fumetto prende anche il nome nuovo, costruito dalle info.
 
@@ -46,7 +48,7 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 
 ***🛠️ Standardizzazione Universale***
 
-* **Conversione Totale:** Importa .pdf, .cbr, .rar, .zip e trasformali istantaneamente nello standard .cbz.
+* **Conversione Totale:** Importa .pdf, .cbr, .rar, .zip, .cb7, .7z ed .epub (a fumetti) e trasformali istantaneamente nello standard .cbz. I file protetti da password o con DRM, e gli EPUB di solo testo, vengono segnalati in un messaggio invece di sparire.
 * **Ottimizzazione WebP:** Riduci drasticamente il peso della tua collezione senza sacrificare la qualità visiva.
 * **Sanificazione Archivi:** Eliminazione automatica di file "spazzatura" come .DS_Store, __MACOSX o file temporanei.
 
@@ -116,7 +118,7 @@ pip install -r requirements.txt
 * **Unione:** "Unisci" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
 * **Ottimizzazione:** scegli se riparare i file (uniformare i numeri di pagina e convertire in .CBZ) o convertire le pagine in WebP per risparmiare spazio.
 * **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Doppio click su una pagina per vederla in grande (frecce ← → o pulsanti ◀ ▶ per scorrere, Esc per chiudere). Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
-* **Info del fumetto:** seleziona i fumetti e premi "INFO" (o "Info…" nella Rinomina). Una riga per fumetto con Serie, Numero, Titolo, Anno, Autore, Editore, Edizione, Lingua e Manga, già riempite dal ComicInfo.xml presente o dal nome; le correggi con un doppio click o per più righe insieme con le caselle in alto. Con uno schema (es. `<tit> (<anno>) - #<num> - <sott> (<lang>)`) il fumetto prende anche il nome nuovo. "Salva" scrive tutto con la procedura sicura di "Solo Ripara" (pagine copiate senza ricompressione, originale nel cestino); CBR, PDF e cartelle diventano CBZ.
+* **Info del fumetto:** seleziona i fumetti e premi "INFO" (o "📝 Salva info nel fumetto…" nella Rinomina, che porta anche le marcature). Una riga per fumetto con Titolo, Numero, Sottotitolo, Anno, Autore, Editore, Edizione, Lingua e Manga (gli stessi nomi della Rinomina), già riempite dal ComicInfo.xml presente o dal nome; le correggi con un doppio click, o per più righe insieme scrivendo nelle caselle in alto (il valore va subito nelle righe selezionate o in tutte). Con uno schema (es. `<tit> (<anno>) - #<num> - <sott> (<lang>)`) il fumetto prende anche il nome nuovo. "Salva" scrive tutto con la procedura sicura di "Solo Ripara" (pagine copiate senza ricompressione, originale nel cestino); CBR, PDF e cartelle diventano CBZ.
 * **Rinomina:** doppio click sul nome nella card, tasto `F2` o il pulsante "Rinomina". Scrivi lo schema del nuovo nome (es. `<p1> #<p2> - <p3>`; autore, editore, edizione e lingua si scrivono nelle loro caselle (l'autore si può anche cercare online con "🔍 Cerca") e si inseriscono con `<aut>`, `<pub>`, `<edz>`, `<lang>`; nel menu a tendina ci sono gli ultimi schemi usati (🧹 li svuota) e tre schemi pronti: manga `<aut> - <tit> - Cap #<num>`, graphic novel `<aut> - <tit> (<anno>) (<lang>)`, serie americane `<tit> (<anno>) - #<num> - <sott> (<lang>)`; l'Aiuto spiega come conviene chiamare i file), sistema i nomi con Cerca/Sostituisci (jolly `?` e `*`, anche in Sostituisci per tenere il testo trovato: `[*]` → `*` toglie solo le parentesi) e gli interruttori "_ → spazio" e "Iniziali Maiuscole": la colonna "Nuovo nome" si aggiorna in tempo reale. Se la divisione automatica in pezzi non va bene, nel riquadro in alto selezioni col mouse un pezzo del nome e col tasto destro gli dai un ruolo (Titolo `<tit>`, Numero, Anno, Autore…, P1, P2…; anche Unisci, Dividi, Ignora, Azzera marcature): il segnaposto entra nello schema e la regola vale per tutti i file con la stessa struttura (gli altri restano rossi, "⚠ schema non applicabile"). Selezioni le righe con un click o trascinando (con righe selezionate si rinominano solo quelle), correggi a mano le celle se serve, poi "Rinomina": la finestra resta aperta per altri passaggi. "Annulla rinomina" rimette i nomi di prima. Le righe rosse non vengono toccate. Il pulsante "Aiuto" (o `F1`) spiega tutti i comandi.
 * **Log:** il pulsante "Log" (o il tasto `L`) apre la finestra del log, con filtro per livello, ricerca e pulsante "Salva".
 

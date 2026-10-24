@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from .archives import detect_real_format
+from .epub import epub_meta
 from .config import APP_VERSION
 from .logsetup import log
 from .utils import is_page_file
@@ -67,7 +68,11 @@ def _set_info(root, info):
 
 def read_comicinfo(path):
     """{ruolo: valore, "manga": bool} dal ComicInfo.xml di un CBZ o di una cartella; {} se non c'è
-    o non si legge. shortcut: CBR e PDF non vengono letti (si parte dal nome), da fare se servisse."""
+    o non si legge. Per un EPUB, le info del content.opf.
+    shortcut: CBR e PDF non vengono letti (si parte dal nome), da fare se servisse."""
+    if path.lower().endswith('.epub'):
+        info = epub_meta(path)
+        return info if any(v for k, v in info.items() if k != "manga") else {}
     try:
         if os.path.isdir(path):
             ci = next((e.path for e in os.scandir(path) if e.is_file()
@@ -150,8 +155,8 @@ def file_status(path):
     0 = da sistemare (PDF, RAR, cartella, ZIP illeggibile, altro), 1 = CBZ ok, 3 = convertito.
     Unica regola, usata sia all'importazione sia nell'analisi.
     """
-    if os.path.isdir(path):
-        return 0
+    if os.path.isdir(path) or path.lower().endswith('.epub'):
+        return 0                                      # un EPUB è uno ZIP, ma non un CBZ
     real = detect_real_format(path)
     ext = os.path.splitext(path)[1].lower()
     if real == 'zip' or (real is None and ext in ('.cbz', '.zip')):

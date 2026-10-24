@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -30,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from .logsetup import _qt_log_handler, log
 from .style import set_variant
+from . import history
 from .cbz import file_status, read_comicinfo
 from .online import AuthorSearchWorker, clean_title, result_label
 from .utils import (
@@ -619,7 +621,7 @@ class RenameDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
         b_help.setToolTip("Come si rinomina (F1)")
         b_help.setAutoDefault(False)
         b_help.clicked.connect(self.show_help)
-        b_info = QPushButton("Info…")
+        b_info = QPushButton("📝 Salva info nel fumetto…")
         set_variant(b_info, "info")
         b_info.setAutoDefault(False)
         b_info.setToolTip("Scrivi le info nel fumetto (ComicInfo.xml), ricavate dal nome con le marcature\n"
@@ -1225,7 +1227,9 @@ Correggile a mano nella cella.</p>
 <h3>Sicurezza</h3>
 <p>Si cambia solo il nome: il contenuto del fumetto non viene toccato e l'estensione resta la stessa.
 Un file esistente non viene mai sovrascritto. I caratteri <code>\\ / : * ? " &lt; &gt; |</code> diventano <code>_</code>.
-Dopo una rinomina, il pulsante <b>Annulla rinomina</b> nella finestra principale rimette i nomi di prima.</p>
+Dopo una rinomina, il pulsante <b>Annulla rinomina</b> nella finestra principale rimette i nomi di prima,
+anche dopo aver chiuso e riaperto il programma. Le rinomine precedenti (le ultime 50) sono in <b>🕘 Rinomine</b>,
+in basso nella finestra principale: ognuna si può annullare.</p>
 <p><b>Come aprire la rinomina:</b> doppio click sul nome nella card, tasto <b>F2</b> o pulsante
 <b>Rinomina</b>. In questa finestra, <b>F1</b> apre questo aiuto.</p>
 """
@@ -1236,7 +1240,8 @@ class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
     Le celle si riempiono dal ComicInfo.xml già presente, altrimenti dal nome (regole e
     marcature della Rinomina). jobs() → {percorso: (info, CBZ di destinazione)} delle righe da salvare.
     """
-    FIELDS = [("titolo", "Serie"), ("num", "Numero"), ("sottotitolo", "Titolo"), ("anno", "Anno"),
+    # stessi nomi della Rinomina; nel ComicInfo.xml Titolo → <Series>, Sottotitolo → <Title>
+    FIELDS = [("titolo", "Titolo"), ("num", "Numero"), ("sottotitolo", "Sottotitolo"), ("anno", "Anno"),
               ("autore", "Autore"), ("editore", "Editore"), ("edizione", "Edizione"), ("lingua", "Lingua")]
     # colonne: nome attuale, nuovo nome, problema (sempre in vista), poi i campi e Manga
     C_NEW, C_NOTE, C_FIRST = 1, 2, 3
@@ -1262,15 +1267,21 @@ class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
         self._jobs = {}
         l = QVBoxLayout(self)
 
-        hint = QLabel("Le info vengono dal ComicInfo.xml già nel fumetto o, se non c'è, dal nome. "
-                      "Doppio click su una cella per cambiarla; per più righe usa le caselle qui sotto. "
+        hint = QLabel("Le info vengono dal ComicInfo.xml già nel fumetto o, se non c'è, dal nome (con le "
+                      "marcature della Rinomina). Doppio click su una cella per cambiarla. "
                       "\"Salva\" scrive le info nel fumetto (un CBR, un PDF o una cartella diventano CBZ) "
                       "e, con uno Schema, gli dà il nome nuovo.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #aaa; font-size: 11px;")
         l.addWidget(hint)
 
-        # caselle "per più righe": si applicano alle righe selezionate (o a tutte)
+        # caselle "per più righe": scrivendo, la colonna delle righe selezionate (o di tutte) si riempie
+        many = QLabel("Per più righe insieme: quello che scrivi qui va subito nella colonna delle righe "
+                      "selezionate (o di tutte); cancellandolo tornano i valori di prima.")
+        many.setWordWrap(True)
+        many.setStyleSheet("color: #00e5ff; font-size: 11px;")
+        l.addWidget(many)
+        self._bulk_before = {}                        # campo → {riga: valore prima della casella}
         grid = QGridLayout()
         self.bulk = {}
         for k, (role, label) in enumerate(self.FIELDS):
@@ -1292,18 +1303,13 @@ class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
             else:
                 grid.addWidget(edit, k // 4, (k % 4) * 2 + 1)
             self.bulk[role] = edit
+            edit.textChanged.connect(lambda text, role=role: self._bulk_changed(role, text))
         self.bulk_manga = QComboBox()
         self.bulk_manga.addItems(["", "Sì", "No"])
         self.bulk_manga.setToolTip("Manga: lettura da destra a sinistra")
         grid.addWidget(QLabel("Manga:"), 2, 0)
         grid.addWidget(self.bulk_manga, 2, 1)
-        b_apply = QPushButton("Applica alle selezionate (o a tutte)")
-        b_apply.setProperty("sz", "small")
-        set_variant(b_apply, "info")
-        b_apply.setAutoDefault(False)
-        b_apply.setToolTip("Scrive nelle righe le caselle compilate; quelle vuote non cambiano niente")
-        b_apply.clicked.connect(self.apply_bulk)
-        grid.addWidget(b_apply, 2, 3, 1, 3)
+        self.bulk_manga.currentTextChanged.connect(lambda text: self._bulk_changed("manga", text))
         l.addLayout(grid)
 
         heads = ["Nome attuale", "Nuovo nome", "Cosa fa"] + [label for _, label in self.FIELDS] + ["Manga"]
@@ -1343,7 +1349,7 @@ class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
         row.addWidget(QLabel("Cifre:"))
         row.addWidget(self.digits)
         l.addLayout(row)
-        names = QLabel("Con <nome> il nome resta quello di adesso. <tit> Serie · <num> Numero · <sott> Titolo · "
+        names = QLabel("Con <nome> il nome resta quello di adesso. <tit> Titolo · <num> Numero · <sott> Sottotitolo · "
                        "<anno> · <aut> · <pub> Editore · <edz> Edizione · <lang> Lingua · <n> progressivo")
         names.setTextFormat(Qt.TextFormat.PlainText)
         names.setWordWrap(True)
@@ -1370,6 +1376,7 @@ class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
         l.addLayout(btns)
 
         self.table.itemChanged.connect(self._edited)
+        self.table.itemSelectionChanged.connect(self._new_selection)
         self.schema.editTextChanged.connect(self._refresh)
         self.digits.valueChanged.connect(self._refresh)
         self._refresh()
@@ -1394,27 +1401,39 @@ class InfoDialog(_SchemaMixin, _AuthorSearchMixin, QDialog):
         self.table.blockSignals(was)
         return True
 
-    def apply_bulk(self):
-        """Le caselle compilate vanno nelle righe selezionate (o in tutte); poi si svuotano."""
-        rows = sorted({i.row() for i in self.table.selectedIndexes()}) or range(len(self.paths))
-        # segnali fermi e un solo ricalcolo alla fine: cella per cella, 300 righe = secondi di blocco
+    def _bulk_changed(self, role, text):
+        """Casella per più righe: il valore va subito nella colonna delle righe selezionate (o di
+        tutte, scelte al primo carattere); casella vuota → tornano i valori di prima."""
+        if role not in self._bulk_before:
+            rows = sorted({i.row() for i in self.table.selectedIndexes()}) or range(len(self.paths))
+            self._bulk_before[role] = {i: self.info[i][role] for i in rows}
+        before = self._bulk_before[role]
+        value = text.strip()
         was = self.table.blockSignals(True)
-        for c, (role, _) in enumerate(self.FIELDS, self.C_FIRST):
-            value = self.bulk[role].text().strip()
-            if value:
-                for i in rows:
-                    self.table.item(i, c).setText(value)
-                    self._store(self.table.item(i, c))
-                self.bulk[role].clear()
-        manga = self.bulk_manga.currentText()
-        if manga:
-            for i in rows:
-                self.table.item(i, self.C_MANGA).setCheckState(
-                    Qt.CheckState.Checked if manga == "Sì" else Qt.CheckState.Unchecked)
-                self._store(self.table.item(i, self.C_MANGA))
-            self.bulk_manga.setCurrentIndex(0)
+        for i, old in before.items():
+            if role == "manga":
+                item = self.table.item(i, self.C_MANGA)
+                on = old if not value else value == "Sì"
+                item.setCheckState(Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
+            else:
+                item = self.table.item(i, self.C_FIRST + [r for r, _ in self.FIELDS].index(role))
+                item.setText(value or old)
+            self._store(item)
         self.table.blockSignals(was)
+        if not value:
+            del self._bulk_before[role]
         self._refresh()
+
+    def _new_selection(self):
+        """Altre righe selezionate: le caselle ripartono vuote (quello già scritto resta nelle righe)."""
+        self._bulk_before.clear()
+        for edit in self.bulk.values():
+            edit.blockSignals(True)
+            edit.clear()
+            edit.blockSignals(False)
+        self.bulk_manga.blockSignals(True)
+        self.bulk_manga.setCurrentIndex(0)
+        self.bulk_manga.blockSignals(False)
 
     def _refresh(self):
         """Nuovo nome e problema di ogni riga; righe da salvare in self._jobs."""
@@ -1482,8 +1501,11 @@ INFO_HELP = """
 <li><b>Da dove vengono le info:</b> dal ComicInfo.xml già presente nel fumetto; se non c'è, dal nome del file,
  con le stesse regole della Rinomina (e con le marcature, se arrivi dalla Rinomina con <i>Info…</i>).</li>
 <li><b>Una cella:</b> doppio click e scrivi. Le celle cambiate sono in corsivo.</li>
-<li><b>Più righe insieme:</b> scrivi nelle caselle in alto (per esempio l'autore, anche con 🔍 Cerca) e premi
- <i>Applica alle selezionate</i>: valgono per le righe selezionate, o per tutte se non ne selezioni.</li>
+<li><b>Più righe insieme:</b> scrivi nelle caselle in alto (per esempio l'autore, anche con 🔍 Cerca): il valore
+ va subito nella colonna delle righe selezionate, o di tutte se non ne selezioni. Cancellando il testo della casella
+ tornano i valori di prima.</li>
+<li><b>Titolo e Sottotitolo</b> sono gli stessi della Rinomina (<code>&lt;tit&gt;</code>, <code>&lt;sott&gt;</code>):
+ nel ComicInfo.xml diventano la serie (<i>Series</i>) e il titolo della storia (<i>Title</i>).</li>
 <li><b>Lingua:</b> puoi scrivere ITA, ENG, JPN… o Italiano, Inglese…: nel file diventa il codice standard
  (it, en, ja…).</li>
 <li><b>Anno:</b> 4 cifre (2016); altrimenti la riga è rossa e non viene salvata.</li>
@@ -1491,7 +1513,7 @@ INFO_HELP = """
 </ul>
 <h3>Il nome dalle info</h3>
 <p>Con uno <b>Schema</b> il fumetto prende anche un nome nuovo, costruito dalle info della tabella:
-<code>&lt;tit&gt;</code> Serie, <code>&lt;num&gt;</code> Numero, <code>&lt;sott&gt;</code> Titolo,
+<code>&lt;tit&gt;</code> Titolo, <code>&lt;num&gt;</code> Numero, <code>&lt;sott&gt;</code> Sottotitolo,
 <code>&lt;anno&gt;</code>, <code>&lt;aut&gt;</code>, <code>&lt;pub&gt;</code>, <code>&lt;edz&gt;</code>,
 <code>&lt;lang&gt;</code>, <code>&lt;n&gt;</code> progressivo. Per esempio
 <code>&lt;tit&gt; (&lt;anno&gt;) - #&lt;num&gt; - &lt;sott&gt; (&lt;lang&gt;)</code>. Con <code>&lt;nome&gt;</code>
@@ -1502,6 +1524,64 @@ copiate senza ricompressione, il nuovo CBZ viene verificato e solo dopo l'origin
 Un CBR, un PDF o una cartella di immagini diventano un CBZ. Gli altri campi già presenti nel ComicInfo.xml
 (trama, disegnatore…) restano. Le righe "invariato" non vengono toccate.</p>
 """
+
+
+class HistoryDialog(QDialog):
+    """Cronologia delle rinomine (anche di sessioni precedenti): ognuna si può annullare."""
+
+    def __init__(self, parent, on_undo):
+        super().__init__(parent)
+        self.setWindowTitle("Cronologia rinomine")
+        fit_dialog_to_screen(self, 900, 520, min_w=560, min_h=320)
+        self.on_undo = on_undo                        # on_undo(operazione) → quanti file annullati
+        l = QVBoxLayout(self)
+        hint = QLabel("Le ultime 50 rinomine, anche di quando il programma era stato chiuso. "
+                      "\"Annulla\" rimette i nomi di prima, senza mai sovrascrivere; i file spostati "
+                      "o convertiti nel frattempo vengono saltati.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #aaa; font-size: 11px;")
+        l.addWidget(hint)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Quando", "File", "Esempio", "Stato", ""])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        for c, w in enumerate((140, 45, 0, 150, 90)):
+            self.table.setColumnWidth(c, w)
+        # "Esempio" prende lo spazio libero: "Stato" e "Annulla" restano sempre in vista
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        l.addWidget(self.table, 1)
+        b = QPushButton("Chiudi")
+        set_variant(b, "info")
+        b.clicked.connect(self.accept)
+        l.addWidget(b, alignment=Qt.AlignmentFlag.AlignRight)
+        self.load()
+
+    def load(self):
+        rows = history.batches()
+        self.table.setRowCount(len(rows))
+        for i, op in enumerate(rows):
+            old, new = op["pairs"][0]
+            alive = [p for p in op["pending"] if os.path.exists(p[1])]
+            if not op["pending"]:
+                state = "già annullata"
+            elif alive:
+                state = f"annullabile ({len(alive)})"
+            else:
+                state = "file non più presenti"
+            more = f"  (+{len(op['pairs']) - 1})" if len(op["pairs"]) > 1 else ""
+            for c, text in enumerate((op["time"], str(len(op["pairs"])),
+                                      f"{os.path.basename(old)} → {os.path.basename(new)}{more}", state)):
+                item = QTableWidgetItem(text)
+                item.setToolTip("\n".join(f"{os.path.basename(o)} → {os.path.basename(n)}"
+                                           for o, n in op["pairs"][:30]) if c == 2 else text)
+                self.table.setItem(i, c, item)
+            btn = QPushButton("Annulla")
+            btn.setProperty("sz", "small")
+            set_variant(btn, "danger")
+            btn.setEnabled(bool(alive))
+            btn.clicked.connect(lambda _=False, op=op: (self.on_undo(op), self.load()))
+            self.table.setCellWidget(i, 4, btn)
 
 
 class NoWheelSpinBox(QSpinBox):

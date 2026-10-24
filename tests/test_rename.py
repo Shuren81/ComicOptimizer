@@ -343,7 +343,7 @@ def test_window(work):
     QApplication.processEvents()
 
     # C: annulla rinomina
-    assert w.btn_undo_rename.isVisible() and w._last_renames == [(a, new_a)]
+    assert w.btn_undo_rename.isVisible() and w._undo_batch["pending"] == [(a, new_a)]
     w.undo_rename()
     assert os.path.exists(a) and not os.path.exists(new_a) and a in w.cards
     assert not w.btn_undo_rename.isVisible()
@@ -352,10 +352,10 @@ def test_window(work):
     touch("naruto_10.cbz")
     w.undo_rename()
     assert os.path.exists(new_a) and new_a in w.cards and len(warnings) == 3
-    # "Pulisci lista" toglie la possibilità di annullare
-    w.rename_cards([a, b])
+    # "Pulisci lista" non cancella la cronologia: la rinomina si annulla anche dopo
+    from comicoptimizer import history
     w.clear_all()
-    assert w._last_renames == [] and not w.btn_undo_rename.isVisible()
+    assert history.batches()[0]["pending"] == [(a, new_a)]
     w._closing = True
 
 
@@ -371,7 +371,9 @@ def test_keep_open(work):
         paths.append(p)
     w = MainWindow()
     w.import_files([(p, 1) for p in paths])
-    d = RenameDialog(paths, w, on_rename=w._do_renames)
+    from comicoptimizer import history
+    batch = history.new_batch()
+    d = RenameDialog(paths, w, on_rename=lambda pairs: w._do_renames(pairs, batch))
     d.show()
     # 1° passaggio: _ → spazio e maiuscole
     d.b_us.setChecked(True)
@@ -410,7 +412,7 @@ def test_keep_open(work):
     assert d.fields["autore"].text() == "Kentarō Miura, Kouji Mori"
     # Chiudi: "Annulla rinomina" annulla tutti e due i passaggi
     d.reject()
-    w._set_undo(d.done_pairs)
+    w._refresh_undo()
     w.undo_rename()
     assert all(os.path.exists(p) for p in paths) and sorted(w.cards) == sorted(paths)
     w._closing = True
@@ -690,6 +692,8 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as work:
         # impostazioni (schemi recenti) in una cartella temporanea, non in quelle vere
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, work)
+        from comicoptimizer import history
+        history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")   # non il registro vero
         test_utils()
         test_error_hook()
         test_marks_utils()

@@ -6,8 +6,10 @@ __pycache__/
 venv/
 .venv/
 
-# Log del programma
+# Log del programma e cronologia delle rinomine (da sorgente stanno nella cartella del progetto)
 comicoptimizer.log
+comicoptimizer.log.*
+rinomine.jsonl
 
 # File prodotti dalla compilazione con PyInstaller
 build/

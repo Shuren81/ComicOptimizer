@@ -96,30 +96,33 @@ def test_dialog(work):
     assert d.table.item(1, d.C_NOTE).text() == "invariato" and set(d.jobs()) == {a}
     f = d.table.item(1, lingua).font()
     assert f.italic()                                            # cella cambiata a mano
-    # caselle per più righe: solo le selezionate
+    # caselle per più righe: il valore va subito nelle righe selezionate, senza "Applica"
     calls = []
     real_refresh = d._refresh
     d._refresh = lambda: (calls.append(1), real_refresh())
     d.table.selectRow(0)
     d.bulk["autore"].setText("Tom King")
+    assert col(autore) == ["Tom King", ""] and len(calls) == 1 and d.table.item(0, autore).font().italic()
     d.bulk_manga.setCurrentText("Sì")
-    d.apply_bulk()
-    assert col(autore) == ["Tom King", ""] and d.info[0]["manga"] and not d.info[1]["manga"]
-    assert len(calls) == 1 and d.table.item(0, autore).font().italic()      # un solo ricalcolo
+    assert d.info[0]["manga"] and not d.info[1]["manga"]
+    d.bulk["autore"].clear()                                     # casella vuota: torna il valore di prima
+    assert col(autore) == ["", ""]
+    d.bulk["autore"].setText("Tom King")
     d._refresh = real_refresh
-    assert d.bulk["autore"].text() == ""
+    d.table.clearSelection()                                     # altra selezione: caselle vuote, valori restano
+    assert d.bulk["autore"].text() == "" and d.bulk_manga.currentText() == "" and col(autore) == ["Tom King", ""]
     # il nome dalle info; una riga con un campo dello schema vuoto è rossa e non si salva
-    d.table.clearSelection()
     d.schema.setEditText("<tit> (<anno>) - #<num> - <sott> (<aut>)")
     assert d.table.item(0, d.C_NEW).text() == "Batman (2016) - #050 - The Wedding (Tom King).cbz"
     assert d.table.item(1, d.C_NOTE).text() == "⚠ autore vuoto" and list(d.jobs()) == [a]
     info, dest = d.jobs()[a]
     assert info["autore"] == "Tom King" and dest == os.path.join(d_, "Batman (2016) - #050 - The Wedding (Tom King).cbz")
     assert d.b_ok.text() == "Salva 1 di 2"
-    # 🔍 Cerca: titolo dalla Serie, autore nella casella per più righe
+    # 🔍 Cerca: titolo dalla colonna Titolo, autore nella casella per più righe (senza selezione: tutte)
     assert d._search_title() == "Batman"
     d._set_author("Bob Kane")
-    assert d.bulk["autore"].text() == "Bob Kane"
+    assert d.bulk["autore"].text() == "Bob Kane" and col(autore) == ["Bob Kane", "Bob Kane"]
+    assert [h for h in (d.table.horizontalHeaderItem(c).text() for c in (serie, titolo))] == ["Titolo", "Sottotitolo"]
     d.reject()
     # dalla Rinomina con le marcature: l'autore marcato nel nome
     c = cbz(os.path.join(d_, "Berserk - Kentaro Miura - 03.cbz"), 1)
@@ -173,6 +176,7 @@ def test_save(work):
     bw.run()
     for t in tasks:
         t["info"], t["dest"] = jobs[t["src"]]
+        t["info_job"] = True
     done = []
     pw = workers.ProcessingWorker(tasks)
     pw.job_done.connect(done.append)
@@ -249,6 +253,8 @@ if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, work)
+        from comicoptimizer import history
+        history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")   # non il registro vero
         test_engine(work)
         test_dialog(work)
         test_save(work)

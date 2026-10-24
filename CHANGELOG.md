@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.3.0] — 2026-10-24
+
+### Formati
+- **Nuovo:** si importano i **CB7** (e i `.7z`), anche con le pagine in sottocartelle (ordine naturale) o con l'estensione sbagliata (un 7z chiamato `.cbz`).
+- **Nuovo:** si importano gli **EPUB a fumetti**: le pagine nell'ordine di lettura del libro (spine), anche se i nomi dei file sono in un altro ordine; titolo, serie, numero, autori, editore, anno e lingua del libro riempiono la finestra Info e finiscono nel ComicInfo.xml del CBZ.
+- **Nuovo:** i file che non si possono importare non spariscono più in silenzio: un solo messaggio li elenca con il motivo (protetto da password, EPUB con DRM, EPUB di solo testo, illeggibile).
+- **Cambiato:** la scritta della lista vuota elenca anche CB7, 7Z ed EPUB.
+- **Corretto:** 7-Zip e unrar non possono più fermarsi ad aspettare una password: un archivio protetto fallisce subito con il suo motivo.
+
+### Info del fumetto
+- **Cambiato:** nella finestra Info le colonne si chiamano come nella Rinomina: **Titolo** (`<tit>`, nel ComicInfo.xml la serie) e **Sottotitolo** (`<sott>`, il titolo della storia). Prima "Titolo" della Rinomina finiva nella colonna "Serie" e non si capiva dove fossero le marcature.
+- **Cambiato:** le caselle in alto ("per più righe") si applicano subito alle righe selezionate (o a tutte) mentre scrivi; cancellando il testo tornano i valori di prima. Il pulsante "Applica alle selezionate" non serve più.
+- **Cambiato:** nella Rinomina il pulsante "Info…" diventa **"📝 Salva info nel fumetto…"**.
+
+### Rinomine
+- **Nuovo:** **cronologia delle rinomine** su disco (`rinomine.jsonl`, accanto al log): ogni file rinominato è registrato subito, anche se il programma si chiude a metà. "Annulla rinomina" funziona anche dopo aver chiuso e riaperto il programma.
+- **Nuovo:** pulsante **🕘 Rinomine** in basso: le ultime 50 rinomine con data, file e stato; ognuna si può annullare. I file spostati o convertiti nel frattempo vengono saltati con un avviso, mai sovrascritto niente.
+- **Cambiato:** "Pulisci lista" e un nuovo lavoro non tolgono più la possibilità di annullare l'ultima rinomina.
+- **Cambiato:** il file di log arriva al massimo a 2 MB (più 3 copie), invece di crescere senza limite con "Mantieni log".
+
 ## [3.2.0] — 2026-10-24
 
 ### Info del fumetto (ComicInfo.xml)

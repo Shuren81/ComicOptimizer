@@ -12,6 +12,7 @@ from PIL import Image
 from PyQt6.QtCore import QMutex, QMutexLocker, QThread, QWaitCondition, pyqtSignal
 
 from .archives import (
+    archive_problem,
     check_integrity,
     detect_real_format,
     extract_archive,
@@ -19,6 +20,7 @@ from .archives import (
     get_archive_signature,
 )
 from .cbz import CBZ_MARK, build_comicinfo, file_status, verify_cbz
+from .epub import epub_meta, epub_problem
 from .config import WEBP_QUALITY
 from .images import _prepare_page
 from .logsetup import log
@@ -49,14 +51,14 @@ def _task_tmps(task):
 
 class ImportWorker(QThread):
     progress = pyqtSignal(int, int)
-    finished = pyqtSignal(list)
+    finished = pyqtSignal(list, list)   # [(percorso, pagine)], [(percorso, motivo)] dei saltati
 
     def __init__(self, raw_paths):
         super().__init__()
         self.raw_paths = raw_paths
 
     def run(self):
-        valid        = []
+        valid, skipped = [], []
         all_to_check = []
         for p in self.raw_paths:
             p = os.path.normpath(p)
@@ -72,15 +74,33 @@ class ImportWorker(QThread):
         total = len(all_to_check)
         for i, p in enumerate(all_to_check):
             try:
-                flist = get_archive_file_list(p)
+                problem, flist = self._check(p)
             except Exception as e:                    # un file strano non blocca l'importazione
-                log.warning(f"Importazione: '{p}' saltato: {e}")
-                flist = []
-            if flist:
+                problem, flist = f"illeggibile ({e})", []
+            if problem:
+                log.warning(f"Importazione: '{p}' saltato: {problem}")
+                skipped.append((p, problem))
+            else:
                 valid.append((p, len(flist)))
             self.progress.emit(i + 1, total)
         valid.sort(key=lambda x: get_natural_sort_key(x[0]))
-        self.finished.emit(valid)
+        self.finished.emit(valid, skipped)
+
+    @staticmethod
+    def _check(p):
+        """(motivo per saltarlo o None, pagine)."""
+        if p.lower().endswith('.epub'):
+            problem = epub_problem(p)
+            return problem, ([] if problem else get_archive_file_list(p))
+        flist = get_archive_file_list(p)
+        if os.path.isdir(p):
+            return (None if flist else "nessuna immagine"), flist
+        # 7z con le sole pagine cifrate: l'elenco si legge, le pagine no
+        if not flist or detect_real_format(p) == '7z':
+            problem = archive_problem(p)
+            if problem or not flist:
+                return problem or "illeggibile o senza immagini", flist
+        return None, flist
 
 # Risultati dei controlli lenti (integrità + impronta) per file, validi finché il file non
 # cambia (stessa dimensione e data di modifica): dopo un lavoro si rilegge solo ciò che è cambiato.
@@ -197,7 +217,7 @@ class ProcessingWorker(QThread):
     def run(self):
         summary = {
             'mode': 'webp' if self.to_webp else (
-                'info' if self.tasks and all(t.get('info') for t in self.tasks) else 'repair'),
+                'info' if self.tasks and all(t.get('info_job') for t in self.tasks) else 'repair'),
             'total': len(self.tasks), 'done': 0, 'skipped': 0,
             'errors': [], 'pages_kept': 0,
             'size_before': 0, 'size_after': 0,
@@ -619,8 +639,12 @@ class BatchPrepWorker(QThread):
             comicinfo = find_comicinfo(tmp)
             log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
                      f"{' + ComicInfo.xml' if comicinfo else ''}")
-            return [{'src': p, 'images': extracted, 'tmp': tmp,
-                     'comicinfo': comicinfo, 'edited': False}]
+            task = {'src': p, 'images': extracted, 'tmp': tmp, 'comicinfo': comicinfo, 'edited': False}
+            if p.lower().endswith('.epub') and not comicinfo:
+                info = {k: v for k, v in epub_meta(p).items() if v}
+                if info:
+                    task['info'] = info               # le info dell'EPUB vanno nel ComicInfo.xml
+            return [task]
         return []
 
     def _folder_task(self, p):

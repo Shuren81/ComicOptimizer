@@ -133,6 +133,9 @@ def run_tool(cmd, **kw):
     if not exe:
         raise FileNotFoundError(cmd[0])
     args = list(cmd[1:])
+    # mai fermarsi a chiedere una password: un archivio protetto deve fallire subito
+    args.insert(1, "-p-" if cmd[0] == "unrar" else "-pComicOptimizer")
+    kw.setdefault("stdin", subprocess.DEVNULL)
     if IS_WIN and cmd[0] == "7z" and args and args[0] == "l":
         args.insert(1, "-sccUTF-8")   # nomi con accenti corretti nell'elenco
     if IS_WIN:
@@ -560,5 +563,5 @@ def fmt_duration(sec):
 
 # --- WORKERS ---
 
-_ARCHIVE_EXTS = ('.cbz', '.cbr', '.zip', '.rar', '.pdf')
+_ARCHIVE_EXTS = ('.cbz', '.cbr', '.zip', '.rar', '.pdf', '.cb7', '.7z', '.epub')
 

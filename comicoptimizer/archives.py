@@ -1,9 +1,10 @@
-"""Lettura, controllo ed estrazione degli archivi (CBZ, CBR, ZIP, RAR, PDF)."""
+"""Lettura, controllo ed estrazione degli archivi (CBZ, CBR, CB7, ZIP, RAR, 7Z, PDF, EPUB)."""
 
 import os
 import subprocess
 import zipfile
 
+from .epub import epub_pages
 from .logsetup import log
 from .pdf import HAS_PDF, extract_pdf_pages, fitz
 from .utils import get_natural_sort_key, is_page_file, list_folder_pages, run_tool
@@ -78,6 +79,18 @@ def _parse_7z_entries(path):
         log.warning(f"7z list fallito su '{path}': {e}")
     return entries
 
+def archive_problem(path):
+    """Perché un archivio non si può usare, se si capisce: "protetto da password" o None."""
+    try:
+        res = run_tool(['7z', 'l', '-ba', '-slt', path], capture_output=True, text=True, timeout=30,
+                       encoding='utf-8', errors='replace')
+    except Exception:
+        return None
+    out = res.stdout + res.stderr
+    if "Cannot open encrypted archive" in out or "Encrypted = +" in out:
+        return "protetto da password"
+    return None
+
 def _parse_7z_list(path):
     return [n for n, _ in _parse_7z_entries(path)]
 
@@ -114,6 +127,8 @@ def get_archive_file_list(path):
     """
     if os.path.isdir(path):
         return list_folder_pages(path)
+    if path.lower().endswith('.epub'):
+        return epub_pages(path)                       # nell'ordine di lettura (spine), non dei nomi
     real_fmt     = detect_real_format(path)
     declared_ext = os.path.splitext(path)[1].lower()
 
@@ -269,6 +284,19 @@ def _extract_with_tools(path, dest):
         log.error(f"  7z x eccezione: {e}")
     return False
 
+def _extract_epub(path, dest, progress_cb=None):
+    """Pagine dell'EPUB nell'ordine dello spine, come 0001.ext, 0002.ext…"""
+    pages = epub_pages(path)
+    with zipfile.ZipFile(path) as z:
+        for i, name in enumerate(pages):
+            ext = os.path.splitext(name)[1].lower()
+            with open(os.path.join(dest, f"{i + 1:04d}{ext}"), "wb") as f:
+                f.write(z.read(name))
+            if progress_cb:
+                progress_cb(i + 1, len(pages))
+    log.info(f"  EPUB: {len(pages)} pagine estratte nell'ordine di lettura")
+    return bool(pages)
+
 def extract_archive(path, dest, progress_cb=None):
     """
     Estrae l'intero archivio (pagine + ComicInfo.xml) in `dest`, usando il
@@ -281,6 +309,8 @@ def extract_archive(path, dest, progress_cb=None):
             log.error("  PDF: PyMuPDF non disponibile")
             return False
         return extract_pdf_pages(path, dest, progress_cb) > 0
+    if ext == '.epub':
+        return _extract_epub(path, dest, progress_cb)
     if real_fmt and real_fmt != ext.lstrip('.') and not (real_fmt == 'zip' and ext == '.cbz') \
             and not (real_fmt == 'rar' and ext == '.cbr'):
         _format_mismatch_log(path, ext, real_fmt)

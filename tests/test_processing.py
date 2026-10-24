@@ -230,10 +230,10 @@ def main(work):
     os.chmod(locked, 0)
     got = []
     iw = workers.ImportWorker([au])
-    iw.finished.connect(got.append)
+    iw.finished.connect(lambda ok, skipped: got.append((ok, skipped)))
     iw.run()
     os.chmod(locked, 0o644)
-    assert got and [p for p, _ in got[0]] == [keep], got
+    assert got and [p for p, _ in got[0][0]] == [keep] and [p for p, _ in got[0][1]] == [locked], got
     # errore imprevisto nella preparazione: quel fumetto è saltato, "ready" arriva comunque
     real_tmp = workers.make_temp_dir
     workers.make_temp_dir = lambda: (_ for _ in ()).throw(OSError("disco pieno"))

@@ -37,7 +37,8 @@ from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
 from .cbz import file_status
 from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
-from .dialogs import InfoDialog, LogWindow, MergeDialog, RenameDialog, StopDialog
+from . import history
+from .dialogs import HistoryDialog, InfoDialog, LogWindow, MergeDialog, RenameDialog, StopDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -192,7 +193,7 @@ class MainWindow(QMainWindow):
         self._closing        = False
         self._tray           = None    # icona di sistema, creata alla prima notifica
         self._loose_last     = set()   # cartelle con le immagini sciolte dopo le sottocartelle
-        self._last_renames   = []      # [(vecchio, nuovo)] dell'ultima rinomina, per annullarla
+        self._undo_batch     = None    # ultima rinomina ancora annullabile (dalla cronologia su disco)
         self._thumb_queue    = deque() # miniature in attesa: ne girano poche alla volta
         self._thumbs_running = 0
         self._grid_cols      = 0       # colonne attuali della griglia
@@ -217,7 +218,7 @@ class MainWindow(QMainWindow):
             "Prometto di non leggere gli spoiler.",
             "Riordino fumetti meglio di quanto tu riordini la camera.",
             "Il disordine ha i minuti contati.",
-            "CBR, CBZ, PDF... per me pari sono.",
+            "CBR, CBZ, CB7, PDF, EPUB... per me pari sono.",
             "Ho visto librerie peggiori. Poche, ma le ho viste.",
             "Pronto a fare spazio sul disco (e nel cuore).",
             "Anche Batman aveva bisogno di un Alfred. Eccomi.",
@@ -225,6 +226,8 @@ class MainWindow(QMainWindow):
             "Rinomino, unisco, comprimo. Tu rilassati.",
         ]
         self.ironic_lbl.setText(random.choice(frasi))
+        history.prune()
+        self._refresh_undo()                          # l'ultima rinomina si annulla anche dopo un riavvio
         log.info(f"ComicOptimizer v{APP_VERSION} avviato.")
 
     # --- Helpers thread-safe per active_threads ---
@@ -291,8 +294,9 @@ class MainWindow(QMainWindow):
                         h.close()
                         logging.getLogger().removeHandler(h)
                         log.removeHandler(h)
-                if os.path.exists(_log_path):
-                    os.remove(_log_path)
+                for f in [_log_path] + [f"{_log_path}.{i}" for i in (1, 2, 3)]:
+                    if os.path.exists(f):
+                        os.remove(f)
             except Exception:
                 pass
 
@@ -524,7 +528,8 @@ class MainWindow(QMainWindow):
         self.btn_undo_rename = QPushButton("ANNULLA RINOMINA")
         self.btn_undo_rename.setMinimumHeight(42)
         set_variant(self.btn_undo_rename, "muted")
-        self.btn_undo_rename.setToolTip("Rimette i nomi di prima ai fumetti dell'ultima rinomina")
+        self.btn_undo_rename.setToolTip("Rimette i nomi di prima ai fumetti dell'ultima rinomina\n"
+                                        "(anche dopo aver chiuso il programma; le altre nella Cronologia)")
         self.btn_undo_rename.setVisible(False)
         self.btn_undo_rename.clicked.connect(self.undo_rename)
 
@@ -615,7 +620,7 @@ class MainWindow(QMainWindow):
         self.empty_lbl = _EmptyArea(
             "<div style='font-size: 26px; font-weight: 800;'>TRASCINA QUI I FILE</div>"
             "<div style='font-size: 14px; margin-top: 8px;'>"
-            "CBZ · CBR · ZIP · RAR · PDF · cartelle di immagini</div>",
+            "CBZ · CBR · CB7 · ZIP · RAR · 7Z<br>PDF · EPUB · cartelle di immagini</div>",
             os.path.join(config.RES_DIR, "comicoptimizer_drop.png"))
         self.grid_stack = QStackedWidget()
         self.grid_stack.setObjectName("grid_stack")
@@ -638,6 +643,11 @@ class MainWindow(QMainWindow):
         set_variant(self.p_btn, "link")
         self.p_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.p_btn.clicked.connect(self.show_privacy)
+        self.hist_btn = QPushButton("🕘 Rinomine")
+        set_variant(self.hist_btn, "linklog")
+        self.hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hist_btn.setToolTip("Cronologia delle rinomine: ognuna si può annullare, anche dopo un riavvio")
+        self.hist_btn.clicked.connect(self.show_history)
         self.log_btn = QPushButton("📋 Log  [L]")
         set_variant(self.log_btn, "linklog")
         self.log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -663,6 +673,8 @@ class MainWindow(QMainWindow):
             "Il riepilogo a fine lavoro viene mostrato comunque."
         )
 
+        footer.addWidget(self.hist_btn)
+        footer.addSpacing(8)
         footer.addWidget(self.log_btn)
         footer.addSpacing(8)
         footer.addWidget(self.chk_notify)
@@ -767,7 +779,6 @@ class MainWindow(QMainWindow):
         self._add_thread(aw)
 
     def start_processing(self, tasks, to_webp=False):
-        self._set_undo([])   # dopo un lavoro i file dell'ultima rinomina possono non esistere più
         self.set_working(True, "Ottimizzazione...")
         self.current_worker = ProcessingWorker(tasks, to_webp=to_webp)
         self.current_worker.status_msg.connect(self.status_msg.setText)
@@ -790,6 +801,7 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         self.reset_ui()
+        self._refresh_undo()                          # file convertiti: quei nomi non ci sono più
         self.run_analysis(True)
 
         n_err = len(s['errors'])
@@ -914,6 +926,9 @@ class MainWindow(QMainWindow):
 
     def show_news(self):
         msg = (f"<b>⚡ ComicOptimizer {APP_VERSION}: la tua libreria in ordine</b><br><br>"
+               "&nbsp;&nbsp;📦 <b>CB7 ed EPUB:</b> si importano anche i CB7 e gli EPUB a fumetti, con le info del libro.<br>"
+               "&nbsp;&nbsp;🕘 <b>Cronologia rinomine:</b> ogni rinomina si annulla, anche dopo aver chiuso il programma.<br>"
+               "&nbsp;&nbsp;ℹ️ <b>Info del fumetto:</b> il pulsante INFO scrive il ComicInfo.xml (serie, numero, autore…).<br>"
                "&nbsp;&nbsp;🏷️ <b>Marca i pezzi del nome:</b> nella finestra Rinomina selezioni un pezzo col mouse "
                "e col tasto destro dici cos'è (titolo, numero, autore…): vale per tutti i file simili.<br>"
                "&nbsp;&nbsp;📋 <b>Schemi pronti:</b> manga, graphic novel e serie americane; 🧹 svuota i recenti.<br>"
@@ -1021,6 +1036,14 @@ class MainWindow(QMainWindow):
         log.info(f"Importati {added} file ({len(paths)} totali scansionati).")
         self.refresh_grid()
 
+    def _show_skipped(self, skipped):
+        """Un solo messaggio con i file non importati e il motivo."""
+        if not skipped:
+            return
+        lines = "\n".join(f"• {os.path.basename(p)}: {why}" for p, why in skipped[:12])
+        more = f"\n… e altri {len(skipped) - 12} (vedi log)" if len(skipped) > 12 else ""
+        QMessageBox.warning(self, "Importazione", f"{len(skipped)} file non importati:\n\n{lines}{more}")
+
     def _confirm_folder(self, folder):
         """Cartella con più sottocartelle: diventa davvero UN fumetto? (una libreria trascinata
         per sbaglio diventerebbe un unico CBZ enorme)"""
@@ -1110,11 +1133,11 @@ class MainWindow(QMainWindow):
         """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card."""
         if not self._free():
             return
-        dlg = RenameDialog(paths, self, on_rename=self._do_renames)
+        batch = history.new_batch()          # tutti i passaggi della finestra sono un'operazione
+        dlg = RenameDialog(paths, self, on_rename=lambda pairs: self._do_renames(pairs, batch))
         dlg.exec()   # resta aperta per più passaggi: ogni "Rinomina" chiama _do_renames
-        if dlg.done_pairs:
-            self._set_undo(dlg.done_pairs)   # "Annulla rinomina" annulla tutti i passaggi
-        if dlg.info_request:                 # "Info…": le stesse righe, con le marcature
+        self._refresh_undo()
+        if dlg.info_request:                 # "Salva info nel fumetto…": stesse righe e marcature
             self.open_info(*dlg.info_request)
 
     def info_selected(self):
@@ -1140,6 +1163,7 @@ class MainWindow(QMainWindow):
             self._discard_thread(bw)
             for t in tasks:
                 t['info'], t['dest'] = jobs[t['src']]
+                t['info_job'] = True                  # riepilogo: "salvati con le info"
             self.start_processing(tasks, to_webp)
 
         bw.ready.connect(ready)
@@ -1148,18 +1172,46 @@ class MainWindow(QMainWindow):
 
     def undo_rename(self):
         """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""
+        if self._undo_batch:
+            self.undo_batch(self._undo_batch)
+
+    def undo_batch(self, batch):
+        """Annulla un'operazione della cronologia, dall'ultimo file rinominato al primo.
+        I file che non ci sono più (spostati, convertiti) si saltano. Restituisce quanti annullati."""
         if not self._free():
-            return
-        log.info(f"Annulla rinomina: {len(self._last_renames)} file")
-        self._do_renames([(new, old) for old, new in reversed(self._last_renames)])
-        self._set_undo([])
+            return 0
+        pairs, missing, back = [], [], set()
+        for old, new in reversed(batch["pending"]):
+            # con più passaggi (A→B, poi B→C) B riappare solo dopo aver annullato B→C
+            if os.path.exists(new) or new in back:
+                pairs.append((new, old))
+                back.add(old)
+            else:
+                missing.append(os.path.basename(new))
+        log.info(f"Annulla rinomina: {len(pairs)} file" + (f", {len(missing)} non più presenti" if missing else ""))
+        done = self._do_renames(pairs)
+        for _new, old in done:
+            history.record_undo(batch["id"], old)
+        if missing:
+            QMessageBox.warning(self, "Annulla rinomina",
+                                f"{len(missing)} file non ci sono più con il nome nuovo (spostati, convertiti "
+                                "o rinominati fuori dall'app) e sono stati saltati:\n" + "\n".join(missing[:8]))
+        self._refresh_undo()
+        return len(done)
 
-    def _set_undo(self, pairs):
-        self._last_renames = pairs
-        self.btn_undo_rename.setVisible(bool(pairs))
+    def _refresh_undo(self):
+        """"Annulla rinomina" per l'ultima operazione, se ha ancora file da riportare indietro."""
+        last = next(iter(history.batches()), None)
+        ok = last and [p for p in last["pending"] if os.path.exists(p[1])]
+        self._undo_batch = last if ok else None
+        self.btn_undo_rename.setVisible(bool(ok))
 
-    def _do_renames(self, pairs):
+    def show_history(self):
+        HistoryDialog(self, self.undo_batch).exec()
+
+    def _do_renames(self, pairs, batch=None):
         """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card.
+        Con `batch` ogni rinomina riuscita va subito nella cronologia su disco.
         Restituisce le coppie (vecchio, nuovo) riuscite."""
         errors, done = [], []
         for old, new in pairs:
@@ -1173,6 +1225,8 @@ class MainWindow(QMainWindow):
                 errors.append(f"{os.path.basename(old)}: {e}")
                 continue
             log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
+            if batch:
+                history.record(batch, old, new)
             done.append((old, new))
             if old in self.cards:
                 c = self.cards.pop(old)
@@ -1385,7 +1439,6 @@ class MainWindow(QMainWindow):
             log.warning(f"load_t: QPixmap.loadFromData fallito per '{path}'")
 
     def clear_all(self):
-        self._set_undo([])
         for p in list(self.cards.keys()):
             self.cards[p].deleteLater()
         self.cards.clear()
@@ -1416,7 +1469,7 @@ class MainWindow(QMainWindow):
         if empty != self._was_empty:   # la frase cambia solo quando la lista si svuota/riempie
             self._was_empty = empty
             self.hint_lbl.setText(random.choice(_EMPTY_HINTS) if empty else _HINT_CARDS)
-            self.hint_lbl.setToolTip("Formati: CBZ, CBR, ZIP, RAR, PDF e cartelle di immagini"
+            self.hint_lbl.setToolTip("Formati: CBZ, CBR, CB7, ZIP, RAR, 7Z, PDF, EPUB a fumetti e cartelle di immagini"
                                      if empty else _HINT_CARDS_TIP)
         if self.last_clicked not in self.cards.values():
             self.last_clicked = None   # card rimossa: lo Shift+click ripartirebbe da lei
@@ -1451,6 +1504,7 @@ class MainWindow(QMainWindow):
             self.set_working(True, "Scansione...")
             iw = ImportWorker(urls)
             iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))
-            iw.finished.connect(lambda p: (self._discard_thread(iw), self.import_files(p)))
+            iw.finished.connect(lambda p, s: (self._discard_thread(iw), self.import_files(p),
+                                              self._show_skipped(s)))
             iw.start()
             self._add_thread(iw)
