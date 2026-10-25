@@ -755,6 +755,7 @@ class MainWindow(QMainWindow):
         self.set_working(True, "Analisi...")
         aw = AnalysisWorker(list(self.cards.keys()))
         aw.progress.connect(lambda v, t: self.set_working(True, f"Analisi: {v}/{t}", v, t))
+        self._watch_stop(aw)
 
         def done(res, d):
             self._discard_thread(aw)
@@ -1096,13 +1097,8 @@ class MainWindow(QMainWindow):
         final_p = os.path.join(dest, name + ".cbz")
         log.info(f"Unione di {len(sel)} fumetti in '{final_p}': "
                  + ", ".join(os.path.basename(p) for p in sel))
-        self.set_working(True, "Preparazione...")
-        bw = BatchPrepWorker(sel, dlg.to_webp, self._loose_last)
-        bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
-        bw.page_progress.connect(self._on_prep_pages)
 
         def ready(tasks, to_webp):
-            self._discard_thread(bw)
             if len(tasks) != len(sel):
                 for t in tasks:
                     if t['tmp']:
@@ -1120,9 +1116,7 @@ class MainWindow(QMainWindow):
                 'edited': True, 'title': name,
             }], to_webp)
 
-        bw.ready.connect(ready)
-        bw.start()
-        self._add_thread(bw)
+        self._run_prep(sel, dlg.to_webp, ready)
 
     def rename_selected(self):
         sel = [p for p, c in self.cards.items() if c.selected]
@@ -1154,21 +1148,8 @@ class MainWindow(QMainWindow):
             return
         jobs = dlg.jobs()
         log.info(f"Info: {len(jobs)} fumetti da salvare")
-        self.set_working(True, "Preparazione...")
-        bw = BatchPrepWorker(list(jobs), False, self._loose_last)
-        bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
-        bw.page_progress.connect(self._on_prep_pages)
-
-        def ready(tasks, to_webp):
-            self._discard_thread(bw)
-            for t in tasks:
-                t['info'], t['dest'] = jobs[t['src']]
-                t['info_job'] = True                  # riepilogo: "salvati con le info"
-            self.start_processing(tasks, to_webp)
-
-        bw.ready.connect(ready)
-        bw.start()
-        self._add_thread(bw)
+        self.process_paths(list(jobs), False, lambda p: {
+            'info': jobs[p][0], 'dest': jobs[p][1], 'info_job': True})   # riepilogo: "salvati con le info"
 
     def undo_rename(self):
         """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""
@@ -1310,13 +1291,7 @@ class MainWindow(QMainWindow):
         m = self.ask_mode()
         if m != "cancel":
             targets = [p for p, c in self.cards.items() if c.selected]
-            self.set_working(True, "Preparazione...")
-            bw = BatchPrepWorker(targets, m == "convert", self._loose_last)
-            bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
-            bw.page_progress.connect(self._on_prep_pages)
-            bw.ready.connect(lambda t, mv: (self._discard_thread(bw), self.start_processing(t, mv)))
-            bw.start()
-            self._add_thread(bw)
+            self.process_paths(targets, m == "convert")
 
     def repair_all_trigger(self):
         if not self._free():
@@ -1332,13 +1307,7 @@ class MainWindow(QMainWindow):
         if not targets:
             QMessageBox.information(self, "Ottimizzazione", "Nessun file idoneo trovato.")
             return
-        self.set_working(True, "Preparazione...")
-        bw = BatchPrepWorker(targets, m == "convert", self._loose_last)
-        bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
-        bw.page_progress.connect(self._on_prep_pages)
-        bw.ready.connect(lambda t, mv: (self._discard_thread(bw), self.start_processing(t, mv)))
-        bw.start()
-        self._add_thread(bw)
+        self.process_paths(targets, m == "convert")
 
     def ask_mode(self):
         msg = QMessageBox(self)
@@ -1376,6 +1345,7 @@ class MainWindow(QMainWindow):
         l.finished.connect(done)
         l.error.connect(lambda m: (self._discard_thread(l), self.set_working(False),
                                    QMessageBox.warning(self, "Errore", m)))
+        self._watch_stop(l)
         l.start()
         self._add_thread(l)
 
@@ -1384,15 +1354,41 @@ class MainWindow(QMainWindow):
             return
         m = self.ask_mode()
         if m != "cancel":
-            self.set_working(True, "Preparazione...")
-            bw = BatchPrepWorker([path], m == "convert", self._loose_last)
-            bw.page_progress.connect(self._on_prep_pages)
-            bw.ready.connect(lambda t, mv: (self._discard_thread(bw), self.start_processing(t, mv)))
-            bw.start()
-            self._add_thread(bw)
+            self.process_paths([path], m == "convert")
+
+    def process_paths(self, paths, to_webp, extra=None):
+        """Sistema/Converti/Salva info: ogni fumetto si estrae subito prima di convertirlo (dentro
+        ProcessingWorker), non tutti all'inizio. extra(percorso) → campi in più del task."""
+        tasks = [{'src': p, 'lazy': True, 'loose_last': p in self._loose_last,
+                  'pages': getattr(self.cards.get(p), 'page_count', 0), **(extra(p) if extra else {})}
+                 for p in paths]
+        log.info(f"Lavoro su {len(tasks)} fumetti (estrazione durante la conversione)")
+        self.start_processing(tasks, to_webp)
+
+    def _run_prep(self, paths, to_webp, ready):
+        """Estrazione di tutti i fumetti (BatchPrepWorker), poi ready(tasks, to_webp): serve all'unione,
+        che li vuole tutti pronti insieme. Stop la annulla tutta."""
+        self.set_working(True, "Preparazione...")
+        bw = BatchPrepWorker(paths, to_webp, self._loose_last)
+        bw.progress.connect(lambda v, t: self.set_working(True, f"Estrazione: {v}/{t}", v, t))
+        bw.page_progress.connect(self._on_prep_pages)
+        bw.ready.connect(lambda tasks, mv: (self._discard_thread(bw), ready(tasks, mv)))
+        self._watch_stop(bw)
+        bw.start()
+        self._add_thread(bw)
+
+    def _watch_stop(self, worker):
+        """Lavoro fermato con Stop: si torna allo stato di prima (i temporanei li ha già tolti lui)."""
+        def stopped():
+            self._discard_thread(worker)
+            self.set_working(False)
+            log.info(f"Stop: {type(worker).__name__} annullato, nessun file modificato")
+            QMessageBox.information(self, "Stop", "Lavoro annullato: nessun fumetto è stato modificato "
+                                    "e i file temporanei sono stati cancellati.")
+        worker.cancelled.connect(stopped)
 
     def request_stop(self):
-        if self.current_worker:
+        if self.current_worker:                       # conversione: alcuni fumetti possono essere già finiti
             dlg = StopDialog(self)
             r   = dlg.exec()
             if r == 1:
@@ -1401,6 +1397,15 @@ class MainWindow(QMainWindow):
             elif r == 2:
                 self.current_worker.stop_later()
                 self.status_msg.setText("Termino il fumetto in corso, poi mi fermo...")
+            return
+        # importazione, analisi, estrazione, apertura dell'editor: niente è stato ancora scritto
+        with self._threads_lock:
+            jobs = [t for t in self._active_threads
+                    if isinstance(t, (ImportWorker, AnalysisWorker, BatchPrepWorker, LoadingWorker))]
+        for t in jobs:
+            t.abort()
+        if jobs:
+            self.status_msg.setText("Interruzione in corso, pulizia file temporanei...")
 
     THUMBS_AT_ONCE = max(2, os.cpu_count() or 2)   # miniature caricate in parallelo
 
@@ -1506,5 +1511,6 @@ class MainWindow(QMainWindow):
             iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))
             iw.finished.connect(lambda p, s: (self._discard_thread(iw), self.import_files(p),
                                               self._show_skipped(s)))
+            self._watch_stop(iw)
             iw.start()
             self._add_thread(iw)

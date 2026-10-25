@@ -159,16 +159,19 @@ def test_epub(work, trash):
 def test_no_password_prompt(work):
     """7z e unrar non devono mai fermarsi a chiedere una password."""
     from comicoptimizer import utils
-    seen = []
-    real = utils.subprocess.run
-    utils.subprocess.run = lambda args, **kw: (seen.append((args, kw)), real(["true"]))[1]
+    fake = os.path.join(work, "fake_tool")
+    with open(fake, "w") as f:
+        f.write('#!/bin/sh\necho "$@"\nread x && echo "ha letto da tastiera"\n')
+    os.chmod(fake, 0o755)
+    real = utils.find_tool
+    utils.find_tool = lambda name: fake
     try:
-        utils.run_tool(["7z", "t", "x.cb7"])
-        utils.run_tool(["unrar", "lb", "x.cbr"])
+        seven = utils.run_tool(["7z", "t", "x.cb7"], capture_output=True, text=True, timeout=10)
+        rar = utils.run_tool(["unrar", "lb", "x.cbr"], capture_output=True, text=True, timeout=10)
     finally:
-        utils.subprocess.run = real
-    assert seen[0][0][1:3] == ["t", "-pComicOptimizer"] and seen[1][0][1:3] == ["lb", "-p-"]
-    assert all(kw["stdin"] is subprocess.DEVNULL for _, kw in seen)
+        utils.find_tool = real
+    assert seven.stdout.split()[:2] == ["t", "-pComicOptimizer"] and rar.stdout.split()[:2] == ["lb", "-p-"]
+    assert "tastiera" not in seven.stdout + rar.stdout              # niente input: non resta in attesa
 
 
 if __name__ == "__main__":

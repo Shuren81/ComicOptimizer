@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.3.1] — 2026-10-25
+
+- **Cambiato:** "Sistema", "Converti", "Solo Ripara" e "Salva info" non estraggono più tutti i fumetti prima di cominciare: ognuno si estrae subito prima di essere convertito (i due successivi si preparano mentre il corrente si converte) e la sua cartella temporanea si cancella appena finito. Con 445 fumetti l'attesa prima del primo fumetto pronto passa da 14 minuti a pochi secondi, e sul disco ci sono al massimo tre fumetti estratti invece di tutti (decine di GB). Un fumetto che non si estrae compare tra gli errori del riepilogo. L'unione di più fumetti li estrae ancora tutti prima, perché le servono insieme.
+- **Cambiato:** l'importazione legge l'elenco delle pagine di più file insieme (8 alla volta; i PDF in fila): sulla stessa cartella di 500 file da 10 s a meno di 1 s (con i file già letti dal disco almeno una volta).
+- **Cambiato:** l'analisi controlla più fumetti insieme (6 alla volta) e si può fermare con Stop. Il guadagno è piccolo (circa il 10%), perché 7-Zip e unrar usano già da soli più core.
+- **Cambiato:** dopo un lavoro, l'analisi non ricontrolla da capo i CBZ appena creati, che sono già stati verificati (risparmia 1-4 s a fumetto).
+- **Corretto:** **Stop** ora funziona in ogni fase, non solo durante la conversione: importazione, estrazione ("Preparazione"), analisi e apertura dell'editor si fermano subito (anche un 7-Zip o unrar a metà di un archivio grande), i file temporanei vengono cancellati e si torna allo stato di prima, senza aver toccato nessun fumetto.
+- **Cambiato:** durante la conversione, la finestra di Stop spiega cosa succede ("i fumetti già finiti restano convertiti; quello in corso resta com'era") e i pulsanti diventano "Ferma subito", "Finisci questo e fermati", "Continua".
+- **Corretto:** il file di log restava vuoto durante i lavori con PDF o conversione WebP: i processi di lavoro aprivano e ruotavano lo stesso file, cancellando quello in cui scriveva l'app. Ora il log lo scrive solo il programma principale.
+
 ## [3.3.0] — 2026-10-24
 
 ### Formati

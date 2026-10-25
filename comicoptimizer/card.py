@@ -82,6 +82,7 @@ class ComicCard(QFrame):
         l.addLayout(btns)
 
     def set_pages(self, c):
+        self.page_count = c
         self.page_badge.setText(f"{c} PAGINE")
 
     def update_style(self):

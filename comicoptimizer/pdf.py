@@ -9,7 +9,7 @@ from PIL import Image
 
 from .config import PDF_ZOOM
 from .logsetup import log
-from .utils import fmt_duration
+from .utils import Aborted, fmt_duration
 
 # --- IMPORT PDF (opzionale) ---
 # "fitz" è deprecato nelle versioni recenti di PyMuPDF: si usa "pymupdf"
@@ -158,6 +158,8 @@ def extract_pdf_pages(path, dest, progress_cb=None):
                     if progress_cb:
                         progress_cb(done, n)
             log.info(f"  PDF: estratto su {workers} processi in {fmt_duration(time.time() - t0)}")
+        except Aborted:
+            raise
         except Exception as e:
             log.warning(f"  PDF: estrazione parallela non riuscita ({e}), riprovo in sequenza")
             done, native = 0, 0

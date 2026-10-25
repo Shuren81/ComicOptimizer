@@ -4,9 +4,10 @@ import multiprocessing
 import os
 import shutil
 import tempfile
+import threading
 import time
 import zipfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 from PIL import Image
 from PyQt6.QtCore import QMutex, QMutexLocker, QThread, QWaitCondition, pyqtSignal
@@ -27,14 +28,17 @@ from .logsetup import log
 from .pdf import fitz
 from .utils import (
     _ARCHIVE_EXTS,
+    Aborted,
     _trash_file_cross_platform,
     cbz_target,
     find_comicinfo,
     folder_comicinfo,
     folder_subdirs,
     fmt_size,
+    allow_tools,
     get_natural_sort_key,
     is_image_folder,
+    kill_tools,
     is_page_file,
     list_folder_pages,
     list_page_files,
@@ -49,7 +53,44 @@ def _task_tmps(task):
     return [t for t in [task.get('tmp')] + task.get('extra_tmps', []) if t]
 
 
-class ImportWorker(QThread):
+class _Stoppable(QThread):
+    """Lavoro che si può fermare con Stop: abort() alza il flag e ferma i 7z/unrar del thread;
+    il lavoro esce al primo controllo, pulisce i suoi file temporanei e manda "cancelled"."""
+    cancelled = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.aborted = False
+        self._tid = None
+        self._tids = set()                            # anche i thread di aiuto (importazione in parallelo)
+
+    def abort(self):
+        self.aborted = True
+        for tid in {self._tid, *self._tids} - {None}:
+            kill_tools(tid)
+
+    def _stop_point(self):
+        if self.aborted:
+            raise Aborted()
+
+    def _helper_started(self):
+        """In un thread di aiuto (pool): lo Stop deve poterne fermare i 7z/unrar. False se già fermato."""
+        tid = threading.get_ident()
+        self._tids.add(tid)
+        allow_tools(tid)
+        if self.aborted:
+            kill_tools(tid)
+            return False
+        return True
+
+    def _started(self):
+        self._tid = threading.get_ident()
+        allow_tools(self._tid)                        # il thread può essere di un lavoro fermato prima
+        if self.aborted:                              # Stop arrivato prima che il thread partisse
+            kill_tools(self._tid)
+
+
+class ImportWorker(_Stoppable):
     progress = pyqtSignal(int, int)
     finished = pyqtSignal(list, list)   # [(percorso, pagine)], [(percorso, motivo)] dei saltati
 
@@ -58,6 +99,7 @@ class ImportWorker(QThread):
         self.raw_paths = raw_paths
 
     def run(self):
+        self._started()
         valid, skipped = [], []
         all_to_check = []
         for p in self.raw_paths:
@@ -72,19 +114,50 @@ class ImportWorker(QThread):
             elif p.lower().endswith(_ARCHIVE_EXTS):
                 all_to_check.append(p)
         total = len(all_to_check)
-        for i, p in enumerate(all_to_check):
-            try:
-                problem, flist = self._check(p)
-            except Exception as e:                    # un file strano non blocca l'importazione
-                problem, flist = f"illeggibile ({e})", []
+        done = 0
+
+        def take(p, result):
+            nonlocal done
+            problem, flist = result
             if problem:
                 log.warning(f"Importazione: '{p}' saltato: {problem}")
                 skipped.append((p, problem))
             else:
                 valid.append((p, len(flist)))
-            self.progress.emit(i + 1, total)
+            done += 1
+            self.progress.emit(done, total)
+
+        # più file insieme (sono quasi tutti 7z/unrar esterni); i PDF in fila: PyMuPDF non regge i thread
+        pdfs = [p for p in all_to_check if p.lower().endswith('.pdf')]
+        others = [p for p in all_to_check if not p.lower().endswith('.pdf')]
+        with ThreadPoolExecutor(self.THREADS) as pool:
+            futures = {pool.submit(self._safe_check, p, True): p for p in others}
+            for p in pdfs:
+                if self.aborted:
+                    break
+                take(p, self._safe_check(p))
+            for f in as_completed(futures):
+                if self.aborted:
+                    break
+                take(futures[f], f.result())
+            if self.aborted:
+                for f in futures:
+                    f.cancel()
+        if self.aborted:
+            self.cancelled.emit()
+            return
         valid.sort(key=lambda x: get_natural_sort_key(x[0]))
         self.finished.emit(valid, skipped)
+
+    THREADS = 8
+
+    def _safe_check(self, p, helper=False):
+        if helper and not self._helper_started():
+            return "fermato", []
+        try:
+            return self._check(p)
+        except Exception as e:                        # un file strano non blocca l'importazione
+            return f"illeggibile ({e})", []
 
     @staticmethod
     def _check(p):
@@ -123,9 +196,15 @@ def _integrity_and_signature(p):
     _ANALYSIS_CACHE[p] = (key, ok, sig)
     return ok, sig
 
-class AnalysisWorker(QThread):
+class AnalysisWorker(_Stoppable):
     progress = pyqtSignal(int, int)
     finished = pyqtSignal(dict, int)
+    THREADS = 6        # non di più: i controlli leggono tutti dallo stesso disco
+
+    def _check_one(self, p):
+        if not self._helper_started():
+            return False, None
+        return _integrity_and_signature(p)
 
     def __init__(self, cards_paths):
         super().__init__()
@@ -136,8 +215,27 @@ class AnalysisWorker(QThread):
         groups  = {}     # stesso nome (es. fumetto.cbr + fumetto.cbz)
         by_sig  = {}     # stesso contenuto (pagine identiche) anche con nomi diversi
         total   = len(self.paths)
-        for i, p in enumerate(self.paths):
-            is_ok, sig = _integrity_and_signature(p)
+        self._started()
+        # più controlli insieme: ognuno decomprime un archivio intero su un solo core
+        checked = {}
+        with ThreadPoolExecutor(self.THREADS) as pool:
+            futures = {pool.submit(self._check_one, p): p for p in self.paths}
+            for f in as_completed(futures):
+                if self.aborted:
+                    break
+                checked[futures[f]] = f.result()
+                self.progress.emit(len(checked), total)
+            if self.aborted:
+                for f in futures:
+                    f.cancel()
+        if self.aborted:                              # controlli fermati a metà: non valgono come "rotto"
+            for p in self.paths:
+                if p not in checked:
+                    _ANALYSIS_CACHE.pop(p, None)
+            self.cancelled.emit()
+            return
+        for p in self.paths:
+            is_ok, sig = checked[p]
             if not is_ok:
                 results[p] = 5
             else:
@@ -146,7 +244,6 @@ class AnalysisWorker(QThread):
                     groups.setdefault(cbz_target(p), []).append(p)
                 if sig:
                     by_sig.setdefault(sig, []).append(p)
-            self.progress.emit(i + 1, total)
 
         def keep_first(x):
             # Tiene preferibilmente il .cbz che è davvero uno ZIP, poi l'ordine naturale
@@ -192,6 +289,7 @@ class ProcessingWorker(QThread):
     def __init__(self, tasks, to_webp=False):
         super().__init__()
         self.tasks   = tasks            # lista di dict: src, images, tmp, comicinfo, edited
+                                        # ("lazy": solo src/pages/loose_last, si estrae qui)
                                         # (unione: anche extra_srcs, extra_tmps, dest, title;
                                         #  finestra Info: info, dest)
         self.to_webp = to_webp
@@ -200,6 +298,7 @@ class ProcessingWorker(QThread):
         self._mutex = QMutex()
         self._condition = QWaitCondition()
         self._permission_result = None
+        self._prep_threads = set()      # thread che estraggono in anticipo (per lo Stop)
 
     def set_permission(self, res):
         with QMutexLocker(self._mutex):
@@ -208,6 +307,8 @@ class ProcessingWorker(QThread):
 
     def abort_now(self):
         self._is_running = False
+        for tid in list(self._prep_threads):         # ferma anche le estrazioni in anticipo
+            kill_tools(tid)
         # sblocca un'eventuale attesa della scelta sul conflitto
         self.set_permission('skip')
 
@@ -246,19 +347,69 @@ class ProcessingWorker(QThread):
                      f"{' (INTERROTTO)' if summary['aborted'] else ''}.")
             self.job_done.emit(summary)
 
+    PREFETCH = 2   # fumetti estratti in anticipo mentre se ne converte uno (e non di più sul disco)
+
+    def _prepare_lazy(self, task):
+        """Estrae un fumetto "lazy" (in un thread a parte) e completa il task; False se non si può."""
+        tid = threading.get_ident()
+        self._prep_threads.add(tid)
+        allow_tools(tid)
+        if not self._is_running:
+            return False
+
+        def stop(v, t):
+            if not self._is_running:
+                raise Aborted()
+        loose = [task['src']] if task.get('loose_last') else ()
+        try:
+            ready = prepare_comic(task['src'], loose, stop)
+        except Exception as e:
+            if self._is_running:
+                log.error(f"  ✗ '{os.path.basename(task['src'])}': estrazione non riuscita: {e}")
+            return False
+        if not ready:
+            return False
+        for key, value in ready[0].items():
+            if key in ('images', 'tmp', 'comicinfo') or key not in task:
+                task[key] = value                     # le info già nel task (finestra Info) restano
+        return True
+
     def _run_tasks(self, pool, summary):
-        processed = set()
-        total_p = sum(len(t['images']) for t in self.tasks)
+        total_p = sum(len(t['images']) if 'images' in t else t.get('pages', 0) for t in self.tasks)
         self.progress_max.emit(total_p)
-        curr_p = 0
         log.info(f"ProcessingWorker avviato: {len(self.tasks)} file, "
                  f"{total_p} immagini totali, webp={self.to_webp}")
+        # estrazione e conversione insieme: niente attesa di tutte le estrazioni, niente decine di GB
+        prep = ThreadPoolExecutor(self.PREFETCH) if any(t.get('lazy') for t in self.tasks) else None
+        try:
+            self._task_loop(pool, summary, prep)
+        finally:
+            if prep:
+                if not self._is_running:
+                    for tid in list(self._prep_threads):
+                        kill_tools(tid)
+                prep.shutdown(wait=True, cancel_futures=True)   # poi run() pulisce i temporanei
 
-        for task in self.tasks:
+    def _task_loop(self, pool, summary, prep):
+        processed, future, curr_p = set(), {}, 0
+        for k, task in enumerate(self.tasks):
             if not self._is_running or self._stop_after_current:
                 log.info("ProcessingWorker: interrotto dall'utente.")
                 summary['aborted'] = True
                 break
+            if task.get('lazy'):
+                for nxt in self.tasks[k:k + self.PREFETCH + 1]:
+                    if nxt.get('lazy') and id(nxt) not in future:
+                        future[id(nxt)] = prep.submit(self._prepare_lazy, nxt)
+                self.status_msg.emit(f"Estrazione: {os.path.basename(task['src'])}")
+                if not future.pop(id(task)).result():
+                    if not self._is_running:
+                        summary['aborted'] = True
+                        break
+                    summary['errors'].append((os.path.basename(task['src']), "estrazione non riuscita"))
+                    curr_p += task.get('pages', 0)
+                    self.progress_val.emit(curr_p)
+                    continue
             orig_p   = task['src']
             srcs     = [orig_p] + task.get('extra_srcs', [])
             img_list = task['images']
@@ -332,6 +483,8 @@ class ProcessingWorker(QThread):
 
                 verify_cbz(tmp_zip, len(pages))
                 self._commit(srcs, final_p, tmp_zip)
+                st = os.stat(final_p)
+                _ANALYSIS_CACHE[final_p] = ((st.st_size, st.st_mtime_ns), True, get_archive_signature(final_p))
 
                 size_after = os.path.getsize(final_p)
                 summary['done'] += 1
@@ -518,7 +671,7 @@ class ThumbWorker(QThread):
                         except Exception as e:
                             log.warning(f"ThumbWorker lettura bytes '{full}': {e}")
 
-class LoadingWorker(QThread):
+class LoadingWorker(_Stoppable):
     progress = pyqtSignal(int, int)
     finished = pyqtSignal(str, str, list)
     error    = pyqtSignal(str)
@@ -529,9 +682,13 @@ class LoadingWorker(QThread):
         self.loose_last = loose_last
 
     def run(self):
+        self._started()
         try:
             self._load()
         except Exception as e:                        # senza segnale l'app resterebbe "occupata"
+            if self.aborted:
+                self.cancelled.emit()
+                return
             log.error(f"LoadingWorker '{self.path}': {e}", exc_info=True)
             self.error.emit(f"Errore durante l'apertura: {e}")
 
@@ -554,10 +711,15 @@ class LoadingWorker(QThread):
             return
         tmp = make_temp_dir()
         try:
-            success = extract_archive(self.path, tmp, lambda v, t: self.progress.emit(v, t))
+            success = extract_archive(self.path, tmp,
+                                      lambda v, t: (self._stop_point(), self.progress.emit(v, t)))
         except Exception as e:
             log.error(f"LoadingWorker '{self.path}': {e}")
             success = False
+        if self.aborted:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self.cancelled.emit()
+            return
         pages = list_page_files(tmp) if success else []
         if pages:
             self.finished.emit(self.path, tmp, pages)
@@ -565,7 +727,7 @@ class LoadingWorker(QThread):
             shutil.rmtree(tmp, ignore_errors=True)
             self.error.emit("Errore durante l'estrazione.")
 
-class BatchPrepWorker(QThread):
+class BatchPrepWorker(_Stoppable):
     """Estrae gli archivi e prepara i task per ProcessingWorker."""
     progress      = pyqtSignal(int, int)
     page_progress = pyqtSignal(str, int, int, int)   # nome file, pagina, pagine totali, n. file nel lotto
@@ -578,83 +740,98 @@ class BatchPrepWorker(QThread):
         self.loose_last = loose_last   # cartelle con le immagini sciolte in fondo
 
     def run(self):
+        self._started()
         tasks = []
         total = len(self.paths)
         for i, p in enumerate(self.paths):
             try:
                 tasks += self._prepare(p, total)
             except Exception as e:                    # senza "ready" l'app resterebbe "occupata"
-                log.error(f"  ✗ '{os.path.basename(p)}' saltato: {e}", exc_info=True)
+                if not self.aborted:
+                    log.error(f"  ✗ '{os.path.basename(p)}' saltato: {e}", exc_info=True)
+            if self.aborted:                          # Stop: via tutte le estrazioni fatte, niente lavoro
+                for t in tasks:
+                    if t['tmp']:
+                        shutil.rmtree(t['tmp'], ignore_errors=True)
+                log.info(f"BatchPrep fermato dall'utente: {len(tasks)} estrazioni annullate")
+                self.cancelled.emit()
+                return
             self.progress.emit(i + 1, total)
 
         log.info(f"BatchPrep completato: {len(tasks)}/{total} file pronti per l'elaborazione")
         self.ready.emit(tasks, self.to_webp)
 
     def _prepare(self, p, total):
-        """Il task di un fumetto ([] se non si può elaborare)."""
-        if os.path.isdir(p):
-            return self._folder_task(p)
-        tmp = make_temp_dir()
-        try:
-            return self._archive_task(p, tmp, total)
-        except Exception:
-            shutil.rmtree(tmp, ignore_errors=True)
-            raise
+        name = os.path.basename(p)
+        return prepare_comic(p, self.loose_last,
+                             lambda v, t: (self._stop_point(), self.page_progress.emit(name, v, t, total)))
 
-    def _archive_task(self, p, tmp, total):
-        log.info(f"BatchPrep: estrazione '{os.path.basename(p)}' → '{tmp}'")
-        ok = False
-        try:
-            name = os.path.basename(p)
-            ok = extract_archive(
-                p, tmp,
-                lambda v, t, name=name: self.page_progress.emit(name, v, t, total))
-        except Exception as e:
-            log.error(f"BatchPrepWorker eccezione su '{p}': {e}")
 
-        extracted = list_page_files(tmp)
-        expected  = len(get_archive_file_list(p))
+def prepare_comic(p, loose_last=(), on_page=None):
+    """[task] di un fumetto pronto per ProcessingWorker (pagine estratte in una cartella temporanea),
+    [] se non si può elaborare. on_page(pagina, totale) durante l'estrazione: può fermarla (Aborted)."""
+    if os.path.isdir(p):
+        return _folder_task(p, loose_last)
+    tmp = make_temp_dir()
+    try:
+        return _archive_task(p, tmp, on_page)
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
 
-        # Controllo: TUTTE le pagine devono essere state estratte.
-        # (Sostituisce il vecchio filtro "< 5 KB" che scartava in silenzio
-        #  pagine bianche o pagine WebP leggere.)
-        if not ok or not extracted:
-            log.error(f"  ✗ Nessuna immagine estratta da '{os.path.basename(p)}' — file saltato")
-            shutil.rmtree(tmp, ignore_errors=True)
-        elif len(extracted) < expected:
-            log.error(f"  ✗ Estratte solo {len(extracted)} pagine su {expected} da "
-                      f"'{os.path.basename(p)}' — file saltato, originale intatto")
-            shutil.rmtree(tmp, ignore_errors=True)
-        else:
-            unreadable = []
-            for fp in extracted:
-                try:
-                    with Image.open(fp) as im:
-                        im.size
-                except Exception:
-                    unreadable.append(os.path.basename(fp))
-            if unreadable:
-                log.warning(f"  {len(unreadable)} pagine non leggibili (conservate "
-                            f"comunque così come sono): {', '.join(unreadable[:5])}")
-            comicinfo = find_comicinfo(tmp)
-            log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
-                     f"{' + ComicInfo.xml' if comicinfo else ''}")
-            task = {'src': p, 'images': extracted, 'tmp': tmp, 'comicinfo': comicinfo, 'edited': False}
-            if p.lower().endswith('.epub') and not comicinfo:
-                info = {k: v for k, v in epub_meta(p).items() if v}
-                if info:
-                    task['info'] = info               # le info dell'EPUB vanno nel ComicInfo.xml
-            return [task]
+
+def _archive_task(p, tmp, on_page):
+    log.info(f"Estrazione: '{os.path.basename(p)}' → '{tmp}'")
+    ok = False
+    try:
+        ok = extract_archive(p, tmp, on_page)
+    except Exception as e:
+        log.error(f"Estrazione: eccezione su '{p}': {e}")
+
+    extracted = list_page_files(tmp)
+    expected  = len(get_archive_file_list(p))
+
+    # Controllo: TUTTE le pagine devono essere state estratte.
+    # (Sostituisce il vecchio filtro "< 5 KB" che scartava in silenzio
+    #  pagine bianche o pagine WebP leggere.)
+    if not ok or not extracted:
+        log.error(f"  ✗ Nessuna immagine estratta da '{os.path.basename(p)}' — file saltato")
+        shutil.rmtree(tmp, ignore_errors=True)
+    elif len(extracted) < expected:
+        log.error(f"  ✗ Estratte solo {len(extracted)} pagine su {expected} da "
+                  f"'{os.path.basename(p)}' — file saltato, originale intatto")
+        shutil.rmtree(tmp, ignore_errors=True)
+    else:
+        unreadable = []
+        for fp in extracted:
+            try:
+                with Image.open(fp) as im:
+                    im.size
+            except Exception:
+                unreadable.append(os.path.basename(fp))
+        if unreadable:
+            log.warning(f"  {len(unreadable)} pagine non leggibili (conservate "
+                        f"comunque così come sono): {', '.join(unreadable[:5])}")
+        comicinfo = find_comicinfo(tmp)
+        log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
+                 f"{' + ComicInfo.xml' if comicinfo else ''}")
+        task = {'src': p, 'images': extracted, 'tmp': tmp, 'comicinfo': comicinfo, 'edited': False}
+        if p.lower().endswith('.epub') and not comicinfo:
+            info = {k: v for k, v in epub_meta(p).items() if v}
+            if info:
+                task['info'] = info                   # le info dell'EPUB vanno nel ComicInfo.xml
+        return [task]
+    return []
+
+
+def _folder_task(p, loose_last):
+    """Cartella di sole immagini: le pagine si leggono direttamente, senza estrazione."""
+    pages = list_folder_pages(p, p in loose_last)
+    if not pages:
+        log.error(f"  ✗ Nessuna immagine in '{os.path.basename(p)}' — cartella saltata")
         return []
-
-    def _folder_task(self, p):
-        """Cartella di sole immagini: le pagine si leggono direttamente, senza estrazione."""
-        pages = list_folder_pages(p, p in self.loose_last)
-        if not pages:
-            log.error(f"  ✗ Nessuna immagine in '{os.path.basename(p)}' — cartella saltata")
-            return []
-        subs = folder_subdirs(p, pages)
-        log.info(f"BatchPrep: cartella '{os.path.basename(p)}', {len(pages)} immagini"
-                 + (f", sottocartelle in ordine: {', '.join(subs)}" if subs else ""))
-        return [{'src': p, 'images': pages, 'tmp': None,
-                 'comicinfo': folder_comicinfo(p), 'edited': False}]
+    subs = folder_subdirs(p, pages)
+    log.info(f"Cartella '{os.path.basename(p)}', {len(pages)} immagini"
+             + (f", sottocartelle in ordine: {', '.join(subs)}" if subs else ""))
+    return [{'src': p, 'images': pages, 'tmp': None,
+             'comicinfo': folder_comicinfo(p), 'edited': False}]

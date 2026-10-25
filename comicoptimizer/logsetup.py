@@ -2,6 +2,7 @@
 
 import logging
 import logging.handlers
+import multiprocessing
 import os
 import sys
 
@@ -37,9 +38,11 @@ def _log_file_path():
 LOG_PATH = _log_file_path()
 
 # --- LOGGING ---
-# al massimo 2 MB, più 3 copie (.1 .2 .3): con "Mantieni log" il file non cresce senza limite
-_log_handlers = [logging.handlers.RotatingFileHandler(LOG_PATH, maxBytes=2_000_000, backupCount=3,
-                                                      encoding="utf-8")]
+# al massimo 2 MB, più 3 copie (.1 .2 .3): con "Mantieni log" il file non cresce senza limite.
+# Solo il processo principale: i processi di lavoro (PDF, WebP) che ruotano lo stesso file
+# cancellavano quello in cui scrive l'app, e il log andava perso.
+_log_handlers = [] if multiprocessing.parent_process() else [
+    logging.handlers.RotatingFileHandler(LOG_PATH, maxBytes=2_000_000, backupCount=3, encoding="utf-8")]
 
 if sys.stderr:   # nell'exe senza console sys.stderr è None
     _log_handlers.insert(0, logging.StreamHandler())

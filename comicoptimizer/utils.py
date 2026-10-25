@@ -3,9 +3,11 @@
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 from .config import IS_MAC, IS_WIN, RES_DIR, TMP_PREFIX
@@ -123,10 +125,46 @@ def find_tool(name):
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+class Aborted(Exception):
+    """Lavoro fermato dall'utente con Stop."""
+
+
+_RUNNING = {}                    # thread → processi 7z/unrar in corso, per poterli fermare (Stop)
+_STOPPED = set()                 # thread fermati: non avviano altri 7z/unrar (es. 7z dopo unrar)
+_RUNNING_LOCK = threading.Lock()
+
+
+def allow_tools(thread_id):
+    """Un lavoro nuovo su questo thread: può di nuovo usare 7z/unrar."""
+    with _RUNNING_LOCK:
+        _STOPPED.discard(thread_id)
+
+
+def kill_tools(thread_id):
+    """Ferma i 7z/unrar avviati da quel thread (Stop durante un'estrazione lunga) e gli impedisce
+    di avviarne altri."""
+    with _RUNNING_LOCK:
+        _STOPPED.add(thread_id)
+        procs = list(_RUNNING.get(thread_id, ()))
+    for p in procs:
+        _kill(p)
+
+
+def _kill(p):
+    try:
+        if IS_WIN:
+            p.kill()
+        else:                                         # tutto il gruppo, anche eventuali sotto-processi
+            os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
 def run_tool(cmd, **kw):
     """
     Come subprocess.run, ma cmd[0] ('7z' o 'unrar') viene risolto con find_tool
     e su Windows non si apre nessuna finestra di console.
+    Il processo si può fermare da un altro thread con kill_tools (Stop).
     Solleva FileNotFoundError se il programma non c'è (gestito dai chiamanti).
     """
     exe = find_tool(cmd[0])
@@ -140,7 +178,28 @@ def run_tool(cmd, **kw):
         args.insert(1, "-sccUTF-8")   # nomi con accenti corretti nell'elenco
     if IS_WIN:
         kw.setdefault("creationflags", _NO_WINDOW)
-    return subprocess.run([exe] + args, **kw)
+    else:
+        kw.setdefault("start_new_session", True)      # gruppo di processi proprio: lo Stop lo ferma intero
+    timeout = kw.pop("timeout", None)
+    if kw.pop("capture_output", False):
+        kw["stdout"] = kw["stderr"] = subprocess.PIPE
+    me = threading.get_ident()
+    with _RUNNING_LOCK:
+        if me in _STOPPED:
+            raise Aborted()
+    with subprocess.Popen([exe] + args, **kw) as p:
+        with _RUNNING_LOCK:
+            _RUNNING.setdefault(me, set()).add(p)
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill(p)
+            p.communicate()
+            raise
+        finally:
+            with _RUNNING_LOCK:
+                _RUNNING[me].discard(p)
+    return subprocess.CompletedProcess([exe] + args, p.returncode, out, err)
 
 # --- UTILITY ---
 
