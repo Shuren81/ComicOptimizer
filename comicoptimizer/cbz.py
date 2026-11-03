@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from .archives import detect_real_format
+from .comicinfo import ordina_campi
 from .epub import epub_meta
 from .config import APP_VERSION
 from .logsetup import log
@@ -17,7 +18,9 @@ CBZ_MARK = f"ComicOptimizer {APP_VERSION}"
 # campi della finestra Info: ruolo (come nella Rinomina) → elemento di ComicInfo.xml
 INFO_FIELDS = (("titolo", "Series"), ("num", "Number"), ("sottotitolo", "Title"), ("anno", "Year"),
                ("autore", "Writer"), ("editore", "Publisher"), ("edizione", "Format"),
-               ("lingua", "LanguageISO"))
+               ("lingua", "LanguageISO"), ("disegnatore", "Penciller"), ("volume", "Volume"),
+               ("arco", "StoryArc"), ("personaggi", "Characters"), ("team", "Teams"),
+               ("totale", "Count"), ("trama", "Summary"))
 # LanguageISO vuole il codice ISO 639 ("it"); nei nomi si scrive spesso "ITA"
 LANG_ISO = {"ITA": "it", "IT": "it", "ENG": "en", "EN": "en", "JPN": "ja", "JAP": "ja", "JP": "ja",
             "FRA": "fr", "FR": "fr", "ESP": "es", "SPA": "es", "ES": "es", "DEU": "de", "GER": "de",
@@ -27,15 +30,6 @@ LANG_ISO = {"ITA": "it", "IT": "it", "ENG": "en", "EN": "en", "JPN": "ja", "JAP"
             "SPANISH": "es", "ESPAÑOL": "es", "TEDESCO": "de", "GERMAN": "de", "DEUTSCH": "de",
             "PORTOGHESE": "pt", "PORTUGUESE": "pt", "COREANO": "ko", "KOREAN": "ko",
             "CINESE": "zh", "CHINESE": "zh"}
-# ordine dello schema ComicInfo (alcuni programmi lo vogliono); gli elementi sconosciuti vanno in fondo
-_CI_ORDER = ("Title", "Series", "Number", "Count", "Volume", "AlternateSeries", "AlternateNumber",
-             "AlternateCount", "Summary", "Notes", "Year", "Month", "Day", "Writer", "Penciller",
-             "Inker", "Colorist", "Letterer", "CoverArtist", "Editor", "Translator", "Publisher",
-             "Imprint", "Genre", "Tags", "Web", "PageCount", "LanguageISO", "Format",
-             "BlackAndWhite", "Manga", "Characters", "Teams", "Locations", "ScanInformation",
-             "StoryArc", "SeriesGroup", "AgeRating", "Pages", "CommunityRating", "MainCharacterOrTeam",
-             "Review", "GTIN")
-
 
 def _set_info(root, info):
     """Scrive i campi della finestra Info: un campo vuoto toglie l'elemento; gli altri restano."""
@@ -62,8 +56,7 @@ def _set_info(root, info):
             if el is None:
                 el = ET.SubElement(root, "Manga")
             el.text = "YesAndRightToLeft"            # i manga si leggono da destra a sinistra
-    order = {t: i for i, t in enumerate(_CI_ORDER)}
-    root[:] = sorted(root, key=lambda e: order.get(e.tag, len(order)))
+    ordina_campi(root)
 
 
 def read_comicinfo(path):

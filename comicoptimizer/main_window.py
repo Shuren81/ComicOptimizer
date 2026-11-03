@@ -38,7 +38,8 @@ from .card import ComicCard
 from .cbz import file_status
 from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
 from . import history
-from .dialogs import HistoryDialog, InfoDialog, LogWindow, MergeDialog, RenameDialog, StopDialog
+from .dialogs import HistoryDialog, LogWindow, MergeDialog, StopDialog
+from .metadata_dialog import MetadataDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -512,18 +513,11 @@ class MainWindow(QMainWindow):
         self.btn_merge.setVisible(False)
         self.btn_merge.clicked.connect(self.merge_selected)
 
-        self.btn_rename = QPushButton("RINOMINA")
+        self.btn_rename = QPushButton("INFO E RINOMINA")
         self.btn_rename.setMinimumHeight(42)
-        self.btn_rename.setToolTip("Rinomina i fumetti selezionati (F2)")
+        self.btn_rename.setToolTip("Metadati (ComicInfo.xml), ricerca online e rinomina dei fumetti selezionati (F2)")
         self.btn_rename.setVisible(False)
         self.btn_rename.clicked.connect(self.rename_selected)
-
-        self.btn_info = QPushButton("INFO")
-        self.btn_info.setMinimumHeight(42)
-        self.btn_info.setToolTip("Info dei fumetti selezionati (ComicInfo.xml): serie, numero, autore…\n"
-                                 "e, se vuoi, il nome nuovo costruito dalle info")
-        self.btn_info.setVisible(False)
-        self.btn_info.clicked.connect(self.info_selected)
 
         self.btn_undo_rename = QPushButton("ANNULLA RINOMINA")
         self.btn_undo_rename.setMinimumHeight(42)
@@ -545,7 +539,6 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_sel_all)
         top_bar.addWidget(self.btn_merge)
         top_bar.addWidget(self.btn_rename)
-        top_bar.addWidget(self.btn_info)
         top_bar.addWidget(self.btn_undo_rename)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
@@ -590,7 +583,7 @@ class MainWindow(QMainWindow):
         self.status_stack.addWidget(work_w)
 
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_info, self.btn_undo_rename,
+        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_undo_rename,
                    self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
@@ -929,13 +922,8 @@ class MainWindow(QMainWindow):
         msg = (f"<b>⚡ ComicOptimizer {APP_VERSION}: la tua libreria in ordine</b><br><br>"
                "&nbsp;&nbsp;📦 <b>CB7 ed EPUB:</b> si importano anche i CB7 e gli EPUB a fumetti, con le info del libro.<br>"
                "&nbsp;&nbsp;🕘 <b>Cronologia rinomine:</b> ogni rinomina si annulla, anche dopo aver chiuso il programma.<br>"
-               "&nbsp;&nbsp;ℹ️ <b>Info del fumetto:</b> il pulsante INFO scrive il ComicInfo.xml (serie, numero, autore…).<br>"
-               "&nbsp;&nbsp;🏷️ <b>Marca i pezzi del nome:</b> nella finestra Rinomina selezioni un pezzo col mouse "
-               "e col tasto destro dici cos'è (titolo, numero, autore…): vale per tutti i file simili.<br>"
-               "&nbsp;&nbsp;📋 <b>Schemi pronti:</b> manga, graphic novel e serie americane; 🧹 svuota i recenti.<br>"
-               "&nbsp;&nbsp;✏️ <b>Rinomina in gruppo:</b> schemi, Cerca/Sostituisci con i jolly, più passaggi "
-               "e \"Annulla rinomina\".<br>"
-               "&nbsp;&nbsp;🔍 <b>Autore online:</b> cercato su Wikidata e AniList (solo il titolo, solo se lo chiedi).<br>"
+               "&nbsp;&nbsp;🔍 <b>Info e rinomina:</b> una finestra sola per metadati, ricerca su ComicVine, "
+               "MyAnimeList, AniList e ComicsBox, e nomi costruiti dai metadati.<br>"
                "&nbsp;&nbsp;📚 <b>Unisci e cartelle:</b> più fumetti in uno; una cartella di immagini diventa un fumetto.<br>"
                "&nbsp;&nbsp;🛡️ <b>Originali al sicuro:</b> il nuovo CBZ viene verificato prima di toccare "
                "l'originale, che finisce nel cestino; se il cestino non c'è, l'originale resta dov'è.<br><br>"
@@ -957,9 +945,10 @@ class MainWindow(QMainWindow):
     def show_privacy(self):
         msg = ("<b>Informativa sulla Privacy (100% Locale)</b><br><br><b>Sicurezza Integrale: I tuoi file non lasciano mai il PC.</b><br><br>"
                "La riservatezza dei tuoi dati e della tua collezione è la nostra priorità assoluta. ComicOptimizer è progettato secondo il principio della privacy-by-design.<br><br>"
-               "<b>Unica eccezione, solo se la usi tu:</b> il pulsante <i>Cerca</i> dell'autore, nella finestra "
-               "Rinomina, invia a Wikidata e AniList <b>solo il titolo</b> che vedi e confermi (mai i file, "
-               "il percorso o il nome completo). Senza premere quel pulsante l'app non usa Internet.<br><br>"
+               "<b>Unica eccezione, solo se la usi tu:</b> la <i>Ricerca online</i>, nella finestra Info e rinomina, "
+               "invia alla fonte scelta (ComicVine, MyAnimeList, AniList o ComicsBox) <b>il testo che vedi e "
+               "confermi</b>, con la tua chiave API se la fonte ne chiede una, e ne scarica schede e copertine. "
+               "Mai i file o il percorso. Senza aprire quella ricerca l'app non usa Internet.<br><br>"
                "La tua libreria rimane sotto il tuo controllo.")
         QMessageBox.information(self, "Privacy", msg)
 
@@ -983,7 +972,6 @@ class MainWindow(QMainWindow):
         sel_n = sum(1 for c in self.cards.values() if c.selected)
         self.btn_merge.setVisible(sel_n > 1)
         self.btn_rename.setVisible(sel_n > 0)
-        self.btn_info.setVisible(sel_n > 0)
         self.btn_trash_sel.setVisible(sel_n > 0)
         self.btn_sel_all.setVisible(bool(self.cards))
         self.btn_sel_all.setText("DESELEZIONA TUTTO" if sel_n else "SELEZIONA TUTTO")
@@ -1124,32 +1112,19 @@ class MainWindow(QMainWindow):
             self.rename_cards(sel)
 
     def rename_cards(self, paths):
-        """Rinomina sul disco (solo il nome, mai sovrascrivendo) e aggiorna le card."""
+        """Finestra Info e rinomina. I CBZ si salvano da lì; gli altri formati si convertono dopo la
+        chiusura, con la catena di "Solo Ripara", per scrivere le info."""
         if not self._free():
             return
         batch = history.new_batch()          # tutti i passaggi della finestra sono un'operazione
-        dlg = RenameDialog(paths, self, on_rename=lambda pairs: self._do_renames(pairs, batch))
+        dlg = MetadataDialog(paths, self, on_rename=lambda pairs: self._do_renames(pairs, batch))
         dlg.exec()   # resta aperta per più passaggi: ogni "Rinomina" chiama _do_renames
         self._refresh_undo()
-        if dlg.info_request:                 # "Salva info nel fumetto…": stesse righe e marcature
-            self.open_info(*dlg.info_request)
-
-    def info_selected(self):
-        sel = [p for p, c in self.cards.items() if c.selected]
-        if sel:
-            self.open_info(sel)
-
-    def open_info(self, paths, rule=None, fields=None, split_numbers=True):
-        """Finestra Info; "Salva" scrive ComicInfo.xml (e il nome nuovo) con la catena di "Solo Ripara"."""
-        if not self._free():
-            return
-        dlg = InfoDialog(paths, self, rule, fields, split_numbers)
-        if not dlg.exec() or not dlg.jobs():
-            return
-        jobs = dlg.jobs()
-        log.info(f"Info: {len(jobs)} fumetti da salvare")
-        self.process_paths(list(jobs), False, lambda p: {
-            'info': jobs[p][0], 'dest': jobs[p][1], 'info_job': True})   # riepilogo: "salvati con le info"
+        jobs = dlg.conversioni
+        if jobs:
+            log.info(f"Info: {len(jobs)} fumetti da convertire")
+            self.process_paths(list(jobs), False, lambda p: {
+                'info': jobs[p][0], 'dest': jobs[p][1], 'info_job': True})   # riepilogo: "salvati con le info"
 
     def undo_rename(self):
         """Rimette i nomi di prima ai fumetti dell'ultima rinomina (mai sovrascrivendo)."""

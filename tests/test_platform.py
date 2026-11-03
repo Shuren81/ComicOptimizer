@@ -38,7 +38,7 @@ def test_log_path(work):
     logsetup.IS_FROZEN, logsetup.IS_WIN, logsetup.IS_MAC = True, False, True
     os.environ["HOME"] = work
     path = logsetup._log_file_path()
-    assert path == os.path.join(work, "Library", "Logs", "ComicOptimizer", "comicoptimizer.log"), path
+    assert path == os.path.join(work, "Library", "Logs", "ComicOptimizerUnito", "comicoptimizer.log"), path
 
 
 def test_check_deps():

@@ -356,7 +356,7 @@ def window_checks(app, work):
     answer[0] = "Annulla"
     w.repair_trigger()
     assert calls == ["all", "sel", "all"], calls
-    assert w.btn_all.text() == "SISTEMA" and w.btn_rename.text() == "RINOMINA"
+    assert w.btn_all.text() == "SISTEMA" and w.btn_rename.text() == "INFO E RINOMINA"
 
     # cestino non disponibile per più file: un solo messaggio, i file restano
     warns = []

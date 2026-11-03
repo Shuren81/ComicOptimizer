@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.4.0] — 2026-11-03
+
+- **Nuovo:** una sola finestra **Info e rinomina**, al posto delle vecchie Rinomina e Info: tutti i campi del ComicInfo.xml (anche disegnatore, volume, arco narrativo, personaggi, team, totale e trama), modifica di più file con `≠` per i valori diversi, estrazione dal nome, numerazione automatica.
+- **Nuovo:** nella finestra Info e rinomina la **copertina è grande**, a piena risoluzione, con zoom x2 e x3 e spostamento col mouse.
+- **Nuovo:** **ricerca online** completa su ComicVine, MyAnimeList, AniList e ComicsBox, con copertina, filtro e riuso dei risultati di ComicsBox per i file successivi.
+- **Nuovo:** il nome nasce dai metadati con uno schema come `<Series> - <Number> - <Title>`; i bottoni dei campi diventano verdi se in uso e al secondo click li tolgono. `/` e `\\` diventano `-`, `:` diventa ` - `.
+- **Cambiato:** nei CBZ le info si salvano aggiungendo il nuovo ComicInfo.xml in coda al file, senza riscrivere le immagini: molto più veloce. Gli altri formati vengono ancora convertiti in CBZ.
+- **Tolto:** marcatura col mouse dei pezzi del nome, Cerca/Sostituisci e cerca autore su Wikidata.
+- **Cambiato:** impostazioni e log in una cartella propria (`ComicOptimizerUnito`), separata dal ComicOptimizer installato.
+
 ## [3.3.1] — 2026-10-25
 
 - **Cambiato:** "Sistema", "Converti", "Solo Ripara" e "Salva info" non estraggono più tutti i fumetti prima di cominciare: ognuno si estrae subito prima di essere convertito (i due successivi si preparano mentre il corrente si converte) e la sua cartella temporanea si cancella appena finito. Con 445 fumetti l'attesa prima del primo fumetto pronto passa da 14 minuti a pochi secondi, e sul disco ci sono al massimo tre fumetti estratti invece di tutti (decine di GB). Un fumetto che non si estrae compare tra gli errori del riepilogo. L'unione di più fumetti li estrae ancora tutti prima, perché le servono insieme.

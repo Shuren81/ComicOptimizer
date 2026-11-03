@@ -25,6 +25,7 @@ rm -rf build dist AppDir
     --add-data "comicoptimizer_banner.png:." \
     --add-data "comicoptimizer_drop.png:." \
     --collect-submodules send2trash \
+    --collect-data certifi \
     --exclude-module tkinter
 
 echo "== AppDir"

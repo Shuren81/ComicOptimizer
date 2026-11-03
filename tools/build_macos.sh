@@ -53,6 +53,7 @@ rm -rf build dist
     --add-binary "bin/7z:bin" \
     --add-data "bin/7-Zip-License.txt:bin" \
     --collect-submodules send2trash \
+    --collect-data certifi \
     --exclude-module tkinter
 
 echo "== Controlli"

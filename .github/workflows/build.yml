@@ -51,6 +51,7 @@ jobs:
           --add-binary "bin\7z.dll;bin"
           --add-data "bin\7-Zip-License.txt;bin"
           --collect-submodules send2trash
+          --collect-data certifi
           --exclude-module tkinter
 
       - name: Pacchetto zip
@@ -111,6 +112,7 @@ jobs:
           --add-data "comicoptimizer_banner.png:."
           --add-data "comicoptimizer_drop.png:."
           --collect-submodules send2trash
+          --collect-data certifi
           --exclude-module tkinter
 
       - name: Prepara AppDir

@@ -1,4 +1,4 @@
-# ComicOptimizer v3.3.1 — dipendenze Python
+# ComicOptimizer v3.4.0 — dipendenze Python
 # Installa con: pip install -r requirements.txt
 
 PyQt6>=6.4.0
@@ -8,3 +8,5 @@ Pillow>=9.0.0
 PyMuPDF>=1.21.0,<2.0 # per il supporto PDF (import pymupdf); la 2.0 carica all'avvio
                      # pymupdf.layout, i cui dati PyInstaller non include: l'exe non parte
 send2trash>=1.8.0    # cestino cross-platform
+beautifulsoup4>=4.12.0 # ricerca su ComicsBox
+certifi>=2024.2.2     # certificati per la ricerca online nell'eseguibile

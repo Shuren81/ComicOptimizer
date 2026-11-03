@@ -14,10 +14,10 @@ from .config import IS_FROZEN, IS_MAC, IS_WIN
 
 def _log_file_path():
     """
-    Su Windows e nell'eseguibile il log va in %LOCALAPPDATA%\\ComicOptimizer:
+    Su Windows e nell'eseguibile il log va in %LOCALAPPDATA%\\ComicOptimizerUnito:
     la cartella corrente potrebbe essere Program Files (non scrivibile).
-    Nell'eseguibile su Linux va in ~/.local/state/ComicOptimizer (o $XDG_STATE_HOME),
-    non in una cartella visibile nella home; nell'app per Mac in ~/Library/Logs/ComicOptimizer.
+    Nell'eseguibile su Linux va in ~/.local/state/ComicOptimizerUnito (o $XDG_STATE_HOME),
+    non in una cartella visibile nella home; nell'app per Mac in ~/Library/Logs/ComicOptimizerUnito.
     Da sorgente su Linux resta accanto a dove si lancia lo script, come prima.
     """
     if IS_WIN or IS_FROZEN:
@@ -27,7 +27,7 @@ def _log_file_path():
             base = os.path.expanduser("~/Library/Logs")
         else:
             base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
-        folder = os.path.join(base, "ComicOptimizer")
+        folder = os.path.join(base, "ComicOptimizerUnito")
         try:
             os.makedirs(folder, exist_ok=True)
             return os.path.join(folder, "comicoptimizer.log")

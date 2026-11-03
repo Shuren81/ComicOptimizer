@@ -1,12 +1,14 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.3.1
+### 📚 ComicOptimizer v3.4.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v3.4.0: Info e rinomina, una finestra sola.** Il pulsante INFO E RINOMINA (o `F2`, o il doppio click sul nome) apre un'unica finestra per i metadati e il nome. Tutti i campi del ComicInfo.xml, anche su più file insieme (`≠` segnala i valori diversi), con la ricerca online su ComicVine, MyAnimeList, AniList e ComicsBox e l'estrazione dal nome. Il nome nuovo nasce dai metadati con uno schema come `<Series> - <Number> - <Title>`: i bottoni dei campi diventano verdi se in uso e al secondo click si tolgono. I CBZ si salvano all'istante; gli altri formati vengono convertiti. Le rinomine restano annullabili dalla cronologia.
 
 **v3.3.0: CB7, EPUB e cronologia delle rinomine.** Si importano anche i CB7 (7-Zip) e gli EPUB a fumetti, con le pagine nell'ordine di lettura e le info del libro (titolo, serie, autore, lingua) già pronte per il ComicInfo.xml. Le rinomine restano in una cronologia su disco (🕘 Rinomine): si annullano anche dopo aver chiuso il programma.
 
@@ -58,7 +60,7 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 * **Advanced Editor:** Un editor visuale integrato per riordinare pagine, eliminare scansioni errate o aggiungere nuove immagini a un archivio esistente. Doppio click su una pagina per vederla in grande.
 * **Cartelle di immagini:** una cartella che contiene solo immagini (anche in sottocartelle) diventa un unico fumetto, con le pagine in ordine naturale.
 * **Unione di fumetti:** più fumetti selezionati diventano un unico CBZ, con nome e destinazione a scelta.
-* **Rinomina:** uno o più fumetti, con uno schema del nome a scelta (numero già nel nome, progressivo, parti del nome), anteprima e nessuna sovrascrittura.
+* **Info e rinomina:** metadati e nome di uno o più fumetti in una finestra sola, con ricerca online, anteprima e nessuna sovrascrittura.
 * **Integrazione di Sistema:** Duplicati e originali sostituiti finiscono nel cestino di sistema (send2trash, con gio trash come riserva su Linux).
 
 ### 📥 Download
@@ -118,8 +120,7 @@ pip install -r requirements.txt
 * **Unione:** "Unisci" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
 * **Ottimizzazione:** scegli se riparare i file (uniformare i numeri di pagina e convertire in .CBZ) o convertire le pagine in WebP per risparmiare spazio.
 * **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Doppio click su una pagina per vederla in grande (frecce ← → o pulsanti ◀ ▶ per scorrere, Esc per chiudere). Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
-* **Info del fumetto:** seleziona i fumetti e premi "INFO" (o "📝 Salva info nel fumetto…" nella Rinomina, che porta anche le marcature). Una riga per fumetto con Titolo, Numero, Sottotitolo, Anno, Autore, Editore, Edizione, Lingua e Manga (gli stessi nomi della Rinomina), già riempite dal ComicInfo.xml presente o dal nome; le correggi con un doppio click, o per più righe insieme scrivendo nelle caselle in alto (il valore va subito nelle righe selezionate o in tutte). Con uno schema (es. `<tit> (<anno>) - #<num> - <sott> (<lang>)`) il fumetto prende anche il nome nuovo. "Salva" scrive tutto con la procedura sicura di "Solo Ripara" (pagine copiate senza ricompressione, originale nel cestino); CBR, PDF e cartelle diventano CBZ.
-* **Rinomina:** doppio click sul nome nella card, tasto `F2` o il pulsante "Rinomina". Scrivi lo schema del nuovo nome (es. `<p1> #<p2> - <p3>`; autore, editore, edizione e lingua si scrivono nelle loro caselle (l'autore si può anche cercare online con "🔍 Cerca") e si inseriscono con `<aut>`, `<pub>`, `<edz>`, `<lang>`; nel menu a tendina ci sono gli ultimi schemi usati (🧹 li svuota) e tre schemi pronti: manga `<aut> - <tit> - Cap #<num>`, graphic novel `<aut> - <tit> (<anno>) (<lang>)`, serie americane `<tit> (<anno>) - #<num> - <sott> (<lang>)`; l'Aiuto spiega come conviene chiamare i file), sistema i nomi con Cerca/Sostituisci (jolly `?` e `*`, anche in Sostituisci per tenere il testo trovato: `[*]` → `*` toglie solo le parentesi) e gli interruttori "_ → spazio" e "Iniziali Maiuscole": la colonna "Nuovo nome" si aggiorna in tempo reale. Se la divisione automatica in pezzi non va bene, nel riquadro in alto selezioni col mouse un pezzo del nome e col tasto destro gli dai un ruolo (Titolo `<tit>`, Numero, Anno, Autore…, P1, P2…; anche Unisci, Dividi, Ignora, Azzera marcature): il segnaposto entra nello schema e la regola vale per tutti i file con la stessa struttura (gli altri restano rossi, "⚠ schema non applicabile"). Selezioni le righe con un click o trascinando (con righe selezionate si rinominano solo quelle), correggi a mano le celle se serve, poi "Rinomina": la finestra resta aperta per altri passaggi. "Annulla rinomina" rimette i nomi di prima. Le righe rosse non vengono toccate. Il pulsante "Aiuto" (o `F1`) spiega tutti i comandi.
+* **Info e rinomina:** doppio click sul nome nella card, tasto `F2` o il pulsante "INFO E RINOMINA". Cambia i campi (con più file selezionati, un campo vuoto non si tocca), oppure cerca online. Lo schema costruisce il nome dai campi: i bottoni aggiungono e tolgono i segnaposto. "Salva metadati" scrive il ComicInfo.xml; un CBR, un PDF o una cartella diventano CBZ. Le rinomine si annullano dalla cronologia.
 * **Log:** il pulsante "Log" (o il tasto `L`) apre la finestra del log, con filtro per livello, ricerca e pulsante "Salva".
 
 ### 🧩 Struttura del progetto
@@ -136,12 +137,15 @@ comicoptimizer/
   cbz.py                  creazione e verifica dei CBZ, ComicInfo.xml
   workers.py              thread di lavoro (importazione, analisi, elaborazione...)
   style.py                foglio di stile (QSS)
-  dialogs.py              finestra di log, interruzione, unione, rinomina, widget generici
+  dialogs.py              finestra di log, interruzione, unione, cronologia, widget generici
+  metadata_dialog.py      finestra Info e rinomina, ricerca online
+  comicinfo.py            lettura e scrittura del ComicInfo.xml, nomi dagli schemi
+  ricerca.py              fonti di ricerca: ComicVine, MyAnimeList, AniList, ComicsBox
   card.py                 card di un fumetto nella griglia
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
-tests/                    test automatici (venv/bin/python tests/test_rename.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_online.py, test_maximize.py)
+tests/                    test automatici (venv/bin/python tests/test_metadata.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_online.py, test_maximize.py)
 tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
 tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
 tools/build_appimage.sh   compila l'AppImage in locale
@@ -161,7 +165,7 @@ Gli script usano le stesse opzioni della compilazione automatica su GitHub (`.gi
 
 ### 🛡️ Privacy e Sicurezza
 
-**100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC. Unica eccezione, solo se la usi tu: il pulsante *Cerca* dell'autore (finestra Rinomina) invia a Wikidata e AniList **solo il titolo** che confermi, mai i file né il percorso. Senza premerlo l'app non usa Internet.
+**100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC. Unica eccezione, solo se la usi tu: la *Ricerca online* (finestra Info e rinomina) invia alla fonte scelta (ComicVine, MyAnimeList, AniList o ComicsBox) **il testo che vedi e confermi**, con la tua chiave API se la fonte ne chiede una, e ne scarica schede e copertine. Mai i file né il percorso. Senza aprirla l'app non usa Internet.
 
 **Resilienza:** Se interrompi un'operazione, i tuoi file originali rimangono intatti: vengono spostati nel cestino solo dopo che il nuovo archivio è stato creato e verificato. Se il cestino non è disponibile (per esempio su un disco di rete) l'originale resta al suo posto: nulla viene mai cancellato definitivamente. Le cartelle temporanee vengono sempre ripulite.
 

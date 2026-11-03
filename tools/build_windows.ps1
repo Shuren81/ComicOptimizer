@@ -49,6 +49,7 @@ Run $py -m PyInstaller main.py `
     --add-binary "bin\7z.dll;bin" `
     --add-data "bin\7-Zip-License.txt;bin" `
     --collect-submodules send2trash `
+    --collect-data certifi `
     --exclude-module tkinter
 
 Write-Host "== Controlli"
