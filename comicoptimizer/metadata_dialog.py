@@ -55,7 +55,7 @@ from .style import set_variant
 from .utils import cbz_target, get_natural_sort_key, split_name
 from .workers import ThumbWorker
 
-SETTINGS = ("Shuren", "ComicOptimizerUnito")   # non quelle del ComicOptimizer installato
+SETTINGS = ("Shuren", "ComicOptimizer")
 SCHEMA_PREDEFINITO = "<Series> - <Number> - <Title>"
 SCHEMI_MAX = 10
 MANGA_SI = "YesAndRightToLeft"                 # i manga si leggono da destra a sinistra
@@ -477,12 +477,12 @@ class SearchDialog(QDialog):
 class ConfermaRinomina(QDialog):
     """Elenco completo: nome attuale in grigio, nome nuovo in grassetto."""
 
-    def __init__(self, piano, parent=None):
+    def __init__(self, piano, parent=None, finestra="Conferma rinomina", domanda=None, azione="Rinomina"):
         super().__init__(parent)
-        self.setWindowTitle("Conferma rinomina")
+        self.setWindowTitle(finestra)
         fit_dialog_to_screen(self, 760, min(240 + 58 * len(piano), 620), min_w=460, min_h=240)
         l = QVBoxLayout(self)
-        titolo = QLabel(f"Rinominare {len(piano)} file?")
+        titolo = QLabel(domanda or f"Rinominare {len(piano)} file?")
         titolo.setStyleSheet("font-size: 15px; font-weight: bold;")
         l.addWidget(titolo)
         self.elenco = QTextEdit()
@@ -493,7 +493,7 @@ class ConfermaRinomina(QDialog):
         l.addWidget(self.elenco, 1)
         pulsanti = QHBoxLayout()
         pulsanti.addStretch()
-        self.b_si = QPushButton("Rinomina")
+        self.b_si = QPushButton(azione)
         set_variant(self.b_si, "success")
         self.b_si.setDefault(True)
         self.b_si.clicked.connect(self.accept)

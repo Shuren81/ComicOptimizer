@@ -14,6 +14,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def main(work):
+    # una pagina che in WebP pesa di più si converte lo stesso (capita con le cover già molto compresse)
+    from PIL import Image
+    from comicoptimizer.config import WEBP_QUALITY
+    from comicoptimizer.images import _prepare_page
+    leggera = os.path.join(work, "leggera.jpg")
+    Image.effect_noise((400, 600), 100).convert("RGB").save(leggera, quality=1)
+    scritto, nota = _prepare_page((leggera, os.path.join(work, "leggera_out"), True, WEBP_QUALITY))
+    assert scritto.endswith(".webp") and nota is None and os.path.getsize(scritto) > os.path.getsize(leggera)
+
     from PIL import Image
     import pymupdf
     from PyQt6.QtWidgets import QApplication

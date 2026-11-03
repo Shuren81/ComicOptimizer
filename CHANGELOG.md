@@ -7,8 +7,10 @@
 - **Nuovo:** **ricerca online** completa su ComicVine, MyAnimeList, AniList e ComicsBox, con copertina, filtro e riuso dei risultati di ComicsBox per i file successivi.
 - **Nuovo:** il nome nasce dai metadati con uno schema come `<Series> - <Number> - <Title>`; i bottoni dei campi diventano verdi se in uso e al secondo click li tolgono. `/` e `\\` diventano `-`, `:` diventa ` - `.
 - **Cambiato:** nei CBZ le info si salvano aggiungendo il nuovo ComicInfo.xml in coda al file, senza riscrivere le immagini: molto più veloce. Gli altri formati vengono ancora convertiti in CBZ.
+- **Cambiato:** a fine lavoro la lista **non si svuota più** da sola, così i fumetti convertiti si possono ancora rinominare.
+- **Cambiato:** "Annulla rinomina" e l'annullamento dalla Cronologia chiedono **conferma** con l'elenco dei nomi che verranno ripristinati.
+- **Cambiato:** la conversione in WebP vale per **tutte le pagine**, anche quando il WebP pesa più dell'originale (restano escluse solo quelle oltre il limite del formato o illeggibili).
 - **Tolto:** marcatura col mouse dei pezzi del nome, Cerca/Sostituisci e cerca autore su Wikidata.
-- **Cambiato:** impostazioni e log in una cartella propria (`ComicOptimizerUnito`), separata dal ComicOptimizer installato.
 
 ## [3.3.1] — 2026-10-25
 

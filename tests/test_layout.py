@@ -109,7 +109,7 @@ def banner_and_empty_grid(work):
     w.set_drop_style(False)
     assert w.grid_stack.styleSheet() == ""
 
-    # fine lavoro: lista pulita solo se tutti i fumetti sono CONVERTITI
+    # fine lavoro: la lista resta, anche con tutti i fumetti CONVERTITI (si possono ancora rinominare)
     mw.QMessageBox.exec = lambda self: 0          # niente popup bloccante nel test
     w.chk_notify.setChecked(False)
     summary = {'aborted': False, 'errors': [], 'mode': 'webp', 'done': 2, 'total': 2,
@@ -118,13 +118,8 @@ def banner_and_empty_grid(work):
     w.import_files(two)
     for c in w.cards.values():
         c.set_status(3)
-    list(w.cards.values())[1].set_status(2)       # uno solo riparato: la lista resta
     w._on_job_done(summary)
-    assert len(w.cards) == 2
-    for c in w.cards.values():
-        c.set_status(3)
-    w._on_job_done(summary)
-    assert w.cards == {} and w.grid_stack.currentWidget() is w.empty_lbl
+    assert len(w.cards) == 2 and w.grid_stack.currentWidget() is w.scroll
     for t in list(w.active_threads):
         t.wait(5000)
     w._closing = True

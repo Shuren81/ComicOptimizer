@@ -386,7 +386,9 @@ def test_catena_e_cronologia(app, work, md):
     nuovo = os.path.join(work, "Naruto - 003.cbz")
     assert os.path.exists(nuovo) and not os.path.exists(a) and w.btn_undo_rename.isHidden() is False
     w2 = mw.MainWindow()
+    mw.ConfermaRinomina.exec = lambda self: 1
     w2.undo_rename()
+    del mw.ConfermaRinomina.exec
     assert os.path.exists(a) and not os.path.exists(nuovo)
     w.close()
     w2.close()

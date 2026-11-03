@@ -39,7 +39,7 @@ from .cbz import file_status
 from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
 from . import history
 from .dialogs import HistoryDialog, LogWindow, MergeDialog, StopDialog
-from .metadata_dialog import MetadataDialog
+from .metadata_dialog import ConfermaRinomina, MetadataDialog
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -844,11 +844,6 @@ class MainWindow(QMainWindow):
         box.setText("<br>".join(lines))
         box.exec()
 
-        # tutti i fumetti nella condizione migliore (sistemati e in WebP): lista pulita
-        if self.cards and all(c.status_code == 3 for c in self.cards.values()):
-            log.info("Tutti i fumetti sono convertiti: lista pulita.")
-            self.clear_all()
-
     def _notify_system(self, title, body, ok=True):
         """Notifica del sistema operativo + suono (non blocca l'interfaccia)."""
         shown = False
@@ -1144,6 +1139,16 @@ class MainWindow(QMainWindow):
                 back.add(old)
             else:
                 missing.append(os.path.basename(new))
+        if pairs:
+            # con più passaggi (C→B, B→A) si mostra solo il risultato: C→A
+            piano, inizio = {}, {}
+            for da, a in pairs:
+                primo = inizio.pop(da, da)
+                piano[primo] = a
+                inizio[a] = primo
+            if not ConfermaRinomina(list(piano.items()), self, "Annulla rinomina",
+                                    f"Ripristinare i nomi di {len(piano)} file?", "Ripristina").exec():
+                return 0
         log.info(f"Annulla rinomina: {len(pairs)} file" + (f", {len(missing)} non più presenti" if missing else ""))
         done = self._do_renames(pairs)
         for _new, old in done:

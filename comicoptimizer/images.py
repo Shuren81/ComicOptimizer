@@ -57,10 +57,6 @@ def _prepare_page(job):
             img.load()
             rgb = _to_saveable_rgb(img)
             rgb.save(dst, "WEBP", quality=quality, method=4)
-        if os.path.getsize(dst) >= os.path.getsize(src):
-            os.remove(dst)
-            shutil.copy2(src, keep)
-            return keep, "WebP più pesante dell'originale"
         return dst, None
     except Exception as e:
         if os.path.exists(dst):

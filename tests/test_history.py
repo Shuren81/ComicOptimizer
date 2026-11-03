@@ -67,6 +67,13 @@ def test_after_restart(work):
     os.rename(B, os.path.join(work, "altrove", "Naruto 2.cbz"))
     warns = []
     mw.QMessageBox.warning = lambda *x: warns.append(x[-1])
+    # la conferma elenca i nomi; dicendo no non cambia niente
+    viste = []
+    mw.ConfermaRinomina.exec = lambda self: viste.append(self.elenco.toPlainText()) or 0
+    assert w2.undo_rename() is None and os.path.exists(AA) and not os.path.exists(a) and not warns
+    assert "Naruto - 001.cbz" in viste[0] and "→ " + os.path.basename(a) in viste[0]
+    assert "Naruto 1.cbz" not in viste[0], "con più passaggi si vede solo il risultato"
+    mw.ConfermaRinomina.exec = lambda self: 1
     assert w2.undo_rename() is None and os.path.exists(a) and not os.path.exists(AA)
     assert len(warns) == 1 and "Naruto 2.cbz" in warns[0]
     assert a in w2.cards                                        # la card segue il nome
@@ -91,6 +98,7 @@ def test_dialog(work):
     calls = []
     d = HistoryDialog(w, lambda op: (calls.append(op["id"]), w.undo_batch(op)))
     assert d.table.item(0, 3).text() == "annullabile (1)" and "tex.cbz → Tex 001.cbz" in d.table.item(0, 2).text()
+    mw.ConfermaRinomina.exec = lambda self: 1
     d.table.cellWidget(0, 4).click()
     assert calls == [batch] and os.path.exists(c)
     assert d.table.item(0, 3).text() == "già annullata" and not d.table.cellWidget(0, 4).isEnabled()

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Compila l'AppImage per Linux in locale, con gli stessi passaggi di
-# .github/workflows/build.yml (job linux-appimage). Uso, dalla cartella del progetto:
+# Compila l'AppImage per Linux in locale. Uso, dalla cartella del progetto:
 #
 #     bash tools/build_appimage.sh
 #

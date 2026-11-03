@@ -65,7 +65,7 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 
 ### 📥 Download
 
-Gli eseguibili si scaricano dalla pagina [Releases](https://github.com/Shuren81/ComicOptimizer/releases).
+La versione per Windows si scarica dalla pagina [Releases](https://github.com/Shuren81/ComicOptimizer/releases).
 
 #### 🪟 Windows
 
@@ -77,10 +77,9 @@ Il log su Windows si trova in `%LOCALAPPDATA%\ComicOptimizer\comicoptimizer.log`
 
 #### 🐧 Linux (AppImage)
 
-Scarica il file `.AppImage`, rendilo eseguibile e avvialo:
+L'AppImage non è tra i file delle Release: si compila in locale con `bash tools/build_appimage.sh` (vedi sotto). Per avviarla:
 
 ```bash
-chmod +x ComicOptimizer-*.AppImage
 ./ComicOptimizer-*.AppImage
 ```
 
@@ -88,7 +87,7 @@ Per leggere i RAR servono `p7zip-full` e `unrar` (vedi sotto).
 
 Il log dell'AppImage si trova in `~/.local/state/ComicOptimizer/comicoptimizer.log`.
 
-Gli eseguibili vengono compilati automaticamente da GitHub Actions (`.github/workflows/build.yml`) ad ogni nuova Release.
+La versione per Windows viene compilata automaticamente da GitHub Actions (`.github/workflows/build.yml`) ad ogni nuova Release.
 
 ### 📦 Installazione e Requisiti (Linux / da sorgente)
 
@@ -145,13 +144,13 @@ comicoptimizer/
   editor.py               editor avanzato delle pagine
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
-tests/                    test automatici (venv/bin/python tests/test_metadata.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_online.py, test_maximize.py)
+tests/                    test automatici (venv/bin/python tests/test_metadata.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_maximize.py)
 tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
 tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
 tools/build_appimage.sh   compila l'AppImage in locale
 tools/build_windows.ps1   compila l'exe per Windows in locale
 tools/build_macos.sh      compila l'app per macOS (DMG) su un Mac
-.github/workflows/        compilazione automatica (Windows e AppImage)
+.github/workflows/        compilazione automatica per Windows, alla pubblicazione di una Release
 ```
 
 **Compilare in locale** (senza GitHub):
@@ -161,7 +160,7 @@ tools/build_macos.sh      compila l'app per macOS (DMG) su un Mac
 
 * **macOS:** serve un Mac con Python 3.12 (installer da python.org) e 7-Zip per macOS: scarica da [7-zip.org](https://www.7-zip.org/download.html) l'archivio "macOS" ed estrailo in `tools/7zip-mac/` (devono esserci `7zz` e `License.txt`; 7-Zip legge anche i RAR, `unrar` non serve). Dal Terminale nella cartella del progetto: `bash tools/build_macos.sh`. Il risultato è `ComicOptimizer-v<versione>-macos-<arm64|x86_64>.dmg`: l'app funziona sui Mac con lo stesso processore (Apple Silicon o Intel) di quello che l'ha compilata. Non è firmata: su un altro Mac, la prima volta si apre con **tasto destro → Apri**. Il log è in `~/Library/Logs/ComicOptimizer`.
 
-Gli script usano le stesse opzioni della compilazione automatica su GitHub (`.github/workflows/build.yml`).
+Lo script per Windows usa le stesse opzioni della compilazione automatica su GitHub (`.github/workflows/build.yml`).
 
 ### 🛡️ Privacy e Sicurezza
 
