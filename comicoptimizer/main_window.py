@@ -9,8 +9,8 @@ import sys
 import threading
 from collections import deque
 
-from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer
-from PyQt6.QtGui import QCursor, QKeySequence, QPainter, QPixmap
+from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer, QUrl
+from PyQt6.QtGui import QCursor, QDesktopServices, QKeySequence, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QProgressBar,
+    QProgressDialog,
     QPushButton,
     QRubberBand,
     QScrollArea,
@@ -37,9 +38,9 @@ from .archives import detect_real_format, get_archive_file_list
 from .card import ComicCard
 from .cbz import file_status
 from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN
-from . import history
+from . import aggiorna, history
 from .dialogs import HistoryDialog, LogWindow, MergeDialog, StopDialog
-from .metadata_dialog import ConfermaRinomina, MetadataDialog
+from .metadata_dialog import ConfermaRinomina, MetadataDialog, in_background
 from .editor import AdvancedEditor
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
@@ -636,6 +637,10 @@ class MainWindow(QMainWindow):
         set_variant(self.p_btn, "link")
         self.p_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.p_btn.clicked.connect(self.show_privacy)
+        self.upd_btn = QPushButton("Aggiorna app")
+        set_variant(self.upd_btn, "link")
+        self.upd_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.upd_btn.clicked.connect(self.show_update)
         self.hist_btn = QPushButton("🕘 Rinomine")
         set_variant(self.hist_btn, "linklog")
         self.hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -658,6 +663,8 @@ class MainWindow(QMainWindow):
         footer.addWidget(self.c_btn)
         footer.addStretch()
         footer.addWidget(self.p_btn)
+        footer.addStretch()
+        footer.addWidget(self.upd_btn)
         footer.addStretch()
         self.chk_notify = QCheckBox("🔔 Avvisi")
         self.chk_notify.setChecked(True)
@@ -924,6 +931,61 @@ class MainWindow(QMainWindow):
                "l'originale, che finisce nel cestino; se il cestino non c'è, l'originale resta dov'è.<br><br>"
                "Mettiti comodo, al disordine ci pensiamo noi.")
         QMessageBox.information(self, f"Novità v{APP_VERSION}", msg)
+
+    def show_update(self):
+        appimage = aggiorna.appimage_in_uso()
+        sistema = "Windows" if IS_WIN else "macOS" if IS_MAC else "Linux"
+        box = QMessageBox(self)
+        box.setWindowTitle("Aggiorna app")
+        box.setText(f"<b>ComicOptimizer {APP_VERSION}</b><br><br>"
+                    f"Sistema: {sistema}<br>Python {sys.version.split()[0]}<br>"
+                    f"Programma: {appimage or os.path.abspath(sys.argv[0])}")
+        controlla = box.addButton("Controlla aggiornamenti", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Chiudi", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is not controlla:
+            return
+        self.upd_btn.setEnabled(False)
+        self.upd_btn.setText("Controllo…")
+        in_background(self, aggiorna.ultima_release, self._update_checked)
+
+    def _update_checked(self, release, errore):
+        self.upd_btn.setEnabled(True)
+        self.upd_btn.setText("Aggiorna app")
+        if errore:
+            QMessageBox.warning(self, "Aggiorna app", f"Controllo non riuscito:\n{errore}")
+            return
+        tag = release.get("tag_name", "")
+        if not aggiorna.piu_nuova(tag, APP_VERSION):
+            QMessageBox.information(self, "Aggiorna app", f"Hai già l'ultima versione ({APP_VERSION}).")
+            return
+        appimage, asset = aggiorna.appimage_in_uso(), aggiorna.asset_appimage(release)
+        if not (appimage and asset):           # Windows, macOS o programma avviato dai sorgenti
+            if QMessageBox.question(self, "Aggiorna app", f"È disponibile la versione {tag}.\n"
+                                    "Apro la pagina per scaricarla?") == QMessageBox.StandardButton.Yes:
+                QDesktopServices.openUrl(QUrl(release["html_url"]))
+            return
+        if QMessageBox.question(self, "Aggiorna app", f"È disponibile la versione {tag}.\n"
+                                f"Scarico e sostituisco ora l'AppImage?\n{appimage}") != QMessageBox.StandardButton.Yes:
+            return
+        attesa = QProgressDialog(f"Scarico {asset['name']}…", None, 0, 0, self)
+        attesa.setWindowTitle("Aggiorna app")
+        attesa.setWindowModality(Qt.WindowModality.WindowModal)
+        attesa.show()
+
+        def fine(_, errore):
+            attesa.close()
+            if errore:
+                log.error(f"Aggiornamento non riuscito: {errore}")
+                QMessageBox.warning(self, "Aggiorna app", f"Aggiornamento non riuscito:\n{errore}\n\n"
+                                    "La versione attuale non è stata toccata.")
+                return
+            log.info(f"AppImage aggiornata a {tag}")
+            if QMessageBox.question(self, "Aggiorna app", f"Aggiornato a {tag}. Riavvio ora?") == QMessageBox.StandardButton.Yes:
+                subprocess.Popen([appimage], start_new_session=True)
+                self.close()
+
+        in_background(self, lambda: aggiorna.sostituisci_appimage(asset, appimage), fine)
 
     def show_credits(self):
         msg = ("<b>Creatore, Designer e Beta Tester (mio malgrado):</b> Michele Shuren Bancheri<br><br>"

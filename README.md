@@ -1,12 +1,14 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.4.0
+### 📚 ComicOptimizer v3.4.1
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v3.4.1: Aggiorna app.** Il pulsante in basso mostra la versione in uso e controlla su GitHub se ce n'è una nuova: su Linux l'AppImage si aggiorna da sola, su Windows e macOS si apre la pagina della release.
 
 **v3.4.0: Info e rinomina, una finestra sola.** Il pulsante INFO E RINOMINA (o `F2`, o il doppio click sul nome) apre un'unica finestra per i metadati e il nome. Tutti i campi del ComicInfo.xml, anche su più file insieme (`≠` segnala i valori diversi), con la ricerca online su ComicVine, MyAnimeList, AniList e ComicsBox e l'estrazione dal nome. Il nome nuovo nasce dai metadati con uno schema come `<Series> - <Number> - <Title>`: i bottoni dei campi diventano verdi se in uso e al secondo click si tolgono. I CBZ si salvano all'istante; gli altri formati vengono convertiti. Le rinomine restano annullabili dalla cronologia.
 

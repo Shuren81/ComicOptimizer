@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.4.1] — 2026-11-05
+
+- **Nuovo:** pulsante **Aggiorna app** in basso: mostra la versione in uso e controlla su GitHub se ce n'è una più nuova (la release segnata come Latest). Su Linux l'AppImage si scarica e si sostituisce da sola, poi si riavvia; su Windows e macOS (o dai sorgenti) si apre la pagina della release nel browser.
+
 ## [3.4.0] — 2026-11-03
 
 - **Nuovo:** una sola finestra **Info e rinomina**, al posto delle vecchie Rinomina e Info: tutti i campi del ComicInfo.xml (anche disegnatore, volume, arco narrativo, personaggi, team, totale e trama), modifica di più file con `≠` per i valori diversi, estrazione dal nome, numerazione automatica.
