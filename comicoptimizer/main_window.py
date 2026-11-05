@@ -933,13 +933,9 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, f"Novità v{APP_VERSION}", msg)
 
     def show_update(self):
-        appimage = aggiorna.appimage_in_uso()
-        sistema = "Windows" if IS_WIN else "macOS" if IS_MAC else "Linux"
         box = QMessageBox(self)
         box.setWindowTitle("Aggiorna app")
-        box.setText(f"<b>ComicOptimizer {APP_VERSION}</b><br><br>"
-                    f"Sistema: {sistema}<br>Python {sys.version.split()[0]}<br>"
-                    f"Programma: {appimage or os.path.abspath(sys.argv[0])}")
+        box.setText(f"Versione in uso: <b>{APP_VERSION}</b>")
         controlla = box.addButton("Controlla aggiornamenti", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("Chiudi", QMessageBox.ButtonRole.RejectRole)
         box.exec()
