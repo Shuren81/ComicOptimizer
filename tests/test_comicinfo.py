@@ -121,6 +121,19 @@ class TestTesti(unittest.TestCase):
         for (da, campo), a in casi.items():
             self.assertEqual(comicinfo.togli_tag_schema(da, campo), a)
 
+    def test_nome_campi_vuoti(self):
+        v = {"Series": "Batwoman", "Year": "2026", "Number": "3", "Title": "Open Season"}
+        casi = {
+                ("<Series> (<Year>) - <Title>", "Title"): "Batwoman (2026)",
+                ("<Series> - #<Number> - <Title>", "Number"): "Batwoman - Open Season",
+                ("<Series> - <Number> - <Title>", "Series"): "03 - Open Season",
+                ("<Series> (<Year>) - <Title>", "Year"): "Batwoman - Open Season",
+                ("<Series> - <Title>", None): "Batwoman - Open Season",
+        }
+        for (schema, vuoto), atteso in casi.items():
+            self.assertEqual(comicinfo.nome_da_schema(schema, {**v, vuoto: ""}, 2), atteso)
+        self.assertEqual(comicinfo.nome_da_schema("<Title>", {}, 2), "")
+
 
 if __name__ == "__main__":
     unittest.main()

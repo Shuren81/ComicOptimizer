@@ -107,9 +107,11 @@ def nome_da_schema(schema, valori, cifre):
     if numero.isdigit():
         numero = numero.zfill(cifre)
     sostituzioni = {campo: valore(campo) for campo in CAMPI if campo not in ("Summary", "Manga")}
-    sostituzioni.update(Series=valore("Series", "Senza Serie"), Title=valore("Title", "Senza Titolo"),
-                        Number=numero, LanguageISO=valori.get("LanguageISO", "") or "")
+    sostituzioni.update(Number=numero, LanguageISO=valori.get("LanguageISO", "") or "")
     nome = schema
+    for campo, testo in sostituzioni.items():
+        if not testo and f"<{campo}>" in nome:      # campo vuoto: via anche il suo " - "
+            nome = togli_tag_schema(nome, campo)
     for campo, testo in sostituzioni.items():
         nome = nome.replace(f"<{campo}>", testo)
     # Le barre separano due parole: toglierle e basta le attaccherebbe

@@ -3,6 +3,7 @@
 ## [3.4.1] — 2026-11-05
 
 - **Nuovo:** pulsante **Aggiorna app** in basso: mostra la versione in uso e controlla su GitHub se ce n'è una più nuova (la release segnata come Latest). Su Linux l'AppImage si scarica e si sostituisce da sola, poi si riavvia; su Windows e macOS (o dai sorgenti) si apre la pagina della release nel browser.
+- **Corretto:** nella rinomina un campo vuoto non diventa più "Senza Titolo" o "Senza Serie": sparisce dal nome insieme al suo separatore (`<Series> (<Year>) - <Title>` senza titolo dà `Batwoman (2026)`, `<A> - <B> - <C>` senza B dà `<A> - <C>`).
 
 ## [3.4.0] — 2026-11-03
 
