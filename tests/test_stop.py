@@ -77,7 +77,7 @@ def test_lazy_processing(work):
     """Sistema/Converti: ogni fumetto si estrae subito prima di convertirlo; i temporanei non si
     accumulano; il CBZ creato non viene ricontrollato da capo dall'analisi."""
     import shutil
-    from comicoptimizer import utils, workers
+    from comicoptimizer import workers
     from comicoptimizer.config import TMP_PREFIX
     from PIL import Image
     trash = os.path.join(work, "_cestino_lazy")

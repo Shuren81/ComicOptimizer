@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import config
-from .archives import detect_real_format, get_archive_file_list
+from .archives import get_archive_file_list
 from .card import ComicCard
 from .cbz import file_status
 from .config import APP_VERSION, CARD_H, CARD_MARGIN, CARD_SPACING, CARD_W, COLS_DEFAULT, COLS_MAX, IS_MAC, IS_WIN

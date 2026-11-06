@@ -1,7 +1,7 @@
 """Controllo della versione su GitHub e aggiornamento dell'AppImage su Linux."""
+import hashlib
 import os
 import re
-import shutil
 import urllib.request
 
 from .ricerca import USER_AGENT, contesto_ssl, richiesta_json
@@ -38,10 +38,15 @@ def sostituisci_appimage(asset, in_uso):
     nuova = destinazione + ".nuova"
     richiesta = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
     try:
+        impronta = hashlib.sha256()
         with urllib.request.urlopen(richiesta, timeout=60, context=contesto_ssl()) as r, open(nuova, "wb") as f:
-            shutil.copyfileobj(r, f, 1 << 20)
+            while blocco := r.read(1 << 20):
+                impronta.update(blocco)
+                f.write(blocco)
+        attesa = asset.get("digest") or ""            # "sha256:…" (le release vecchie non l'hanno)
         with open(nuova, "rb") as f:
-            if f.read(4) != b"\x7fELF" or os.path.getsize(nuova) != asset["size"]:
+            if f.read(4) != b"\x7fELF" or os.path.getsize(nuova) != asset["size"] \
+                    or (attesa and attesa != "sha256:" + impronta.hexdigest()):
                 raise RuntimeError("Il file scaricato è incompleto o non è un'AppImage.")
         os.chmod(nuova, 0o755)
         os.replace(nuova, destinazione)

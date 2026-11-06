@@ -9,7 +9,7 @@ Usa i font DejaVu (presenti su Ubuntu/Mint); per cambiarli modifica FONT_TITLE/F
 import random
 import sys
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 2000, 260            # doppia risoluzione: l'app lo riduce, resta nitido
 HORIZON = 168

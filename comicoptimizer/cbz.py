@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from .archives import detect_real_format
-from .comicinfo import ordina_campi
+from .comicinfo import CARATTERI_VIETATI_XML, normalizza_lingua, ordina_campi, pulisci_numero
 from .epub import epub_meta
 from .config import APP_VERSION
 from .logsetup import log
@@ -21,24 +21,16 @@ INFO_FIELDS = (("titolo", "Series"), ("num", "Number"), ("sottotitolo", "Title")
                ("lingua", "LanguageISO"), ("disegnatore", "Penciller"), ("volume", "Volume"),
                ("arco", "StoryArc"), ("personaggi", "Characters"), ("team", "Teams"),
                ("totale", "Count"), ("trama", "Summary"))
-# LanguageISO vuole il codice ISO 639 ("it"); nei nomi si scrive spesso "ITA"
-LANG_ISO = {"ITA": "it", "IT": "it", "ENG": "en", "EN": "en", "JPN": "ja", "JAP": "ja", "JP": "ja",
-            "FRA": "fr", "FR": "fr", "ESP": "es", "SPA": "es", "ES": "es", "DEU": "de", "GER": "de",
-            "DE": "de", "POR": "pt", "PT": "pt", "KOR": "ko", "KO": "ko", "CHI": "zh", "ZH": "zh",
-            "ITALIANO": "it", "ITALIAN": "it", "INGLESE": "en", "ENGLISH": "en", "GIAPPONESE": "ja",
-            "JAPANESE": "ja", "FRANCESE": "fr", "FRENCH": "fr", "FRANÇAIS": "fr", "SPAGNOLO": "es",
-            "SPANISH": "es", "ESPAÑOL": "es", "TEDESCO": "de", "GERMAN": "de", "DEUTSCH": "de",
-            "PORTOGHESE": "pt", "PORTUGUESE": "pt", "COREANO": "ko", "KOREAN": "ko",
-            "CINESE": "zh", "CHINESE": "zh"}
-
 def _set_info(root, info):
     """Scrive i campi della finestra Info: un campo vuoto toglie l'elemento; gli altri restano."""
     for role, tag in INFO_FIELDS:
         if role not in info:
             continue
-        value = str(info[role]).strip()
+        value = CARATTERI_VIETATI_XML.sub("", str(info[role])).strip()   # stesse regole di scrivi_cbz
         if tag == "LanguageISO":
-            value = LANG_ISO.get(value.upper(), value.lower())
+            value = normalizza_lingua(value) or value
+        elif tag == "Number":
+            value = pulisci_numero(value)
         el = root.find(tag)
         if not value:
             if el is not None:

@@ -222,6 +222,19 @@ def main(work):
         del sys.modules["send2trash"]
     assert seen[0][-1] == evil and not any(evil in a for a in seen[0][:-1])
 
+    # --- "x.CBZ" → "x.cbz" su Windows/macOS è lo stesso file (simulato con un hard link):
+    # niente conflitto con se stesso e il CBZ nuovo resta al suo posto
+    d = os.path.join(work, "maiuscole")
+    os.makedirs(d)
+    src = cbz(os.path.join(d, "M.CBZ"), [R, G])
+    os.link(src, os.path.join(d, "M.cbz"))
+    pw = workers.ProcessingWorker(workers.prepare_comic(src), to_webp=True)
+    chiesto = []
+    pw.ask_permission.connect(lambda *a: (chiesto.append(a), pw.set_permission("skip")))
+    pw.run()
+    with zipfile.ZipFile(os.path.join(d, "M.cbz")) as z:
+        assert not chiesto and z.namelist() == ["0001.webp", "0002.webp"], (chiesto, z.namelist())
+
     # --- audit: errori che prima bloccavano l'app o rovinavano un fumetto
     au = os.path.join(work, "audit")
     os.makedirs(au)

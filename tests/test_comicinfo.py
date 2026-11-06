@@ -121,6 +121,14 @@ class TestTesti(unittest.TestCase):
         for (da, campo), a in casi.items():
             self.assertEqual(comicinfo.togli_tag_schema(da, campo), a)
 
+    def test_info_conversione(self):
+        # le info dei file convertiti seguono le regole dei CBZ: XML sempre leggibile, numero e lingua puliti
+        import xml.etree.ElementTree as ET
+        from comicoptimizer.cbz import build_comicinfo
+        radice = ET.fromstring(build_comicinfo(None, 3, info={"trama": "a\x0bb", "num": "007", "lingua": "it-it"}))
+        self.assertEqual((radice.findtext("Summary"), radice.findtext("Number"), radice.findtext("LanguageISO")),
+                         ("ab", "7", "it-IT"))
+
     def test_nome_campi_vuoti(self):
         v = {"Series": "Batwoman", "Year": "2026", "Number": "3", "Title": "Open Season"}
         casi = {

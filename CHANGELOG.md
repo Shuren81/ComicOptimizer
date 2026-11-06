@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.4] — 2026-11-06
+
+- **Corretto:** su Windows e macOS, convertendo un fumetto con l'estensione maiuscola (`x.CBZ`), il programma segnalava un conflitto con se stesso e con "Sovrascrivi" mandava nel cestino anche il CBZ nuovo. Ora riconosce che è lo stesso file.
+- **Corretto:** le info scritte convertendo un CBR, PDF o EPUB seguono le stesse regole dei CBZ: i caratteri non ammessi in XML (a volte presenti nelle trame trovate online) vengono tolti invece di rendere illeggibile il ComicInfo.xml, il numero perde gli zeri iniziali (`007` → `7`) e la lingua diventa il codice standard (`it-it` → `it-IT`).
+- **Cambiato:** **Aggiorna app** controlla anche l'impronta (sha256) dell'AppImage scaricata prima di sostituire quella in uso.
+
 ## [3.4.3] — 2026-11-06
 
 - **Corretto:** con **Aggiorna app** su Linux l'AppImage prende il nome della nuova versione (es. `ComicOptimizer-v3.4.3-x86_64.AppImage`) e quella vecchia viene tolta; prima restava il vecchio nome.

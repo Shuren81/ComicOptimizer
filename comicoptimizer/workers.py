@@ -417,7 +417,8 @@ class ProcessingWorker(QThread):
             log.info(f"Elaborazione: '{os.path.basename(orig_p)}' "
                      f"({len(img_list)} immagini) → '{os.path.basename(final_p)}'")
 
-            if (os.path.exists(final_p) and os.path.normpath(orig_p) != os.path.normpath(final_p)) \
+            # samefile: su Windows/macOS "x.CBZ" e "x.cbz" sono lo stesso file, non un conflitto
+            if (os.path.exists(final_p) and not os.path.samefile(orig_p, final_p)) \
                     or (final_p in processed):
                 self._permission_result = None
                 pages_on_disk = len(get_archive_file_list(final_p)) if os.path.exists(final_p) else 0
@@ -562,7 +563,7 @@ class ProcessingWorker(QThread):
                             f"'{os.path.basename(bak)}'")
         os.replace(tmp_zip, final_p)
         for orig_p in srcs:
-            if os.path.normpath(orig_p) == os.path.normpath(final_p) or not os.path.exists(orig_p):
+            if not os.path.exists(orig_p) or os.path.samefile(orig_p, final_p):
                 continue
             if _trash_file_cross_platform(orig_p):
                 log.info(f"  Originale spostato nel cestino: '{os.path.basename(orig_p)}'")

@@ -23,21 +23,23 @@ def test_sostituzione(work):
     open(in_uso, "wb").write(b"vecchia")
     nuova = os.path.join(work, "scaricata")
     open(nuova, "wb").write(b"\x7fELF nuova")
-    asset = {"name": "ComicOptimizer-v9.0.0-x86_64.AppImage",
-             "browser_download_url": "file://" + nuova, "size": os.path.getsize(nuova)}
+    import hashlib
+    asset = {"name": "ComicOptimizer-v9.0.0-x86_64.AppImage", "browser_download_url": "file://" + nuova,
+             "size": os.path.getsize(nuova), "digest": "sha256:" + hashlib.sha256(b"\x7fELF nuova").hexdigest()}
     in_uso = aggiorna.sostituisci_appimage(asset, in_uso)
     assert in_uso == os.path.join(work, asset["name"]), "prende il nome della release"
     assert open(in_uso, "rb").read() == b"\x7fELF nuova"
     assert os.access(in_uso, os.X_OK)
 
-    # file sbagliato: la versione in uso non si tocca e non restano file a metà
-    open(nuova, "wb").write(b"<html>errore</html>")
-    asset["size"] = os.path.getsize(nuova)
-    try:
-        aggiorna.sostituisci_appimage(asset, in_uso)
-        raise AssertionError("doveva fallire")
-    except RuntimeError:
-        pass
+    # file sbagliato o con un'impronta diversa: la versione in uso non si tocca e non restano file a metà
+    for contenuto in (b"<html>errore</html>", b"\x7fELF NUOVA"):
+        open(nuova, "wb").write(contenuto)
+        asset["size"] = os.path.getsize(nuova)
+        try:
+            aggiorna.sostituisci_appimage(asset, in_uso)
+            raise AssertionError("doveva fallire")
+        except RuntimeError:
+            pass
     assert open(in_uso, "rb").read() == b"\x7fELF nuova"
     assert sorted(os.listdir(work)) == [asset["name"], "scaricata"], "la vecchia è stata tolta"
 
