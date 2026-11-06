@@ -23,8 +23,10 @@ def test_sostituzione(work):
     open(in_uso, "wb").write(b"vecchia")
     nuova = os.path.join(work, "scaricata")
     open(nuova, "wb").write(b"\x7fELF nuova")
-    asset = {"browser_download_url": "file://" + nuova, "size": os.path.getsize(nuova)}
-    aggiorna.sostituisci_appimage(asset, in_uso)
+    asset = {"name": "ComicOptimizer-v9.0.0-x86_64.AppImage",
+             "browser_download_url": "file://" + nuova, "size": os.path.getsize(nuova)}
+    in_uso = aggiorna.sostituisci_appimage(asset, in_uso)
+    assert in_uso == os.path.join(work, asset["name"]), "prende il nome della release"
     assert open(in_uso, "rb").read() == b"\x7fELF nuova"
     assert os.access(in_uso, os.X_OK)
 
@@ -37,7 +39,7 @@ def test_sostituzione(work):
     except RuntimeError:
         pass
     assert open(in_uso, "rb").read() == b"\x7fELF nuova"
-    assert sorted(os.listdir(work)) == ["ComicOptimizer.AppImage", "scaricata"]
+    assert sorted(os.listdir(work)) == [asset["name"], "scaricata"], "la vecchia è stata tolta"
 
 
 if __name__ == "__main__":

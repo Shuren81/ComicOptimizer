@@ -969,7 +969,7 @@ class MainWindow(QMainWindow):
         attesa.setWindowModality(Qt.WindowModality.WindowModal)
         attesa.show()
 
-        def fine(_, errore):
+        def fine(nuova, errore):
             attesa.close()
             if errore:
                 log.error(f"Aggiornamento non riuscito: {errore}")
@@ -978,7 +978,7 @@ class MainWindow(QMainWindow):
                 return
             log.info(f"AppImage aggiornata a {tag}")
             if QMessageBox.question(self, "Aggiorna app", f"Aggiornato a {tag}. Riavvio ora?") == QMessageBox.StandardButton.Yes:
-                subprocess.Popen([appimage], start_new_session=True)
+                subprocess.Popen([nuova], start_new_session=True)
                 self.close()
 
         in_background(self, lambda: aggiorna.sostituisci_appimage(asset, appimage), fine)

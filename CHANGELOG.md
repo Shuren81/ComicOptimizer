@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.4.3] — 2026-11-06
+
+- **Corretto:** con **Aggiorna app** su Linux l'AppImage prende il nome della nuova versione (es. `ComicOptimizer-v3.4.3-x86_64.AppImage`) e quella vecchia viene tolta; prima restava il vecchio nome.
+
 ## [3.4.2] — 2026-11-06
 
 - **Corretto:** nella rinomina un campo vuoto non diventa più "Senza Titolo" o "Senza Serie": sparisce dal nome insieme al suo separatore (`<Series> (<Year>) - <Title>` senza titolo dà `Batwoman (2026)`, `<A> - <B> - <C>` senza B dà `<A> - <C>`).
