@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.4.5] — 2026-11-06
+
+- **Corretto:** nella ricerca online i risultati di **tutte** le fonti (ComicVine, MyAnimeList, AniList, come già ComicsBox) vengono messi in ordine di parole in comune con il testo cercato. Cercando il nome del file (`Absolute Wonder Woman 12 As My Mothers Made Me`) l'albo giusto finisce in cima, invece di stare in mezzo all'ordine alfabetico per serie e numero.
+
 ## [3.4.4] — 2026-11-06
 
 - **Corretto:** su Windows e macOS, convertendo un fumetto con l'estensione maiuscola (`x.CBZ`), il programma segnalava un conflitto con se stesso e con "Sovrascrivi" mandava nel cestino anche il CBZ nuovo. Ora riconosce che è lo stesso file.

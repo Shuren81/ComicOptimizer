@@ -268,8 +268,8 @@ def test_ricerca(app, work, md):
 
     def cerca(chiave, query):
         chiamate.append((chiave, query))
-        return [{"etichetta": "BATMAN 1", "copertina": None, "campi": {"Series": "BATMAN", "Number": "1"}, "note": []},
-                {"etichetta": "ROBIN 2", "copertina": None, "campi": {"Series": "ROBIN", "Number": "2"}, "note": ["una nota"]}]
+        return [{"etichetta": "ROBIN 2", "copertina": None, "campi": {"Series": "ROBIN", "Number": "2"}, "note": ["una nota"]},
+                {"etichetta": "BATMAN 1", "copertina": None, "campi": {"Series": "BATMAN", "Number": "1"}, "note": []}]
 
     def dettagli(_chiave, _r):
         return {"Writer": "Morrison", "Summary": "https://x\n\nTrama"}
@@ -294,6 +294,7 @@ def test_ricerca(app, work, md):
     s.cerca()
     assert attendi(app, lambda: s.lista.count() == 2)
     assert chiamate == [("segreta", "batman")] and s.b_cerca.isEnabled()
+    assert [r["etichetta"] for r in s.visibili] == ["BATMAN 1", "ROBIN 2"], "prima chi somiglia alla ricerca"
     assert QSettings(*md.SETTINGS).value("ricerca/chiave_finta") == "segreta", "la chiave valida si ricorda"
     if os.name == "posix":
         assert os.stat(QSettings(*md.SETTINGS).fileName()).st_mode & 0o077 == 0, "chiavi leggibili solo da te"

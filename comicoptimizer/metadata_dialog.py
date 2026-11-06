@@ -448,9 +448,12 @@ class SearchDialog(QDialog):
             if not esito:
                 QMessageBox.information(self, "Risultati", f"Nessun risultato su {nome} per questa ricerca.")
                 return
+            # prima chi ha più parole in comune con la ricerca; a parità resta l'ordine della fonte
             if f.get("memoria") is not None:
                 esito = ordina_per_parole(
                     [f["memoria"].setdefault(r["grezzo"]["url"], r) for r in esito], self.testo_file)
+            else:
+                esito = ordina_per_parole(esito, query)
             self.risultati.extend(esito)
             self._filtra()
 
