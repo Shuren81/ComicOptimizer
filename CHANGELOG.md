@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.2] — 2026-11-11
+
+- **Nuovo:** **spostamento automatico nella libreria**: con la casella "Sposta qui i fumetti sistemati…" spuntata, a fine lavoro i CBZ sistemati nella lista di lavoro finiscono nella libreria, in cartelle costruite dalle info con uno schema come `<Publisher>/<Series>`. I campi vuoti spariscono; un fumetto senza quelle info resta dov'è e viene segnalato. Mai sovrascrivere: un nome già usato prende `_1`.
+- **Nuovo:** pulsante **RIORDINA** nella Libreria: sposta i fumetti selezionati nelle cartelle dello schema, dopo una conferma con l'elenco.
+- **Nuovo:** gli spostamenti finiscono nella **cronologia** e si annullano come le rinomine, anche se la libreria è su un altro disco.
+
 ## [3.5.1] — 2026-11-11
 
 - **Nuovo:** **controllo della libreria** all'avvio: integrità, doppioni (anche in cartelle diverse) e fumetti non ancora in WebP. La prima volta legge tutto (può durare a lungo, si ferma con "Ferma controllo" e riprende da dove era), poi solo i file nuovi o cambiati. Un fumetto spostato o rinominato non viene riletto.

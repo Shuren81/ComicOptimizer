@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
         self._thumb_queue    = deque() # miniature in attesa: ne girano poche alla volta
         self._thumbs_running = 0
         self._grid_cols      = 0       # colonne attuali della griglia
+        self._job_outputs    = []      # CBZ prodotti dal lavoro in corso
         self._log_window = LogWindow(self)
         self.init_ui()
         self.check_deps()
@@ -813,6 +814,8 @@ class MainWindow(QMainWindow):
             self.current_worker = None
         if self._closing:
             return
+        outputs, self._job_outputs = self._job_outputs, []
+        self.library.auto_move(outputs)
         self.reset_ui()
         self._refresh_undo()                          # file convertiti: quei nomi non ci sono più
         self.run_analysis(True)
@@ -1056,6 +1059,8 @@ class MainWindow(QMainWindow):
             log.info(f"File saltato: '{os.path.basename(o)}' → {label}")
         else:
             log.info(f"File completato: '{os.path.basename(o)}' → '{os.path.basename(n)}' [{label}]")
+        if s in (2, 3):
+            self._job_outputs.append(n)               # a fine lavoro, eventualmente nella libreria
         if o in self.cards:
             if n != o and n in self.cards:
                 self.rem(n)   # card già presente per il file finale (unione o "Sovrascrivi")
@@ -1251,7 +1256,8 @@ class MainWindow(QMainWindow):
                 # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
                 if os.path.exists(new) and not os.path.samefile(old, new):
                     raise FileExistsError("esiste già un file con questo nome")
-                os.rename(old, new)
+                os.makedirs(os.path.dirname(new), exist_ok=True)   # spostamento nella libreria
+                shutil.move(old, new)                 # come os.rename, ma anche verso un altro disco
             except OSError as e:
                 log.error(f"Rinomina fallita: '{os.path.basename(old)}': {e}")
                 errors.append(f"{os.path.basename(old)}: {e}")

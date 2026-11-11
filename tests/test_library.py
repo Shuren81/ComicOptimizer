@@ -136,6 +136,60 @@ def test_controllo(app, lib):
     win.close()
 
 
+def test_sposta(app, work):
+    from PyQt6.QtWidgets import QDialog, QMessageBox
+    from comicoptimizer import history, library, metadata_dialog
+    from comicoptimizer.main_window import MainWindow
+    assert library.cartella_da_schema("<Publisher>/<Series>", {"Publisher": "DC Comics", "Series": "batman"}) \
+        == os.path.join("DC Comics", "Batman")
+    assert library.cartella_da_schema("<Publisher>/<Series> (<Year>)", {"Series": "Robin"}) == "Robin"
+    assert library.cartella_da_schema("<Publisher>/<Series>", {}) == ""
+
+    lib, lavoro = os.path.join(work, "lib"), os.path.join(work, "da sistemare")
+    os.makedirs(lib)
+    ci = "<ComicInfo><Series>Batman</Series><Publisher>DC Comics</Publisher></ComicInfo>"
+
+    def con_info(path, xml=ci):
+        cbz(path, [(250, 0, 0)])
+        with zipfile.ZipFile(path, "a") as z:
+            z.writestr("ComicInfo.xml", xml)
+        return path
+    a = con_info(os.path.join(lavoro, "Batman 01.cbz"))
+    gia = con_info(os.path.join(lib, "DC Comics", "Batman", "Batman 01.cbz"))   # stesso nome già in libreria
+    senza = cbz(os.path.join(lavoro, "Senza info.cbz"), [(0, 0, 250)])
+    dentro = con_info(os.path.join(lib, "Batman 02.cbz"))                    # già in libreria: resta
+
+    avvisi = []
+    QMessageBox.information = staticmethod(lambda *a, **k: avvisi.append(a[2]))
+    win = MainWindow()
+    v = win.library
+    v.set_root(lib)
+    v.auto_move([a, senza, dentro])
+    assert os.path.exists(a), "spostamento automatico spento: niente si muove"
+
+    win.on_file_done(a, a, 2)                          # come a fine lavoro
+    assert win._job_outputs == [a]
+    v.chk_auto.setChecked(True)
+    v.auto_move([a, senza, dentro])
+    nuovo = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
+    assert os.path.exists(nuovo) and not os.path.exists(a) and os.path.exists(gia), "mai sovrascrivere"
+    assert os.path.exists(senza) and os.path.exists(dentro) and avvisi and "Senza info.cbz" in avvisi[-1]
+
+    # si annulla dalla cronologia come una rinomina
+    metadata_dialog.ConfermaRinomina.exec = lambda self: QDialog.DialogCode.Accepted
+    win.undo_batch(history.batches()[0])
+    assert os.path.exists(a) and not os.path.exists(nuovo)
+
+    # Riordina dalle info, dentro la libreria
+    v.show_folder(lib)
+    v.list.item(0).setSelected(True)
+    assert v.selected() == [dentro]
+    v.reorder()
+    assert os.path.exists(os.path.join(lib, "DC Comics", "Batman", "Batman 02.cbz")) and not os.path.exists(dentro)
+    v.stop()
+    win.close()
+
+
 def main():
     work = tempfile.mkdtemp(prefix="comicopt_library_")
     try:
@@ -147,7 +201,7 @@ def main():
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         from comicoptimizer import history
         history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")
-        for prova in (test_vista, test_controllo):
+        for prova in (test_vista, test_controllo, test_sposta):
             cartella = os.path.join(work, prova.__name__)
             os.makedirs(cartella)
             prova(app, cartella)

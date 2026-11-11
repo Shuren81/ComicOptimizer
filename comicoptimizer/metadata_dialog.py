@@ -490,9 +490,11 @@ class ConfermaRinomina(QDialog):
         l.addWidget(titolo)
         self.elenco = QTextEdit()
         self.elenco.setReadOnly(True)
+        # spostamenti (stesso nome, cartella diversa): si mostra il percorso intero
+        nome = lambda v, n, p: p if os.path.dirname(v) != os.path.dirname(n) else os.path.basename(p)
         self.elenco.setHtml("".join(
-            f'<p style="margin-bottom:10px"><span style="color:#9e9e9e">{html.escape(os.path.basename(v))}</span><br>'
-            f'<b>→ {html.escape(os.path.basename(n))}</b></p>' for v, n in piano))
+            f'<p style="margin-bottom:10px"><span style="color:#9e9e9e">{html.escape(nome(v, n, v))}</span><br>'
+            f'<b>→ {html.escape(nome(v, n, n))}</b></p>' for v, n in piano))
         l.addWidget(self.elenco, 1)
         pulsanti = QHBoxLayout()
         pulsanti.addStretch()

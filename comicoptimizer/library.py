@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QListView,
     QListWidget,
+    QLineEdit,
     QListWidgetItem,
     QMenu,
     QMessageBox,
@@ -29,10 +30,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFileSystemModel
 
 from .logsetup import log
-from .metadata_dialog import SETTINGS
+from .comicinfo import nome_da_schema
+from .metadata_dialog import SETTINGS, ConfermaRinomina, leggi_dati
 from .style import set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
-from . import workers
+from . import history, workers
 from .workers import ThumbWorker, _Stoppable
 
 THUMB_W, THUMB_H = 140, 210
@@ -81,6 +83,37 @@ def list_comics(folder, recursive=False):
 STATI = {0: ("da sistemare", "#ff9800"), 1: ("CBZ, non WebP", "#ffc107"), 3: ("WebP", None),
          4: ("doppione", "#e040fb"), 5: ("danneggiato", "#f44336")}
 FILTRI = (("Cartella scelta", None), ("Da convertire in WebP", {0, 1}), ("Doppioni", {4}), ("Danneggiati", {5}))
+
+
+SCHEMA_PREDEFINITO = "<Publisher>/<Series>"
+
+
+def cartella_da_schema(schema, valori):
+    """Sottocartella della libreria dalle info, es. "<Publisher>/<Series>" → "DC Comics/Batman".
+    I campi vuoti spariscono con il loro separatore, i pezzi vuoti spariscono del tutto."""
+    pezzi = [nome_da_schema(pezzo, valori, 1) for pezzo in schema.split("/")]
+    return os.path.join(*[p for p in pezzi if p]) if any(pezzi) else ""
+
+
+def piano_spostamenti(root, schema, paths):
+    """([(vecchio, nuovo)], [senza info]). Un nome già usato prende un suffisso: mai sovrascrivere."""
+    piano, senza_info, riservati = [], [], set()
+    for p in paths:
+        cartella = cartella_da_schema(schema, leggi_dati(p))
+        if not cartella:
+            senza_info.append(p)
+            continue
+        base, ext = os.path.splitext(os.path.basename(p))
+        dest = os.path.join(root, cartella)
+        nuovo, i = os.path.join(dest, base + ext), 1
+        if os.path.normcase(nuovo) == os.path.normcase(p):
+            continue
+        while os.path.exists(nuovo) or os.path.normcase(nuovo) in riservati:
+            nuovo = os.path.join(dest, f"{base}_{i}{ext}")
+            i += 1
+        riservati.add(os.path.normcase(nuovo))
+        piano.append((p, nuovo))
+    return piano, senza_info
 
 
 def _cached(p):
@@ -204,11 +237,26 @@ class LibraryView(QWidget):
         bar.addWidget(self.chk_sub)
         l.addLayout(bar)
 
+        cfg = QSettings(*SETTINGS)
+        riga = QHBoxLayout()
+        self.chk_auto = QCheckBox("Sposta qui i fumetti sistemati nella lista di lavoro, in cartelle:")
+        self.chk_auto.setChecked(cfg.value("libreria/auto", False, type=bool))
+        self.chk_auto.toggled.connect(lambda on: QSettings(*SETTINGS).setValue("libreria/auto", on))
+        self.schema = QLineEdit(cfg.value("libreria/schema", SCHEMA_PREDEFINITO))
+        self.schema.setToolTip("Campi del ComicInfo.xml tra < >, cartelle separate da /: es. <Publisher>/<Series>.\n"
+                               "Un fumetto senza quei campi resta dov'è.")
+        self.schema.editingFinished.connect(
+            lambda: QSettings(*SETTINGS).setValue("libreria/schema", self.schema.text().strip() or SCHEMA_PREDEFINITO))
+        riga.addWidget(self.chk_auto)
+        riga.addWidget(self.schema, 1)
+        l.addLayout(riga)
+
         actions = QHBoxLayout()
         self.buttons = []
         for text, slot, variant in (("PAGINE", self.open_pages, None),
                                     ("INFO E RINOMINA", self.rename, None),
                                     ("SISTEMA", self.repair, "primary"),
+                                    ("RIORDINA", self.reorder, None),
                                     ("NELLA LISTA", self.to_work_list, None),
                                     ("CESTINA", self.trash, "danger")):
             b = QPushButton(text)
@@ -433,6 +481,39 @@ class LibraryView(QWidget):
             mode = self.win.ask_mode()
             if mode != "cancel":
                 self.win.process_paths(sel, mode == "convert")
+
+    def reorder(self):
+        """Riordina dalle info i fumetti selezionati, con conferma; si annulla dalla Cronologia."""
+        sel = self.selected()
+        if not sel or not self.win._free():
+            return
+        piano, senza_info = piano_spostamenti(self.root, self.schema.text().strip() or SCHEMA_PREDEFINITO, sel)
+        if piano and ConfermaRinomina(piano, self, "Riordina dalle info", f"Spostare {len(piano)} fumetti?",
+                                      "Sposta").exec():
+            self.win._do_renames(piano, history.new_batch())
+            self.win._refresh_undo()
+        self._avvisa_senza_info(senza_info, "" if piano else "Niente da spostare.")
+
+    def auto_move(self, paths):
+        """A fine lavoro: i CBZ sistemati fuori dalla libreria ci finiscono, nelle cartelle dello schema."""
+        if not (self.root and self.chk_auto.isChecked()):
+            return
+        root = os.path.join(os.path.abspath(self.root), "")
+        fuori = [p for p in paths if os.path.exists(p) and not os.path.abspath(p).startswith(root)]
+        piano, senza_info = piano_spostamenti(self.root, self.schema.text().strip() or SCHEMA_PREDEFINITO, fuori)
+        if piano:
+            log.info(f"Libreria: {len(piano)} fumetti spostati nella libreria")
+            self.win._do_renames(piano, history.new_batch())
+            self.win._refresh_undo()
+        self._avvisa_senza_info(senza_info)
+
+    def _avvisa_senza_info(self, senza_info, altrimenti=""):
+        if senza_info:
+            nomi = "\n".join(os.path.basename(p) for p in senza_info[:8])
+            QMessageBox.information(self, "Libreria", f"{len(senza_info)} fumetti non hanno le info dello schema "
+                                    f"«{self.schema.text()}» e restano dove sono:\n{nomi}")
+        elif altrimenti:
+            QMessageBox.information(self, "Libreria", altrimenti)
 
     def to_work_list(self):
         sel = self.selected()
