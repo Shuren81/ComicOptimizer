@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QStyle,
     QSystemTrayIcon,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -42,6 +43,7 @@ from . import aggiorna, history
 from .dialogs import HistoryDialog, LogWindow, MergeDialog, StopDialog
 from .metadata_dialog import ConfermaRinomina, MetadataDialog, in_background
 from .editor import AdvancedEditor
+from .library import LibraryView
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
 from .style import _VisibilityWatcher, set_variant
@@ -266,6 +268,7 @@ class MainWindow(QMainWindow):
             self.current_worker.abort_now()
             # lascia al worker il tempo di cancellare le cartelle temporanee
             self.current_worker.wait(15000)
+        self.library.stop()
         if self._tray:
             self._tray.hide()
         with self._threads_lock:
@@ -596,9 +599,12 @@ class MainWindow(QMainWindow):
         self.top_bar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.top_bar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.top_bar_scroll.setWidget(self.top_bar_w)
-        layout.addWidget(self.top_bar_scroll)
-        # riga tutta sua sotto i pulsanti: aiuto e frase (a riposo), avanzamento e STOP (al lavoro)
+        # riga tutta sua: aiuto e frase (a riposo), avanzamento e STOP (al lavoro), per tutte e due le schede
         layout.addWidget(self.status_stack)
+        work_tab = QWidget()
+        work_l = QVBoxLayout(work_tab)
+        work_l.setContentsMargins(0, 0, 0, 0)
+        work_l.addWidget(self.top_bar_scroll)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -621,7 +627,12 @@ class MainWindow(QMainWindow):
         self.grid_stack.addWidget(self.empty_lbl)
         self.grid_stack.addWidget(self.scroll)
         self.set_drop_style(False)
-        layout.addWidget(self.grid_stack)
+        work_l.addWidget(self.grid_stack)
+        self.library = LibraryView(self)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(work_tab, "Lavoro")
+        self.tabs.addTab(self.library, "📚 Libreria")
+        layout.addWidget(self.tabs)
         self._drag_selector = _DragSelector(self)
 
         footer = QHBoxLayout()
@@ -919,6 +930,7 @@ class MainWindow(QMainWindow):
         self.btn_trash_dupes.setVisible(has_dupes)
         self.last_clicked = None
         self.set_working(False)
+        self.library.refresh()                        # file convertiti, rinominati o cestinati
 
     def show_news(self):
         msg = (f"<b>⚡ ComicOptimizer {APP_VERSION}: la tua libreria in ordine</b><br><br>"
@@ -1544,11 +1556,16 @@ class MainWindow(QMainWindow):
         self.set_drop_style(False)
         urls = [u.toLocalFile() for u in e.mimeData().urls()]
         if urls:
-            self.set_working(True, "Scansione...")
-            iw = ImportWorker(urls)
-            iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))
-            iw.finished.connect(lambda p, s: (self._discard_thread(iw), self.import_files(p),
-                                              self._show_skipped(s)))
-            self._watch_stop(iw)
-            iw.start()
-            self._add_thread(iw)
+            self.import_paths(urls)
+
+    def import_paths(self, urls):
+        """Fumetti e cartelle nella lista di lavoro (trascinati o dalla Libreria)."""
+        self.tabs.setCurrentIndex(0)
+        self.set_working(True, "Scansione...")
+        iw = ImportWorker(urls)
+        iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))
+        iw.finished.connect(lambda p, s: (self._discard_thread(iw), self.import_files(p),
+                                          self._show_skipped(s)))
+        self._watch_stop(iw)
+        iw.start()
+        self._add_thread(iw)

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0] — 2026-11-11
+
+- **Nuovo:** scheda **📚 Libreria**: scegli la cartella dove tieni i fumetti e la vedi nel programma, con l'albero delle cartelle a sinistra e le miniature a destra (anche di tutte le sottocartelle insieme).
+- **Nuovo:** dalla Libreria si aprono le **pagine** (doppio click) e **Info e rinomina**, si sistemano o convertono in WebP i fumetti selezionati, si spostano nel cestino o si portano nella lista di lavoro. Avanzamento e Stop sono quelli di sempre.
+- **Nuovo:** **gestione delle cartelle**: trascina i fumetti su una cartella dell'albero per spostarli (mai sovrascrivendo), crea una nuova cartella o spostane una nel cestino col tasto destro, rinominala con F2.
+- **Nuovo:** le miniature della libreria vengono salvate nella cache del sistema: alla seconda apertura compaiono subito.
+
 ## [3.4.5] — 2026-11-06
 
 - **Corretto:** nella ricerca online i risultati di **tutte** le fonti (ComicVine, MyAnimeList, AniList, come già ComicsBox) vengono messi in ordine di parole in comune con il testo cercato. Cercando il nome del file (`Absolute Wonder Woman 12 As My Mothers Made Me`) l'albo giusto finisce in cima, invece di stare in mezzo all'ordine alfabetico per serie e numero.
