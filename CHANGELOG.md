@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.1] — 2026-11-11
+
+- **Nuovo:** **controllo della libreria** all'avvio: integrità, doppioni (anche in cartelle diverse) e fumetti non ancora in WebP. La prima volta legge tutto (può durare a lungo, si ferma con "Ferma controllo" e riprende da dove era), poi solo i file nuovi o cambiati. Un fumetto spostato o rinominato non viene riletto.
+- **Nuovo:** se trova problemi nuovi chiede cosa fare: **Mostra**, **Converti in WebP**, **Cestina doppioni** o **Più tardi**. Il pulsante **Controlla** lo rifà quando vuoi.
+- **Nuovo:** nella Libreria il filtro mostra i fumetti **da convertire**, i **doppioni** o i **danneggiati** di tutta la libreria; i nomi sono colorati per stato.
+- **Cambiato:** i controlli di integrità e doppioni si salvano su disco (`libreria.json`, accanto alla cronologia delle rinomine): anche l'analisi della lista di lavoro non rilegge i file già controllati.
+
 ## [3.5.0] — 2026-11-11
 
 - **Nuovo:** scheda **📚 Libreria**: scegli la cartella dove tieni i fumetti e la vedi nel programma, con l'albero delle cartelle a sinistra e le miniature a destra (anche di tutte le sottocartelle insieme).

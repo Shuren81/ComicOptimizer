@@ -1,5 +1,7 @@
 """Thread di lavoro (importazione, analisi, elaborazione, miniature...)."""
 
+import hashlib
+import json
 import multiprocessing
 import os
 import shutil
@@ -24,6 +26,7 @@ from .cbz import CBZ_MARK, build_comicinfo, file_status, verify_cbz
 from .epub import epub_meta, epub_problem
 from .config import WEBP_QUALITY
 from .images import _prepare_page
+from . import history
 from .logsetup import log
 from .pdf import fitz
 from .utils import (
@@ -175,26 +178,109 @@ class ImportWorker(_Stoppable):
                 return problem or "illeggibile o senza immagini", flist
         return None, flist
 
-# Risultati dei controlli lenti (integrità + impronta) per file, validi finché il file non
-# cambia (stessa dimensione e data di modifica): dopo un lavoro si rilegge solo ciò che è cambiato.
-# shortcut: resta in memoria per tutta la sessione (poche decine di byte a file), da svuotare se servisse
+# Risultati dei controlli lenti per file: (dimensione, data), integro, impronta, stato. Valgono finché
+# il file non cambia: dopo un lavoro, o al controllo della libreria, si rilegge solo ciò che è cambiato.
+# Si salvano su disco (libreria.json, accanto alla cronologia delle rinomine).
 _ANALYSIS_CACHE = {}
 
+
+def _index_path():
+    return os.path.join(os.path.dirname(os.path.abspath(history.HISTORY_PATH)), "libreria.json")
+
+
+def load_index():
+    """Rilegge i controlli salvati (una volta, all'avvio della libreria)."""
+    try:
+        with open(_index_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        for p, (size, mtime, ok, sig, status) in data.items():
+            _ANALYSIS_CACHE.setdefault(p, ((size, mtime), ok, sig, status))
+    except (OSError, ValueError, TypeError) as e:
+        if not isinstance(e, FileNotFoundError):
+            log.warning(f"Indice della libreria non letto: {e}")
+
+
+def save_index():
+    """Scrittura sicura (.tmp poi sostituzione); i file che non esistono più si tolgono."""
+    data = {p: [k[0], k[1], ok, sig, status]
+            for p, (k, ok, sig, status) in list(_ANALYSIS_CACHE.items()) if os.path.exists(p)}
+    tmp = _index_path() + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, _index_path())
+    except OSError as e:
+        log.warning(f"Indice della libreria non salvato: {e}")
+
+
+def _short_sig(p):
+    """Impronta corta (si confronta solo per uguaglianza): l'elenco delle dimensioni peserebbe troppo."""
+    sig = get_archive_signature(p)
+    return hashlib.sha1(repr(sig).encode()).hexdigest() if sig else None
+
+
+def remember(p, ok=True):
+    """Mette in cache un file appena verificato (es. il CBZ appena creato)."""
+    st = os.stat(p)
+    _ANALYSIS_CACHE[p] = ((st.st_size, st.st_mtime_ns), ok, _short_sig(p) if ok else None,
+                          file_status(p) if ok else None)
+
+
 def _integrity_and_signature(p):
+    """(integro, impronta, stato); dalla cache se il file non è cambiato."""
     if os.path.isdir(p):
-        return check_integrity(p), None              # cartella: nessun costo, niente memoria
+        ok = check_integrity(p)
+        return ok, None, file_status(p) if ok else None   # cartella: nessun costo, niente memoria
     try:
         st = os.stat(p)
         key = (st.st_size, st.st_mtime_ns)
     except OSError:
-        return False, None
+        return False, None, None
     hit = _ANALYSIS_CACHE.get(p)
     if hit and hit[0] == key:
-        return hit[1], hit[2]
+        return hit[1:]
     ok = check_integrity(p)
-    sig = get_archive_signature(p) if ok else None
-    _ANALYSIS_CACHE[p] = (key, ok, sig)
-    return ok, sig
+    sig = _short_sig(p) if ok else None
+    status = file_status(p) if ok else None
+    _ANALYSIS_CACHE[p] = (key, ok, sig, status)
+    return ok, sig, status
+
+
+def classify(paths, checked):
+    """{percorso: stato} e numero di doppioni, dai controlli (integro, impronta, stato) di ogni file.
+    5 = danneggiato, 4 = doppione (stesso nome o stesse pagine), altrimenti lo stato del file."""
+    results, groups, by_sig = {}, {}, {}   # stesso nome (fumetto.cbr + fumetto.cbz) / stesso contenuto
+    for p in paths:
+        is_ok, sig, _status = checked[p]
+        if not is_ok:
+            results[p] = 5
+        else:
+            # una cartella di immagini non è il doppione di un CBZ con lo stesso nome
+            if not os.path.isdir(p):
+                groups.setdefault(cbz_target(p), []).append(p)
+            if sig:
+                by_sig.setdefault(sig, []).append(p)
+
+    def keep_first(x):
+        # Tiene preferibilmente il .cbz che è davvero uno ZIP, poi l'ordine naturale
+        # poi il nome più corto (le copie di solito sono "… (1)", "… - Copia")
+        good_cbz = x.lower().endswith('.cbz') and detect_real_format(x) == 'zip'
+        return (0 if good_cbz else 1, len(os.path.basename(x)), get_natural_sort_key(x))
+
+    dupes_count = 0
+    for ps in list(groups.values()) + list(by_sig.values()):
+        if len(ps) > 1:
+            ps = sorted(ps, key=keep_first)
+            for loser in ps[1:]:
+                if loser not in results:
+                    results[loser] = 4
+                    dupes_count += 1
+                    log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
+                              f"= '{os.path.basename(ps[0])}'")
+    for p in paths:
+        if p not in results:
+            results[p] = checked[p][2]
+    return results, dupes_count
 
 class AnalysisWorker(_Stoppable):
     progress = pyqtSignal(int, int)
@@ -203,7 +289,7 @@ class AnalysisWorker(_Stoppable):
 
     def _check_one(self, p):
         if not self._helper_started():
-            return False, None
+            return False, None, None
         return _integrity_and_signature(p)
 
     def __init__(self, cards_paths):
@@ -211,9 +297,6 @@ class AnalysisWorker(_Stoppable):
         self.paths = cards_paths
 
     def run(self):
-        results = {}
-        groups  = {}     # stesso nome (es. fumetto.cbr + fumetto.cbz)
-        by_sig  = {}     # stesso contenuto (pagine identiche) anche con nomi diversi
         total   = len(self.paths)
         self._started()
         # più controlli insieme: ognuno decomprime un archivio intero su un solo core
@@ -234,40 +317,7 @@ class AnalysisWorker(_Stoppable):
                     _ANALYSIS_CACHE.pop(p, None)
             self.cancelled.emit()
             return
-        for p in self.paths:
-            is_ok, sig = checked[p]
-            if not is_ok:
-                results[p] = 5
-            else:
-                # una cartella di immagini non è il doppione di un CBZ con lo stesso nome
-                if not os.path.isdir(p):
-                    groups.setdefault(cbz_target(p), []).append(p)
-                if sig:
-                    by_sig.setdefault(sig, []).append(p)
-
-        def keep_first(x):
-            # Tiene preferibilmente il .cbz che è davvero uno ZIP, poi l'ordine naturale
-            # poi il nome più corto (le copie di solito sono "… (1)", "… - Copia")
-            good_cbz = x.lower().endswith('.cbz') and detect_real_format(x) == 'zip'
-            return (0 if good_cbz else 1, len(os.path.basename(x)), get_natural_sort_key(x))
-
-        dupes_count = 0
-        for ps in list(groups.values()) + list(by_sig.values()):
-            if len(ps) > 1:
-                ps = sorted(ps, key=keep_first)
-                for loser in ps[1:]:
-                    if loser not in results:
-                        results[loser] = 4
-                        dupes_count += 1
-                        log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
-                                  f"= '{os.path.basename(ps[0])}'")
-
-        # Stato di TUTTI i file integri, dal formato REALE (stessa regola dell'importazione)
-        for p in self.paths:
-            if p not in results:
-                results[p] = file_status(p)
-
-        self.finished.emit(results, dupes_count)
+        self.finished.emit(*classify(self.paths, checked))
 
 class ProcessingWorker(QThread):
     """
@@ -484,8 +534,7 @@ class ProcessingWorker(QThread):
 
                 verify_cbz(tmp_zip, len(pages))
                 self._commit(srcs, final_p, tmp_zip)
-                st = os.stat(final_p)
-                _ANALYSIS_CACHE[final_p] = ((st.st_size, st.st_mtime_ns), True, get_archive_signature(final_p))
+                remember(final_p)
 
                 size_after = os.path.getsize(final_p)
                 summary['done'] += 1

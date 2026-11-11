@@ -76,6 +76,66 @@ def test_vista(app, lib):
     win.close()
 
 
+def test_controllo(app, lib):
+    from comicoptimizer import library, workers
+    a = cbz(os.path.join(lib, "Batman", "Batman 01.cbz"), [(250, 0, 0), (0, 250, 0)])
+    b = os.path.join(lib, "Copie", "Batman 01 (1).cbz")
+    os.makedirs(os.path.dirname(b))
+    shutil.copy(a, b)                                 # stesso contenuto in un'altra cartella
+    c = os.path.join(lib, "Rotto.cbz")
+    open(c, "wb").write(b"PK\x03\x04 non uno zip vero")
+    d = cbz(os.path.join(lib, "Robin 01.cbz"), [(0, 0, 250)])
+
+    letture = []
+    vero = workers.check_integrity
+    workers.check_integrity = lambda p: (letture.append(p), vero(p))[1]
+    try:
+        def controlla():
+            out = []
+            w = library.LibraryScanWorker(lib)
+            w.finished.connect(lambda res, fresh: out.append((res, fresh)))
+            w.run()
+            return out[0]
+
+        res, fresh = controlla()
+        assert res == {a: 1, b: 4, c: 5, d: 1}, res
+        assert sorted(fresh) == sorted([a, b, c, d]) and len(letture) == 4
+
+        # seconda volta: niente da rileggere, anche dopo aver chiuso il programma (indice su disco)
+        workers._ANALYSIS_CACHE.clear()
+        workers.load_index()
+        letture.clear()
+        res, fresh = controlla()
+        assert res == {a: 1, b: 4, c: 5, d: 1} and fresh == [] and letture == [], (res, fresh, letture)
+
+        # un fumetto spostato (o rinominato) fuori dall'app non viene riletto
+        e = os.path.join(lib, "Robin", "Robin 01 - Nuovo nome.cbz")
+        os.makedirs(os.path.dirname(e))
+        os.rename(d, e)
+        res, fresh = controlla()
+        assert res[e] == 1 and d not in res and fresh == [] and letture == [], (res, fresh, letture)
+
+        # cambiato: si rilegge solo lui
+        cbz(e, [(1, 2, 3)])
+        res, fresh = controlla()
+        assert fresh == [e] and letture == [e], (fresh, letture)
+    finally:
+        workers.check_integrity = vero
+
+    # filtro della scheda: i doppioni di tutta la libreria, letti dal controllo
+    from comicoptimizer.main_window import MainWindow
+    win = MainWindow()
+    v = win.library
+    v.set_root(lib)
+    v.results = res
+    v.filtro.setCurrentIndex(2)
+    assert v.paths == [b], v.paths
+    v.filtro.setCurrentIndex(3)
+    assert v.paths == [c] and "danneggiato" in v.list.item(0).toolTip()
+    v.stop()
+    win.close()
+
+
 def main():
     work = tempfile.mkdtemp(prefix="comicopt_library_")
     try:
@@ -87,7 +147,7 @@ def main():
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         from comicoptimizer import history
         history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")
-        for prova in (test_vista,):
+        for prova in (test_vista, test_controllo):
             cartella = os.path.join(work, prova.__name__)
             os.makedirs(cartella)
             prova(app, cartella)

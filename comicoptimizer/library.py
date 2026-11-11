@@ -3,12 +3,14 @@ Le azioni (pagine, info e rinomina, sistema, cestino) sono quelle della finestra
 import hashlib
 import os
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from PyQt6.QtCore import QDir, QMimeData, QSettings, QSize, QStandardPaths, Qt, QUrl
-from PyQt6.QtGui import QIcon, QImage, QPixmap
+from PyQt6.QtCore import QDir, QMimeData, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -30,7 +32,8 @@ from .logsetup import log
 from .metadata_dialog import SETTINGS
 from .style import set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
-from .workers import ThumbWorker
+from . import workers
+from .workers import ThumbWorker, _Stoppable
 
 THUMB_W, THUMB_H = 140, 210
 THUMBS_AT_ONCE = 4
@@ -74,6 +77,81 @@ def list_comics(folder, recursive=False):
     return sorted(found, key=get_natural_sort_key)
 
 
+# stato (vedi classify in workers.py) → (testo, colore) nella griglia
+STATI = {0: ("da sistemare", "#ff9800"), 1: ("CBZ, non WebP", "#ffc107"), 3: ("WebP", None),
+         4: ("doppione", "#e040fb"), 5: ("danneggiato", "#f44336")}
+FILTRI = (("Cartella scelta", None), ("Da convertire in WebP", {0, 1}), ("Doppioni", {4}), ("Danneggiati", {5}))
+
+
+def _cached(p):
+    """True se il controllo del file è già in cache e il file non è cambiato."""
+    hit = workers._ANALYSIS_CACHE.get(p)
+    try:
+        st = os.stat(p)
+    except OSError:
+        return False
+    return bool(hit) and hit[0] == (st.st_size, st.st_mtime_ns)
+
+
+def adopt_moved(paths):
+    """Un file spostato o rinominato (anche fuori dall'app) ha la stessa dimensione e data di uno
+    sparito: riprende il suo controllo invece di essere riletto da capo."""
+    found = set(paths)
+    gone = {k: rest for p, (k, *rest) in list(workers._ANALYSIS_CACHE.items())
+            if p not in found and not os.path.exists(p)}
+    for p in paths:
+        if p not in workers._ANALYSIS_CACHE:
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            key = (st.st_size, st.st_mtime_ns)
+            if key in gone:
+                workers._ANALYSIS_CACHE[p] = (key, *gone.pop(key))
+
+
+class LibraryScanWorker(_Stoppable):
+    """Controlla tutta la libreria: integrità, doppioni, WebP. Rilegge solo i file nuovi o cambiati
+    (gli altri vengono dall'indice su disco), che salva ogni SAVE_EVERY file: uno Stop non perde niente."""
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(dict, list)    # {percorso: stato}, percorsi ricontrollati in questo giro
+    THREADS = 6
+    SAVE_EVERY = 200
+
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+
+    def _check(self, p):
+        if not self._helper_started():
+            return None
+        return workers._integrity_and_signature(p)
+
+    def run(self):
+        self._started()
+        paths = list_comics(self.root, recursive=True)
+        adopt_moved(paths)
+        fresh = [p for p in paths if not _cached(p)]
+        log.info(f"Libreria: {len(paths)} fumetti, {len(fresh)} da controllare")
+        checked = {p: workers._ANALYSIS_CACHE[p][1:] for p in paths if p not in fresh}
+        with ThreadPoolExecutor(self.THREADS) as pool:
+            futures = {pool.submit(self._check, p): p for p in fresh}
+            for n, f in enumerate(as_completed(futures), 1):
+                if self.aborted:
+                    for other in futures:
+                        other.cancel()
+                    break
+                checked[futures[f]] = f.result()
+                self.progress.emit(n, len(fresh))
+                if n % self.SAVE_EVERY == 0:
+                    workers.save_index()
+        workers.save_index()
+        if self.aborted:
+            self.cancelled.emit()
+            return
+        self.finished.emit(workers.classify(paths, checked)[0], fresh)
+
+
 class _ComicList(QListWidget):
     """Griglia di miniature; trascinando i fumetti escono i loro percorsi (per l'albero)."""
 
@@ -93,6 +171,8 @@ class LibraryView(QWidget):
         self.root = QSettings(*SETTINGS).value("libreria/cartella", "") or ""
         self.folder = self.root
         self.paths = []
+        self.results = {}                             # stato di ogni fumetto, dall'ultimo controllo
+        self.scanner = None
         self._queue = deque()
         self._running = set()
         self._placeholder = QPixmap(THUMB_W, THUMB_H)
@@ -107,8 +187,20 @@ class LibraryView(QWidget):
         b_root.clicked.connect(self.choose_root)
         self.chk_sub = QCheckBox("Includi sottocartelle")
         self.chk_sub.toggled.connect(lambda: self.show_folder(self.folder))
+        self.filtro = QComboBox()
+        for testo, _stati in FILTRI:
+            self.filtro.addItem(testo)
+        self.filtro.currentIndexChanged.connect(lambda: self.refresh(force=True))
+        self.lbl_scan = QLabel()
+        self.lbl_scan.setStyleSheet("color: #00e5ff")
+        self.b_scan = QPushButton("Controlla")
+        self.b_scan.setToolTip("Integrità, doppioni e WebP di tutta la libreria (rilegge solo i file cambiati)")
+        self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
         bar.addWidget(b_root)
         bar.addWidget(self.lbl_root, 1)
+        bar.addWidget(self.lbl_scan)
+        bar.addWidget(self.b_scan)
+        bar.addWidget(self.filtro)
         bar.addWidget(self.chk_sub)
         l.addLayout(bar)
 
@@ -192,8 +284,16 @@ class LibraryView(QWidget):
         self.refresh(force=True)
 
     def refresh(self, force=False):
-        """Rilegge la cartella; ricostruisce la griglia solo se i fumetti sono cambiati."""
-        paths = list_comics(self.folder, self.chk_sub.isChecked()) if self.folder else []
+        """Rilegge la cartella; ricostruisce la griglia solo se i fumetti sono cambiati o con `force`.
+        Senza `force` (dopo un lavoro, una rinomina, il cestino) ricontrolla la libreria: solo i file cambiati."""
+        stati = FILTRI[self.filtro.currentIndex()][1]
+        if stati:
+            paths = sorted((p for p, s in self.results.items() if s in stati and os.path.exists(p)),
+                           key=get_natural_sort_key)
+        else:
+            paths = list_comics(self.folder, self.chk_sub.isChecked()) if self.folder else []
+        if not force and self.results:
+            QTimer.singleShot(0, self.scan)           # dopo un lavoro: stati aggiornati (rilegge solo i cambiati)
         if paths == self.paths and not force:
             return
         self.paths = paths
@@ -202,7 +302,10 @@ class LibraryView(QWidget):
         for p in paths:
             item = QListWidgetItem(os.path.basename(p))
             item.setData(Qt.ItemDataRole.UserRole, p)
-            item.setToolTip(p)
+            testo, colore = STATI.get(self.results.get(p), ("", None))
+            item.setToolTip(p + (f"\n{testo}" if testo else ""))
+            if colore:
+                item.setForeground(QBrush(QColor(colore)))
             item.setIcon(QIcon(self._cached_thumb(p) or self._placeholder))
             self.list.addItem(item)
         self._next_thumbs()
@@ -240,8 +343,71 @@ class LibraryView(QWidget):
                 item.setIcon(QIcon(pix))
                 break
 
+    # --- controllo della libreria ---
+
+    def scan(self, always_ask=False):
+        if not self.root or self.scanner:
+            return
+        workers.load_index()
+        self.scanner = LibraryScanWorker(self.root)
+        self.scanner.progress.connect(lambda v, t: self.lbl_scan.setText(f"Controllo: {v}/{t}"))
+        self.scanner.finished.connect(lambda res, fresh: self._scanned(res, fresh, always_ask))
+        self.scanner.cancelled.connect(self._scan_ended)
+        self.b_scan.setText("Ferma controllo")
+        self.b_scan.clicked.disconnect()
+        self.b_scan.clicked.connect(self.scanner.abort)
+        self.lbl_scan.setText("Controllo…")
+        self.scanner.start()
+
+    def _scan_ended(self):
+        self.scanner = None
+        self.lbl_scan.setText("")
+        self.b_scan.setText("Controlla")
+        self.b_scan.clicked.disconnect()
+        self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
+
+    def _scanned(self, results, fresh, always_ask):
+        self._scan_ended()
+        self.results = results
+        self.refresh(force=True)
+        if always_ask or any(results.get(p) in (0, 1, 4, 5) for p in fresh):   # solo problemi nuovi
+            self.report()
+
+    def report(self):
+        """Riepilogo del controllo e cosa fare."""
+        dupes = [p for p, s in self.results.items() if s == 4]
+        broken = [p for p, s in self.results.items() if s == 5]
+        convert = [p for p, s in self.results.items() if s in (0, 1)]
+        if not (dupes or broken or convert):
+            QMessageBox.information(self, "Libreria", f"Tutti i {len(self.results)} fumetti sono in ordine e in WebP.")
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Libreria")
+        box.setText(f"<b>Controllo della libreria: {len(self.results)} fumetti</b><br><br>"
+                    f"Doppioni: <b>{len(dupes)}</b><br>Danneggiati: <b>{len(broken)}</b><br>"
+                    f"Da convertire in WebP: <b>{len(convert)}</b>")
+        b_show = box.addButton("Mostra", QMessageBox.ButtonRole.AcceptRole)
+        b_conv = box.addButton(f"Converti in WebP ({len(convert)})", QMessageBox.ButtonRole.ActionRole) if convert else None
+        b_dup = box.addButton(f"Cestina doppioni ({len(dupes)})", QMessageBox.ButtonRole.ActionRole) if dupes else None
+        box.addButton("Più tardi", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_show:
+            self.win.tabs.setCurrentWidget(self)
+            self.filtro.setCurrentIndex(next(i for i, (_t, st) in enumerate(FILTRI)
+                                             if st and any(self.results[p] in st for p in dupes + broken + convert)))
+        elif clicked is b_conv and self.win._free():
+            self.win.process_paths(convert, True)
+        elif clicked is b_dup and self.win._free() and QMessageBox.question(
+                self, "Cestina doppioni", f"Spostare nel cestino {len(dupes)} doppioni?\n"
+                "Di ogni gruppo resta il CBZ con il nome più corto.") == QMessageBox.StandardButton.Yes:
+            self.win.trash_files(dupes)
+
     def stop(self):
-        """Alla chiusura: niente miniature nuove, attesa di quelle in corso."""
+        """Alla chiusura: niente miniature nuove, controllo fermato, attesa dei thread."""
+        if self.scanner:
+            self.scanner.abort()
+            self.scanner.wait(15000)
         self._queue.clear()
         for w in list(self._running):
             w.wait(2000)
