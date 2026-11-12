@@ -14,6 +14,9 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QSpinBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -34,9 +37,8 @@ from PyQt6.QtGui import QFileSystemModel
 
 from .logsetup import log
 from .comicinfo import nome_da_schema, togli_tag_schema
-from .config import WEBP_LIVELLI
-from .images import webp_quality
-from .metadata_dialog import SETTINGS, ConfermaRinomina, leggi_dati
+from .config import MINIATURE, WEBP_LATI, WEBP_LIVELLI, WEBP_QUALITY, opzione
+from .metadata_dialog import CAMPI_TESTO, SETTINGS, ConfermaRinomina, leggi_dati
 from .style import set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
 from . import history, workers
@@ -202,13 +204,16 @@ def impostazione(chiave):
 
 
 class OpzioniLibreria(QDialog):
-    """Cartella della libreria, spostamento automatico e schema delle cartelle."""
+    """Le Opzioni del programma: libreria, conversione, rinomina."""
 
     def __init__(self, view):
         super().__init__(view)
         self.setWindowTitle("Opzioni")
-        self.setMinimumWidth(620)
-        f = QFormLayout(self)
+        self.setMinimumWidth(680)
+        l = QVBoxLayout(self)
+        self.bottoni = {}                             # (campo di schema) → tasto: verde se c'è
+
+        f = self._gruppo(l, "Libreria")
         riga = QHBoxLayout()
         self.cartella = QLineEdit(view.root)
         self.cartella.setPlaceholderText("La cartella dove tieni i fumetti")
@@ -216,75 +221,116 @@ class OpzioniLibreria(QDialog):
         b.clicked.connect(self._scegli)
         riga.addWidget(self.cartella, 1)
         riga.addWidget(b)
-        f.addRow("Libreria:", riga)
-
-        self.auto = QCheckBox("Sposta nella libreria i fumetti sistemati nella lista di lavoro")
-        self.auto.setChecked(impostazione("auto"))
-        f.addRow(self.auto)
-
+        f.addRow("Cartella:", riga)
+        self.auto = self._casella(f, "Sposta nella libreria i fumetti sistemati nella lista di lavoro", "libreria/auto")
         self.schema = QLineEdit(impostazione("schema"))
         self.schema.setToolTip("Campi del ComicInfo.xml tra < >, cartelle separate da /.\n"
                                "I campi vuoti spariscono; un fumetto senza nessuno di quei campi resta dov'è.")
         f.addRow("Cartelle:", self.schema)
-        tasti = QHBoxLayout()
-        self.bottoni = {}
-        for campo in CAMPI_CARTELLE:
-            b = QPushButton(f"+{campo}")
-            b.setProperty("sz", "small")
-            b.setAutoDefault(False)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # il cursore resta nello schema
-            b.clicked.connect(lambda _on, c=campo: self.inverti(c))
-            tasti.addWidget(b)
-            self.bottoni[campo] = b
-        b = QPushButton("+ /")
-        b.setProperty("sz", "small")
-        b.setToolTip("Sottocartella")
-        b.setAutoDefault(False)
-        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        b.clicked.connect(lambda: self.schema.insert("/"))
-        tasti.addWidget(b)
-        f.addRow("", tasti)
+        f.addRow("", self._tasti(self.schema, CAMPI_CARTELLE, sottocartella=True))
+        self.avvio = self._casella(f, "Controlla la libreria all'avvio (solo i file cambiati)",
+                                   "libreria/controllo_avvio", True)
+        self.miniature = self._scelta(f, "Miniature:", MINIATURE, "libreria/miniature", 140)
 
-        self.qualita = QComboBox()
-        for testo, q in WEBP_LIVELLI:
-            self.qualita.addItem(f"{testo} — qualità {q}", q)
-        self.qualita.setCurrentIndex(max(0, self.qualita.findData(webp_quality())))
-        self.qualita.setToolTip("Per le pagine convertite in WebP da ora in poi; quelle già WebP non si ricomprimono")
-        f.addRow("WebP:", self.qualita)
-        self.schema.textChanged.connect(self._colori)
-        self._colori()
+        f = self._gruppo(l, "Conversione in WebP")
+        self.qualita = self._scelta(f, "Qualità:", [(f"{t} — qualità {q}", q) for t, q in WEBP_LIVELLI],
+                                    "webp/qualita", WEBP_QUALITY)
+        self.lato = self._scelta(f, "Lato massimo:", WEBP_LATI, "webp/lato", 0)
+        self.lato.setToolTip("Le pagine più grandi vengono ridotte (proporzioni intatte)")
+        self.ricomprimi = self._casella(f, "Ricomprimi anche le pagine già in WebP", "webp/ricomprimi")
+        self.cancella = self._casella(f, "Cancella gli originali invece di spostarli nel cestino "
+                                         "(definitivo, dopo la verifica del CBZ)", "lavoro/cancella_originali")
+        self.processi = QSpinBox()
+        self.processi.setRange(0, os.cpu_count() or 1)
+        self.processi.setSpecialValueText("Tutti meno uno")
+        self.processi.setValue(opzione("lavoro/processi", 0))
+        self.processi.setToolTip("Meno processi: conversione più lenta, ma il PC resta più usabile")
+        f.addRow("Processi:", self.processi)
+
+        f = self._gruppo(l, "Info e rinomina")
+        self.rinomina = QLineEdit(opzione("metadati/schema_predefinito", ""))
+        self.rinomina.setPlaceholderText("Vuoto: l'ultimo usato")
+        self.rinomina.setToolTip("Lo schema proposto aprendo Info e rinomina")
+        f.addRow("Schema:", self.rinomina)
+        f.addRow("", self._tasti(self.rinomina, [c for c in CAMPI_TESTO if c != "Summary"]))
 
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
-        f.addRow(bb)
+        l.addWidget(bb)
+
+    def _gruppo(self, l, titolo):
+        g = QGroupBox(titolo)
+        l.addWidget(g)
+        return QFormLayout(g)
+
+    def _casella(self, f, testo, chiave, predefinito=False):
+        c = QCheckBox(testo)
+        c.setChecked(opzione(chiave, predefinito))
+        c.setProperty("chiave", chiave)
+        f.addRow(c)
+        return c
+
+    def _scelta(self, f, etichetta, voci, chiave, predefinito):
+        c = QComboBox()
+        for testo, valore in voci:
+            c.addItem(testo, valore)
+        c.setCurrentIndex(max(0, c.findData(opzione(chiave, predefinito))))
+        c.setProperty("chiave", chiave)
+        f.addRow(etichetta, c)
+        return c
+
+    def _tasti(self, edit, campi, sottocartella=False):
+        """Tasti +Campo che aggiungono o tolgono il campo dallo schema (verdi se c'è)."""
+        g = QGridLayout()
+        tasti = [(f"+{c}", c) for c in campi] + ([("+ /", None)] if sottocartella else [])
+        for n, (testo, campo) in enumerate(tasti):
+            b = QPushButton(testo)
+            b.setProperty("sz", "small")
+            b.setAutoDefault(False)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # il cursore resta nello schema
+            if campo:
+                b.clicked.connect(lambda _on, c=campo: self.inverti(c, edit))
+                self.bottoni[(edit, campo)] = b
+            else:
+                b.setToolTip("Sottocartella")
+                b.clicked.connect(lambda: edit.insert("/"))
+            g.addWidget(b, n // 7, n % 7)
+        edit.textChanged.connect(self._colori)
+        self._colori()
+        return g
 
     def _scegli(self):
         folder = QFileDialog.getExistingDirectory(self, "Cartella della libreria", self.cartella.text())
         if folder:
             self.cartella.setText(folder)
 
-    def inverti(self, campo):
-        schema = self.schema.text()
+    def inverti(self, campo, edit=None):
+        edit = edit or self.schema
+        schema = edit.text()
         if f"<{campo}>" in schema:
-            self.schema.setText(togli_tag_schema(schema, campo).strip("/ "))
+            edit.setText(togli_tag_schema(schema, campo).strip("/ "))
         else:
-            self.schema.insert(f"<{campo}>")
+            edit.insert(f"<{campo}>")
 
     def _colori(self):
-        for campo, b in self.bottoni.items():
-            set_variant(b, "success" if f"<{campo}>" in self.schema.text() else "")
+        for (edit, campo), b in self.bottoni.items():
+            set_variant(b, "success" if f"<{campo}>" in edit.text() else "")
 
     def accept(self):
         folder = self.cartella.text().strip()
         if folder and not os.path.isdir(folder):
-            QMessageBox.warning(self, "Libreria", "La cartella non esiste.")
+            QMessageBox.warning(self, "Opzioni", "La cartella della libreria non esiste.")
             return
         cfg = QSettings(*SETTINGS)
-        cfg.setValue("libreria/auto", self.auto.isChecked())
-        cfg.setValue("webp/qualita", self.qualita.currentData())
-        cfg.setValue("libreria/schema", self.schema.text().strip() or SCHEMA_PREDEFINITO)
         cfg.setValue("libreria/cartella", folder)
+        cfg.setValue("libreria/schema", self.schema.text().strip() or SCHEMA_PREDEFINITO)
+        cfg.setValue("metadati/schema_predefinito", self.rinomina.text().strip())
+        cfg.setValue("lavoro/processi", self.processi.value())
+        for c in self.findChildren(QCheckBox):
+            cfg.setValue(c.property("chiave"), c.isChecked())
+        for c in self.findChildren(QComboBox):
+            cfg.setValue(c.property("chiave"), c.currentData())
         super().accept()
 
 
@@ -311,8 +357,6 @@ class LibraryView(QWidget):
         self.scanner = None
         self._queue = deque()
         self._running = set()
-        self._placeholder = QPixmap(THUMB_W, THUMB_H)
-        self._placeholder.fill(Qt.GlobalColor.darkGray)
 
         l = QVBoxLayout(self)
         l.setContentsMargins(0, 0, 0, 0)
@@ -389,8 +433,7 @@ class LibraryView(QWidget):
         self.list = _ComicList()
         self.list.setViewMode(QListView.ViewMode.IconMode)
         self.list.setResizeMode(QListView.ResizeMode.Adjust)
-        self.list.setIconSize(QSize(THUMB_W, THUMB_H))
-        self.list.setGridSize(QSize(THUMB_W + 24, THUMB_H + 48))
+        self.set_thumb_size()
         # sempre: la finestra è stretta sulle colonne, la barra che compare dopo ne farebbe andare a capo una
         self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.list.setWordWrap(True)
@@ -414,10 +457,14 @@ class LibraryView(QWidget):
 
     def options(self):
         if OpzioniLibreria(self).exec():
+            self.set_thumb_size()
             folder = QSettings(*SETTINGS).value("libreria/cartella", "") or ""
             if folder != self.root:
                 self.set_root(folder)
                 self.scan()
+            else:
+                self.refresh(force=True)
+            self.win.refresh_grid()                   # larghezza della finestra sulle nuove miniature
 
     def eventFilter(self, obj, ev):
         # file trascinati da fuori sull'albero: nella lista di lavoro, non spostati nella libreria
@@ -435,6 +482,15 @@ class LibraryView(QWidget):
         if folder:
             self.tree.setRootIndex(self.model.setRootPath(folder))
         self.show_folder(folder)
+
+    def set_thumb_size(self):
+        """Dimensione delle miniature scelta nelle Opzioni (la cache è al doppio: nitide anche grandi)."""
+        w = opzione("libreria/miniature", THUMB_W)
+        h = w * THUMB_H // THUMB_W
+        self.list.setIconSize(QSize(w, h))
+        self.list.setGridSize(QSize(w + 24, h + 48))
+        self._placeholder = QPixmap(w, h)
+        self._placeholder.fill(Qt.GlobalColor.darkGray)
 
     def go_root(self):
         self.tree.setCurrentIndex(QModelIndex())      # niente cartella scelta: show_folder(root)

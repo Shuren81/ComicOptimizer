@@ -245,6 +245,17 @@ def test_sposta(app, work):
     o.accept()
     assert impostazione("auto") and impostazione("schema") == "<Publisher>/<Series>"
     assert webp_quality() == 75 and OpzioniLibreria(v).qualita.currentIndex() == 0
+    o = OpzioniLibreria(v)
+    o.miniature.setCurrentIndex(2)
+    o.inverti("Number", o.rinomina)
+    o.rinomina.insert(" - ")
+    o.inverti("Title", o.rinomina)
+    o.accept()
+    v.set_thumb_size()
+    assert v.list.iconSize().width() == 180 and v.list.gridSize().width() == 204
+    md = metadata_dialog.MetadataDialog([dentro], win)
+    assert md.schema.currentText() == "<Number> - <Title>", md.schema.currentText()
+    md.reject()
     v.auto_move([a, senza, dentro])
     nuovo = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
     assert os.path.exists(nuovo) and not os.path.exists(a) and os.path.exists(gia), "mai sovrascrivere"

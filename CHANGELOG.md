@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0] — 2026-11-12
+
+- **Nuovo:** la finestra **Opzioni** diventa quella di tutto il programma, in tre parti:
+  - **Libreria:** cartella, spostamento automatico, schema delle cartelle, **controllo all'avvio** (sì/no) e **dimensione delle miniature** (piccole, medie, grandi).
+  - **Conversione in WebP:** qualità, **lato massimo** delle pagine (originale, 3200, 2560, 1920 px: le più grandi si riducono), **ricompressione delle pagine già in WebP**, **originali cancellati** invece che nel cestino (dopo la verifica del CBZ) e **numero di processi** (di serie tutti meno uno).
+  - **Info e rinomina:** lo **schema proposto** all'apertura, con i tasti dei campi; vuoto, resta l'ultimo usato.
+
 ## [3.5.7] — 2026-11-12
 
 - **Nuovo:** nelle **Opzioni** la qualità WebP: **File piccoli** (75, più compressione), **Medio** (85, come prima) o **Alta qualità** (92, file più grandi). Vale per le pagine convertite da ora in poi, anche nell'editor delle pagine; quelle già in WebP non si ricomprimono.

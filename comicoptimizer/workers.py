@@ -24,6 +24,7 @@ from .archives import (
 )
 from .cbz import CBZ_MARK, build_comicinfo, file_status, verify_cbz
 from .epub import epub_meta, epub_problem
+from .config import opzione
 from .images import _prepare_page, webp_quality
 from . import history
 from .logsetup import log
@@ -376,7 +377,8 @@ class ProcessingWorker(QThread):
         pool = None
         try:
             if self.to_webp:
-                workers = max(1, (os.cpu_count() or 2) - 1)   # un core libero per l'interfaccia
+                # 0 = tutti meno uno: un core libero per l'interfaccia
+                workers = opzione("lavoro/processi", 0) or max(1, (os.cpu_count() or 2) - 1)
                 pool = ProcessPoolExecutor(max_workers=workers,
                                            mp_context=multiprocessing.get_context("spawn"))
                 log.info(f"Conversione WebP su {workers} processi paralleli")
@@ -565,8 +567,8 @@ class ProcessingWorker(QThread):
         """Prepara le pagine numerate 0001, 0002... Restituisce None se interrotto."""
         n    = len(img_list)
         name = os.path.basename(orig_p)
-        quality = webp_quality()
-        jobs = [(src, os.path.join(out, f"{i + 1:04d}"), self.to_webp, quality)
+        extra = (webp_quality(), opzione("webp/lato", 0), opzione("webp/ricomprimi", False))
+        jobs = [(src, os.path.join(out, f"{i + 1:04d}"), self.to_webp, *extra)
                 for i, src in enumerate(img_list)]
         results = [None] * n
 
@@ -605,7 +607,7 @@ class ProcessingWorker(QThread):
         if os.path.exists(final_p):
             # file che verrà sostituito (originale .cbz o "Sovrascrivi"): nel cestino,
             # oppure, se il cestino non c'è, messo da parte con un nome .bak (mai perso)
-            if not _trash_file_cross_platform(final_p):
+            if not _togli_originale(final_p):
                 bak = _free_name(final_p + ".bak")
                 os.replace(final_p, bak)
                 log.warning(f"  Cestino non disponibile: il vecchio file è conservato come "
@@ -614,12 +616,24 @@ class ProcessingWorker(QThread):
         for orig_p in srcs:
             if not os.path.exists(orig_p) or os.path.samefile(orig_p, final_p):
                 continue
-            if _trash_file_cross_platform(orig_p):
-                log.info(f"  Originale spostato nel cestino: '{os.path.basename(orig_p)}'")
+            if _togli_originale(orig_p):
+                log.info(f"  Originale tolto: '{os.path.basename(orig_p)}'")
             else:
                 # mai cancellazioni definitive: l'originale resta dov'è
                 log.warning(f"  Cestino non disponibile: originale lasciato al suo posto "
                             f"'{os.path.basename(orig_p)}'")
+
+def _togli_originale(path):
+    """Originale già sostituito da un CBZ verificato: nel cestino, o cancellato se scelto nelle Opzioni."""
+    if not opzione("lavoro/cancella_originali", False):
+        return _trash_file_cross_platform(path)
+    try:
+        shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
+        return True
+    except OSError as e:
+        log.warning(f"  Originale non cancellato '{path}': {e}")
+        return False
+
 
 def _free_name(path):
     """`path`, o `path.1`, `path.2`… se esiste già: per non sovrascrivere nulla."""

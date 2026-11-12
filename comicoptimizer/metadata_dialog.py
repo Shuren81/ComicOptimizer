@@ -55,7 +55,7 @@ from .style import set_variant
 from .utils import cbz_target, get_natural_sort_key, split_name
 from .workers import ThumbWorker
 
-from .config import SETTINGS  # noqa: E402  (qui la importano gli altri moduli)
+from .config import SETTINGS, opzione  # noqa: E402  (SETTINGS qui la importano gli altri moduli)
 SCHEMA_PREDEFINITO = "<Series> - <Number> - <Title>"
 SCHEMI_MAX = 10
 MANGA_SI = "YesAndRightToLeft"                 # i manga si leggono da destra a sinistra
@@ -688,7 +688,9 @@ class MetadataDialog(QDialog):
         self.schema.setEditable(True)
         self.schema.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         recenti = _settings().value("metadati/schemi_recenti", [], type=list)
-        self.schema.addItems(recenti or [SCHEMA_PREDEFINITO])
+        scelto = opzione("metadati/schema_predefinito", "")   # dalle Opzioni: sempre il primo
+        recenti = recenti or [SCHEMA_PREDEFINITO]
+        self.schema.addItems([scelto] + [s for s in recenti if s != scelto] if scelto else recenti)
         self.schema.lineEdit().setCursorPosition(len(self.schema.currentText()))
         self.schema.currentTextChanged.connect(self._aggiorna_anteprime)
         riga.addWidget(self.schema, 1)

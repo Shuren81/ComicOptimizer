@@ -5,13 +5,12 @@ import shutil
 
 from PIL import Image
 
-from .config import SETTINGS, WEBP_MAX_SIDE, WEBP_QUALITY
+from .config import WEBP_MAX_SIDE, WEBP_QUALITY, opzione
 
 
 def webp_quality():
     """Qualità WebP scelta nelle Opzioni (Medio se mai scelta)."""
-    from PyQt6.QtCore import QSettings
-    return QSettings(*SETTINGS).value("webp/qualita", WEBP_QUALITY, type=int)
+    return opzione("webp/qualita", WEBP_QUALITY)
 
 # --- ELABORAZIONE PAGINE (eseguita in processi separati, su più core) ---
 
@@ -38,30 +37,39 @@ def _to_saveable_rgb(img):
 
 def _prepare_page(job):
     """
-    job = (sorgente, destinazione_senza_estensione, to_webp, qualità)
+    job = (sorgente, destinazione_senza_estensione, to_webp, qualità[, lato_massimo, ricomprimi_webp])
+    lato_massimo 0 = dimensione originale.
     Restituisce (file_scritto, nota). La nota spiega perché una pagina è stata
     lasciata nel formato originale (None se tutto normale).
     Una pagina problematica NON fa più fallire l'intero fumetto.
     """
-    src, dst_base, to_webp, quality = job
+    src, dst_base, to_webp, quality, max_side, redo = (*job, 0, False)[:6]
     src_ext = os.path.splitext(src)[1].lower() or ".jpg"
     keep = dst_base + src_ext
 
     if not to_webp:
         shutil.copy2(src, keep)
         return keep, None
-    if src_ext == ".webp":
-        shutil.copy2(src, keep)            # già WebP: niente ricompressione
-        return keep, None
+    if src_ext == ".webp" and not redo:
+        try:
+            with Image.open(src) as img:
+                fits = not max_side or max(img.size) <= max_side
+        except Exception:
+            fits = True
+        if fits:
+            shutil.copy2(src, keep)        # già WebP: niente ricompressione
+            return keep, None
 
     dst = dst_base + ".webp"
     try:
         with Image.open(src) as img:
-            if max(img.size) > WEBP_MAX_SIDE:
+            if max(img.size) > WEBP_MAX_SIDE and not max_side:
                 shutil.copy2(src, keep)
                 return keep, "troppo grande per WebP"
             img.load()
             rgb = _to_saveable_rgb(img)
+            if max_side and max(rgb.size) > max_side:
+                rgb.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
             rgb.save(dst, "WEBP", quality=quality, method=4)
         return dst, None
     except Exception as e:

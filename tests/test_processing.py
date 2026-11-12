@@ -23,6 +23,19 @@ def main(work):
     scritto, nota = _prepare_page((leggera, os.path.join(work, "leggera_out"), True, WEBP_QUALITY))
     assert scritto.endswith(".webp") and nota is None and os.path.getsize(scritto) > os.path.getsize(leggera)
 
+    # Opzioni: lato massimo (anche per i WebP già fatti) e ricompressione dei WebP
+    grande = os.path.join(work, "grande.webp")
+    Image.effect_noise((1000, 1500), 100).convert("RGB").save(grande, quality=95)
+    out = lambda n: os.path.join(work, n)
+    scritto, _ = _prepare_page((grande, out("g1"), True, WEBP_QUALITY))
+    assert Image.open(scritto).size == (1000, 1500), "di serie un WebP si copia com'è"
+    scritto, _ = _prepare_page((grande, out("g2"), True, WEBP_QUALITY, 600, False))
+    assert Image.open(scritto).size == (400, 600), "più grande del lato massimo: ridotto"
+    scritto, _ = _prepare_page((grande, out("g3"), True, 50, 0, True))
+    assert os.path.getsize(scritto) < os.path.getsize(grande), "ricompresso con qualità più bassa"
+    scritto, _ = _prepare_page((grande, out("g4"), True, WEBP_QUALITY, 2000, False))
+    assert open(scritto, "rb").read() == open(grande, "rb").read(), "entra nel lato: copiato"
+
     from PIL import Image
     import pymupdf
     from PyQt6.QtWidgets import QApplication
@@ -40,6 +53,16 @@ def main(work):
         shutil.move(p, os.path.join(trash, os.path.basename(p)))
         return True
     workers._trash_file_cross_platform = fake_trash
+
+    # Opzioni: originali cancellati invece che nel cestino (file e cartelle di immagini)
+    vera_opzione = workers.opzione
+    workers.opzione = lambda k, d: True if k == "lavoro/cancella_originali" else d
+    f, d = os.path.join(work, "via.cbr"), os.path.join(work, "via_dir")
+    open(f, "w").close()
+    os.makedirs(os.path.join(d, "sub"))
+    assert workers._togli_originale(f) and workers._togli_originale(d)
+    assert not os.path.exists(f) and not os.path.exists(d) and not os.listdir(trash)
+    workers.opzione = vera_opzione
 
     def png(path, color):
         os.makedirs(os.path.dirname(path), exist_ok=True)

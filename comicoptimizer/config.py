@@ -4,13 +4,21 @@ import os
 import sys
 
 # --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
-APP_VERSION = "3.5.7"
+APP_VERSION = "3.6.0"
 
 # --- COSTANTI ELABORAZIONE ---
 WEBP_QUALITY  = 85       # qualità WebP (0-100), il livello Medio
 WEBP_LIVELLI  = (("File piccoli (più compressione)", 75), ("Medio", WEBP_QUALITY),
                  ("Alta qualità (file più grandi)", 92))
+WEBP_LATI     = (("Originale", 0), ("3200 px", 3200), ("2560 px", 2560), ("1920 px", 1920))
+MINIATURE     = (("Piccole", 110), ("Medie", 140), ("Grandi", 180))   # larghezza nella Libreria
 SETTINGS      = ("Shuren", "ComicOptimizer")   # QSettings dell'app
+
+
+def opzione(chiave, predefinito):
+    """Un'opzione scelta nella finestra Opzioni, del tipo di `predefinito`."""
+    from PyQt6.QtCore import QSettings
+    return QSettings(*SETTINGS).value(chiave, predefinito, type=type(predefinito))
 
 WEBP_MAX_SIDE = 16383    # limite del formato WebP per lato
 

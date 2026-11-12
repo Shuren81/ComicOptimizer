@@ -233,7 +233,8 @@ class MainWindow(QMainWindow):
         self.ironic_lbl.setText(random.choice(frasi))
         history.prune()
         self._refresh_undo()                          # l'ultima rinomina si annulla anche dopo un riavvio
-        QTimer.singleShot(1500, self.library.scan)    # controllo della libreria (solo i file cambiati)
+        if config.opzione("libreria/controllo_avvio", True):
+            QTimer.singleShot(1500, self.library.scan)    # controllo della libreria (solo i file cambiati)
         log.info(f"ComicOptimizer v{APP_VERSION} avviato.")
 
     # --- Helpers thread-safe per active_threads ---
