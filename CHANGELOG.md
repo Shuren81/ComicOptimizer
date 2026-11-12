@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.6.1] — 2026-11-12
+
+- **Cambiato:** la Libreria è alta tre righe intere di copertine (meno se lo schermo è basso; prima si abbassa il banner) e si ridimensiona quando cambi la dimensione delle miniature: mai copertine tagliate.
+- **Cambiato:** nelle Opzioni il lato massimo diventa **"Leggi su:"**, con i dispositivi (iPad, tablet, telefono, monitor) e una spiegazione di cosa fa e quale scegliere.
+
 ## [3.6.0] — 2026-11-12
 
 - **Nuovo:** la finestra **Opzioni** diventa quella di tutto il programma, in tre parti:

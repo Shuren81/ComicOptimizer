@@ -66,6 +66,8 @@ def test_vista(app, lib):
     win.show()
     win.show_view(v)
     assert attendi(app, lambda: v.list.viewport().width() % v.list.gridSize().width() <= 8)
+    assert attendi(app, lambda: (v.list.viewport().height() - 8) % v.list.gridSize().height() == 0), \
+        "in altezza righe intere di copertine"
     assert win.title_lbl.pixmap().width() < win.width(), "il banner sta nella finestra stretta"
     win.hide()
 

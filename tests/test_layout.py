@@ -75,7 +75,7 @@ def main(work):
     # schermo minuscolo: almeno una colonna
     fake_screen(150)
     assert w._cols_fit_screen() == 1
-    fake_screen(1920)
+    fake_screen(1920, 2000)   # alto: tre righe della Libreria senza abbassare il banner
     banner_and_empty_grid(work)
     print("TUTTO OK")
 

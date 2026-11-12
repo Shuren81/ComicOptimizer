@@ -182,6 +182,9 @@ class _EmptyArea(QWidget):
 
 # --- MAIN WINDOW ---
 
+LIBRARY_ROWS = 3   # righe di copertine visibili nella Libreria
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -439,6 +442,22 @@ class MainWindow(QMainWindow):
                 self.title_lbl.setPixmap(self._banner.scaledToWidth(
                     min(self.title_lbl.pixmap().width(), self.width() - m.left() - m.right()),
                     Qt.TransformationMode.SmoothTransformation))
+        # in altezza: LIBRARY_ROWS righe intere (meno se lo schermo è basso), mai copertine tagliate
+        self.centralWidget().layout().activate()
+        gh = lst.gridSize().height()
+        other = self.height() - lst.viewport().height()
+        free = QApplication.primaryScreen().availableGeometry().height() - (self.frameGeometry().height() - self.height())
+        need = other + LIBRARY_ROWS * gh + 8 - free
+        pix = self.title_lbl.pixmap()
+        if need > 0 and not self._banner.isNull():   # come con le card: prima si abbassa il banner
+            self.title_lbl.setPixmap(self._banner.scaledToHeight(
+                max(40, pix.height() - need), Qt.TransformationMode.SmoothTransformation))
+            self.centralWidget().layout().activate()
+            other = self.height() - lst.viewport().height()
+        rows = LIBRARY_ROWS
+        while rows > 1 and other + rows * gh + 8 > free:
+            rows -= 1
+        self.setFixedHeight(other + rows * gh + 8)
 
     def _fit_height(self):
         """Con dei fumetti, una fila intera di card deve stare senza barra di scorrimento:

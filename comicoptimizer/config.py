@@ -4,13 +4,18 @@ import os
 import sys
 
 # --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
-APP_VERSION = "3.6.0"
+APP_VERSION = "3.6.1"
 
 # --- COSTANTI ELABORAZIONE ---
 WEBP_QUALITY  = 85       # qualità WebP (0-100), il livello Medio
 WEBP_LIVELLI  = (("File piccoli (più compressione)", 75), ("Medio", WEBP_QUALITY),
                  ("Alta qualità (file più grandi)", 92))
-WEBP_LATI     = (("Originale", 0), ("3200 px", 3200), ("2560 px", 2560), ("1920 px", 1920))
+# lato lungo dello schermo su cui si legge: oltre, la pagina pesa di più ma non si vede meglio
+WEBP_LATI     = (("Nessuna riduzione (pagine originali)", 0),
+                 ("2732 px — iPad Pro 12,9″, monitor 4K", 2732),
+                 ("2388 px — iPad Air/Pro 11″, iPad 10ª gen., tablet Android 11″", 2388),
+                 ("2048 px — iPad 9,7″ (2012-2018), iPad mini, tablet da 10″", 2048),
+                 ("1920 px — telefono, monitor Full HD", 1920))
 MINIATURE     = (("Piccole", 110), ("Medie", 140), ("Grandi", 180))   # larghezza nella Libreria
 SETTINGS      = ("Shuren", "ComicOptimizer")   # QSettings dell'app
 

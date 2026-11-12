@@ -235,8 +235,14 @@ class OpzioniLibreria(QDialog):
         f = self._gruppo(l, "Conversione in WebP")
         self.qualita = self._scelta(f, "Qualità:", [(f"{t} — qualità {q}", q) for t, q in WEBP_LIVELLI],
                                     "webp/qualita", WEBP_QUALITY)
-        self.lato = self._scelta(f, "Lato massimo:", WEBP_LATI, "webp/lato", 0)
-        self.lato.setToolTip("Le pagine più grandi vengono ridotte (proporzioni intatte)")
+        self.lato = self._scelta(f, "Leggi su:", WEBP_LATI, "webp/lato", 0)
+        aiuto = QLabel("Le pagine più grandi dello schermo su cui leggi vengono rimpicciolite (proporzioni "
+                       "intatte): stessa nitidezza a schermo intero, file molto più leggeri. Scegli il "
+                       "dispositivo più grande che usi; se ingrandisci spesso le pagine, quello sopra. "
+                       "Per un iPad del 2018 (9,7″, 2048×1536): 2048 px.")
+        aiuto.setWordWrap(True)
+        aiuto.setStyleSheet("color: #aaa; font-size: 11px")
+        f.addRow("", aiuto)
         self.ricomprimi = self._casella(f, "Ricomprimi anche le pagine già in WebP", "webp/ricomprimi")
         self.cancella = self._casella(f, "Cancella gli originali invece di spostarli nel cestino "
                                          "(definitivo, dopo la verifica del CBZ)", "lavoro/cancella_originali")
