@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.6.3] — 2026-11-12
+
+- **Nuovo:** il riepilogo di fine lavoro mostra la dimensione delle pagine (la più grande): com'era e com'è diventata, oppure che non è stata modificata.
+
 ## [3.6.2] — 2026-11-12
 
 - **Cambiato:** il log scrive con che opzioni parte la conversione (qualità, lato massimo, WebP già fatti ricompressi o copiati).

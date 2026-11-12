@@ -372,6 +372,7 @@ class ProcessingWorker(QThread):
             'total': len(self.tasks), 'done': 0, 'skipped': 0,
             'errors': [], 'pages_kept': 0,
             'size_before': 0, 'size_after': 0,
+            'page_size': None,                 # (prima, dopo) della pagina più grande, per il riepilogo
             'aborted': False, 'start': time.time(),
         }
         pool = None
@@ -603,6 +604,15 @@ class ProcessingWorker(QThread):
         for note, count in notes.items():
             log.info(f"  {count} pagine lasciate nel formato originale: {note}")
             summary['pages_kept'] += count
+        for src, (dst, _note) in zip(img_list, results):
+            try:
+                with Image.open(src) as a, Image.open(dst) as b:   # solo l'intestazione: veloce
+                    before, after = a.size, b.size
+            except Exception:
+                continue
+            old = summary['page_size']
+            if not old or before[0] * before[1] > old[0][0] * old[0][1]:
+                summary['page_size'] = (before, after)
         return [r[0] for r in results]
 
     def _commit(self, srcs, final_p, tmp_zip):

@@ -122,6 +122,12 @@ def main(work):
     with zipfile.ZipFile(out) as z:
         assert z.namelist() == ["0001.webp", "0002.webp"], z.namelist()
     assert s["done"] == 1 and file_status(out) == 3
+    assert s["page_size"] == ((60, 90), (60, 90)), s["page_size"]   # piccole: dimensione non modificata
+    vera_opzione = workers.opzione
+    workers.opzione = lambda k, d: 45 if k == "webp/lato" else d
+    s = run([cbz(os.path.join(d, "W2.cbr"), [R, G])], webp=True)
+    workers.opzione = vera_opzione
+    assert s["page_size"] == ((60, 90), (30, 45)), s["page_size"]  # lato massimo: ridotta
 
     # --- cartella di immagini: ordine in profondità, ComicInfo solo della principale
     f = os.path.join(work, "Saga Vol. 2")

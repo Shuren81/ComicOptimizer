@@ -905,6 +905,12 @@ class MainWindow(QMainWindow):
                 short += f" — risparmiati {fmt_size(diff)}"
             else:
                 lines.append(f"Spazio: {fmt_size(s['size_before'])} → {fmt_size(s['size_after'])}")
+        if s.get('page_size'):
+            (w0, h0), (w1, h1) = s['page_size']
+            if (w0, h0) == (w1, h1):
+                lines.append(f"Pagine: {w0}×{h0} px (la più grande), dimensione non modificata")
+            else:
+                lines.append(f"Pagine: {w0}×{h0} → <b>{w1}×{h1} px</b> (la più grande)")
         if s['pages_kept']:
             lines.append(f"Pagine lasciate nel formato originale: {s['pages_kept']} "
                          f"(dettagli nel log)")
