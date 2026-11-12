@@ -422,6 +422,22 @@ class MainWindow(QMainWindow):
         if not self.isVisible():
             self.resize(w, min(h, screen.height()))
         self._fit_height()
+        if self.views.currentWidget() is self.library:
+            QTimer.singleShot(0, self._trim_library)      # dopo il ridimensionamento
+
+    def _trim_library(self):
+        """La Libreria finisce poco dopo l'ultima copertina: via lo spazio che non basta per un'altra."""
+        lst = self.library.list
+        if self.isMaximized() or self.views.currentWidget() is not self.library or not lst.isVisible():
+            return
+        extra = lst.viewport().width() % lst.gridSize().width()
+        if extra > 8:
+            self.setFixedWidth(self.width() - extra + 8)
+            if not self._banner.isNull():
+                m = self.centralWidget().layout().contentsMargins()
+                self.title_lbl.setPixmap(self._banner.scaledToWidth(
+                    min(self.title_lbl.pixmap().width(), self.width() - m.left() - m.right()),
+                    Qt.TransformationMode.SmoothTransformation))
 
     def _fit_height(self):
         """Con dei fumetti, una fila intera di card deve stare senza barra di scorrimento:

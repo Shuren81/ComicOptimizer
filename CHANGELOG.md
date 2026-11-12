@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.5.6] — 2026-11-12
+
+- **Cambiato:** la finestra della Libreria finisce subito dopo l'ultima colonna di copertine, senza lo spazio vuoto a destra.
+
 ## [3.5.5] — 2026-11-12
 
 - **Nuovo:** pulsante **Opzioni** nella Libreria: cartella della libreria, spostamento automatico dei fumetti sistemati e schema delle cartelle, con i tasti +Publisher, +Series, +Writer, +Penciller, +Year, +StoryArc e + / (sottocartella) che aggiungono o tolgono i pezzi. Tolti dalla schermata principale.

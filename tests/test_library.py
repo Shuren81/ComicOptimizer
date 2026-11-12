@@ -62,6 +62,13 @@ def test_vista(app, lib):
     if win._cols_fit(10 ** 5, config.COLS_MAX + 1) == win._cols_fit_screen() + 1:
         assert win._view_cols() == config.COLS_MAX + 1
 
+    # la finestra finisce poco dopo l'ultima colonna di copertine
+    win.show()
+    win.show_view(v)
+    assert attendi(app, lambda: v.list.viewport().width() % v.list.gridSize().width() <= 8)
+    assert win.title_lbl.pixmap().width() < win.width(), "il banner sta nella finestra stretta"
+    win.hide()
+
     # file trascinati da fuori sull'albero: nella lista di lavoro, non spostati nella libreria
     from PyQt6.QtCore import QMimeData, QPointF, QUrl, Qt as _Qt
     from PyQt6.QtGui import QDropEvent

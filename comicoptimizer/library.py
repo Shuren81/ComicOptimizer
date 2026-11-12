@@ -381,6 +381,8 @@ class LibraryView(QWidget):
         self.list.setResizeMode(QListView.ResizeMode.Adjust)
         self.list.setIconSize(QSize(THUMB_W, THUMB_H))
         self.list.setGridSize(QSize(THUMB_W + 24, THUMB_H + 48))
+        # sempre: la finestra è stretta sulle colonne, la barra che compare dopo ne farebbe andare a capo una
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.list.setWordWrap(True)
         self.list.setUniformItemSizes(True)
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
