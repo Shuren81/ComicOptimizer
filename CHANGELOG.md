@@ -1,8 +1,8 @@
 # Changelog
 
-## [3.8.0] — 2026-11-12
+## [3.8.1] — 2026-11-12
 
-- **Nuovo:** **tema chiaro**: nelle Opzioni scegli il tema, scuro (di serie) o chiaro. Cambia subito, senza riavviare. I pulsanti colorati restano uguali; le scritte azzurre diventano più scure, per leggersi sul fondo chiaro.
+- **Tolto:** il tema chiaro provato nella 3.8.0 (testi e campi illeggibili): resta solo il tema scuro.
 
 ## [3.7.2] — 2026-11-12
 

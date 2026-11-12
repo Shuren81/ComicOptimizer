@@ -70,50 +70,7 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QMessageBox, QDialog { background: #1e1e1e; }
-QLabel#accento { color: #00e5ff; }
 """
-
-# Tema chiaro: lo stesso foglio con i colori neutri invertiti (i colori dei pulsanti restano)
-_CHIARO = {"#333;": "#e4e4e4;", "#f0f0f0": "#202020", "#4a4a4a": "#c2c2c2", "#404040": "#d6d6d6",
-           "#262626": "#c8c8c8", "#2a2a2a": "#eeeeee", "#777": "#9a9a9a", "#666": "#9a9a9a",
-           "#1e1e1e": "#f4f4f4", "#1a1a1a": "#fafafa", "#999": "#444", "#FFB300": "#b26a00",
-           "#ffd54f": "#e65100", "#90caf9": "#1565c0", "#bbdefb": "#0d47a1",
-           "text-align: center; color: white": "text-align: center; color: #202020",
-           "QLabel#accento { color: #00e5ff; }": "QLabel#accento { color: #00838f; }"}
-TEMI = (("Scuro", "scuro"), ("Chiaro", "chiaro"))
-
-
-def applica_tema(app, tema="scuro"):
-    """Foglio di stile e palette dell'app: "scuro" (di serie) o "chiaro"."""
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QColor, QPalette
-    if tema == "chiaro":
-        foglio = STYLESHEET
-        for scuro, chiaro in _CHIARO.items():
-            foglio = foglio.replace(scuro, chiaro)
-        app.setStyleSheet(foglio)
-        palette = app.style().standardPalette()
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 151, 167))
-        app.setPalette(palette)
-        return
-    app.setStyleSheet(STYLESHEET)
-    p = QPalette()
-    for ruolo, colore in ((QPalette.ColorRole.Window, QColor(30, 30, 30)),
-                          (QPalette.ColorRole.WindowText, Qt.GlobalColor.white),
-                          (QPalette.ColorRole.Base, QColor(25, 25, 25)),
-                          (QPalette.ColorRole.AlternateBase, QColor(30, 30, 30)),
-                          (QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white),
-                          (QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white),
-                          (QPalette.ColorRole.Text, Qt.GlobalColor.white),
-                          (QPalette.ColorRole.Button, QColor(45, 45, 45)),
-                          (QPalette.ColorRole.ButtonText, Qt.GlobalColor.white),
-                          (QPalette.ColorRole.BrightText, Qt.GlobalColor.red),
-                          (QPalette.ColorRole.Link, QColor(0, 229, 255)),
-                          (QPalette.ColorRole.Highlight, QColor(0, 229, 255)),
-                          (QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)):
-        p.setColor(ruolo, colore)
-    app.setPalette(p)
-
 
 def set_variant(widget, variant):
     """Assegna la variante di colore a un pulsante e ricarica lo stile."""

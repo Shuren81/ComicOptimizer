@@ -3,15 +3,15 @@
 import os
 import sys
 
-from PyQt6.QtCore import QThread
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QThread, Qt
+from PyQt6.QtGui import QColor, QIcon, QPalette
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from . import config
 from .config import APP_VERSION, RES_DIR
 from .logsetup import LOG_PATH, log
 from .main_window import MainWindow
-from .style import applica_tema
+from .style import STYLESHEET
 from .utils import cleanup_stale_temp
 
 
@@ -71,7 +71,22 @@ def main():
         app.setWindowIcon(QIcon.fromTheme("applications-graphics"))
 
     app.setStyle("Fusion")
-    applica_tema(app, config.opzione("aspetto/tema", "scuro"))
+    app.setStyleSheet(STYLESHEET)
+    dark_palette = QPalette()
+    dark_palette.setColor(QPalette.ColorRole.Window,          QColor(30, 30, 30))
+    dark_palette.setColor(QPalette.ColorRole.WindowText,      Qt.GlobalColor.white)
+    dark_palette.setColor(QPalette.ColorRole.Base,            QColor(25, 25, 25))
+    dark_palette.setColor(QPalette.ColorRole.AlternateBase,   QColor(30, 30, 30))
+    dark_palette.setColor(QPalette.ColorRole.ToolTipBase,     Qt.GlobalColor.white)
+    dark_palette.setColor(QPalette.ColorRole.ToolTipText,     Qt.GlobalColor.white)
+    dark_palette.setColor(QPalette.ColorRole.Text,            Qt.GlobalColor.white)
+    dark_palette.setColor(QPalette.ColorRole.Button,          QColor(45, 45, 45))
+    dark_palette.setColor(QPalette.ColorRole.ButtonText,      Qt.GlobalColor.white)
+    dark_palette.setColor(QPalette.ColorRole.BrightText,      Qt.GlobalColor.red)
+    dark_palette.setColor(QPalette.ColorRole.Link,            QColor(0, 229, 255))
+    dark_palette.setColor(QPalette.ColorRole.Highlight,       QColor(0, 229, 255))
+    dark_palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
+    app.setPalette(dark_palette)
 
     try:
         win = MainWindow()
