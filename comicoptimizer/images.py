@@ -5,7 +5,13 @@ import shutil
 
 from PIL import Image
 
-from .config import WEBP_MAX_SIDE
+from .config import SETTINGS, WEBP_MAX_SIDE, WEBP_QUALITY
+
+
+def webp_quality():
+    """Qualità WebP scelta nelle Opzioni (Medio se mai scelta)."""
+    from PyQt6.QtCore import QSettings
+    return QSettings(*SETTINGS).value("webp/qualita", WEBP_QUALITY, type=int)
 
 # --- ELABORAZIONE PAGINE (eseguita in processi separati, su più core) ---
 

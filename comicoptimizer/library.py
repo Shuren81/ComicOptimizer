@@ -34,6 +34,8 @@ from PyQt6.QtGui import QFileSystemModel
 
 from .logsetup import log
 from .comicinfo import nome_da_schema, togli_tag_schema
+from .config import WEBP_LIVELLI
+from .images import webp_quality
 from .metadata_dialog import SETTINGS, ConfermaRinomina, leggi_dati
 from .style import set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
@@ -204,7 +206,7 @@ class OpzioniLibreria(QDialog):
 
     def __init__(self, view):
         super().__init__(view)
-        self.setWindowTitle("Opzioni della libreria")
+        self.setWindowTitle("Opzioni")
         self.setMinimumWidth(620)
         f = QFormLayout(self)
         riga = QHBoxLayout()
@@ -242,6 +244,13 @@ class OpzioniLibreria(QDialog):
         b.clicked.connect(lambda: self.schema.insert("/"))
         tasti.addWidget(b)
         f.addRow("", tasti)
+
+        self.qualita = QComboBox()
+        for testo, q in WEBP_LIVELLI:
+            self.qualita.addItem(f"{testo} — qualità {q}", q)
+        self.qualita.setCurrentIndex(max(0, self.qualita.findData(webp_quality())))
+        self.qualita.setToolTip("Per le pagine convertite in WebP da ora in poi; quelle già WebP non si ricomprimono")
+        f.addRow("WebP:", self.qualita)
         self.schema.textChanged.connect(self._colori)
         self._colori()
 
@@ -273,6 +282,7 @@ class OpzioniLibreria(QDialog):
             return
         cfg = QSettings(*SETTINGS)
         cfg.setValue("libreria/auto", self.auto.isChecked())
+        cfg.setValue("webp/qualita", self.qualita.currentData())
         cfg.setValue("libreria/schema", self.schema.text().strip() or SCHEMA_PREDEFINITO)
         cfg.setValue("libreria/cartella", folder)
         super().accept()

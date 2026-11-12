@@ -4,10 +4,13 @@ import os
 import sys
 
 # --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
-APP_VERSION = "3.5.6"
+APP_VERSION = "3.5.7"
 
 # --- COSTANTI ELABORAZIONE ---
-WEBP_QUALITY  = 85       # qualità WebP (0-100)
+WEBP_QUALITY  = 85       # qualità WebP (0-100), il livello Medio
+WEBP_LIVELLI  = (("File piccoli (più compressione)", 75), ("Medio", WEBP_QUALITY),
+                 ("Alta qualità (file più grandi)", 92))
+SETTINGS      = ("Shuren", "ComicOptimizer")   # QSettings dell'app
 
 WEBP_MAX_SIDE = 16383    # limite del formato WebP per lato
 

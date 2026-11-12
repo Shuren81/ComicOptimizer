@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .dialogs import NoWheelSpinBox, fit_dialog_to_screen
-from .images import _to_saveable_rgb
+from .images import _to_saveable_rgb, webp_quality
 from .logsetup import log
 from .style import set_variant
 
@@ -270,7 +270,7 @@ class AdvancedEditor(QDialog):
                         with Image.open(p) as img:
                             img = _to_saveable_rgb(img)
                             if fmt == 'webp':
-                                img.save(converted, "WEBP", quality=85)
+                                img.save(converted, "WEBP", quality=webp_quality())
                             else:
                                 img.save(converted, "JPEG", quality=92, optimize=True)
                         log.info(f"Editor: convertita '{os.path.basename(p)}' → "

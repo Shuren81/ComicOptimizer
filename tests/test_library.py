@@ -239,8 +239,12 @@ def test_sposta(app, work):
     assert o.schema.text() == "<Series>/<Year><Publisher>", o.schema.text()
     o.schema.setText("<Publisher>/<Series>")
     o.auto.setChecked(True)
+    from comicoptimizer.images import webp_quality
+    assert o.qualita.currentData() == 85, "di serie il livello Medio, quello di prima"
+    o.qualita.setCurrentIndex(0)
     o.accept()
     assert impostazione("auto") and impostazione("schema") == "<Publisher>/<Series>"
+    assert webp_quality() == 75 and OpzioniLibreria(v).qualita.currentIndex() == 0
     v.auto_move([a, senza, dentro])
     nuovo = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
     assert os.path.exists(nuovo) and not os.path.exists(a) and os.path.exists(gia), "mai sovrascrivere"

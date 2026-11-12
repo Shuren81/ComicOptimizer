@@ -24,8 +24,7 @@ from .archives import (
 )
 from .cbz import CBZ_MARK, build_comicinfo, file_status, verify_cbz
 from .epub import epub_meta, epub_problem
-from .config import WEBP_QUALITY
-from .images import _prepare_page
+from .images import _prepare_page, webp_quality
 from . import history
 from .logsetup import log
 from .pdf import fitz
@@ -566,7 +565,8 @@ class ProcessingWorker(QThread):
         """Prepara le pagine numerate 0001, 0002... Restituisce None se interrotto."""
         n    = len(img_list)
         name = os.path.basename(orig_p)
-        jobs = [(src, os.path.join(out, f"{i + 1:04d}"), self.to_webp, WEBP_QUALITY)
+        quality = webp_quality()
+        jobs = [(src, os.path.join(out, f"{i + 1:04d}"), self.to_webp, quality)
                 for i, src in enumerate(img_list)]
         results = [None] * n
 

@@ -55,7 +55,7 @@ from .style import set_variant
 from .utils import cbz_target, get_natural_sort_key, split_name
 from .workers import ThumbWorker
 
-SETTINGS = ("Shuren", "ComicOptimizer")
+from .config import SETTINGS  # noqa: E402  (qui la importano gli altri moduli)
 SCHEMA_PREDEFINITO = "<Series> - <Number> - <Title>"
 SCHEMI_MAX = 10
 MANGA_SI = "YesAndRightToLeft"                 # i manga si leggono da destra a sinistra

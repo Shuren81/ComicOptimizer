@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.5.7] — 2026-11-12
+
+- **Nuovo:** nelle **Opzioni** la qualità WebP: **File piccoli** (75, più compressione), **Medio** (85, come prima) o **Alta qualità** (92, file più grandi). Vale per le pagine convertite da ora in poi, anche nell'editor delle pagine; quelle già in WebP non si ricomprimono.
+
 ## [3.5.6] — 2026-11-12
 
 - **Cambiato:** la finestra della Libreria finisce subito dopo l'ultima colonna di copertine, senza lo spazio vuoto a destra.
