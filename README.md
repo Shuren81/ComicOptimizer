@@ -8,7 +8,9 @@ Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer n
 
 ### 🆕 Novità
 
-**v3.5: Libreria.** La finestra si apre sulla tua libreria (i file trascinati aprono la lista di lavoro): albero delle cartelle, miniature, pagine e Info e rinomina con un doppio click, fumetti da spostare trascinandoli sulle cartelle. All'avvio controlla doppioni, file danneggiati e fumetti non in WebP (dopo la prima volta, solo i file cambiati); i fumetti sistemati possono finire da soli nella libreria, in cartelle come `<Publisher>/<Series>`.
+**v3.6: Opzioni.** Il pulsante Opzioni raccoglie le impostazioni: qualità WebP, **"Leggi su"** (le pagine più grandi dello schermo del tuo iPad, tablet o telefono vengono rimpicciolite: file molto più leggeri, stessa nitidezza), ricompressione dei WebP, originali cancellati o nel cestino, processi, schema di rinomina, controllo all'avvio e dimensione delle miniature. Il riepilogo di fine lavoro mostra la dimensione delle pagine, prima e dopo.
+
+**v3.5: Libreria.** La finestra si apre sulla tua libreria: albero delle cartelle e miniature, pagine e Info e rinomina con un doppio click, menu col tasto destro, fumetti da spostare trascinandoli sulle cartelle. All'avvio controlla doppioni, file danneggiati e fumetti non in WebP (dopo la prima volta, solo i file cambiati). Con *Ordina in cartelle* i fumetti finiscono in cartelle costruite dalle info, come `<Publisher>/<Series>`, anche da soli dopo la sistemazione. I file trascinati in un punto qualsiasi aprono la lista di lavoro.
 
 **v3.4.1: Aggiorna app.** Il pulsante in basso mostra la versione in uso e controlla su GitHub se ce n'è una nuova: su Linux l'AppImage si aggiorna da sola, su Windows e macOS si apre la pagina della release.
 
@@ -52,10 +54,16 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 
 ### ✨ Funzionalità Principali
 
+***📚 Libreria***
+
+* **La tua collezione nel programma:** albero delle cartelle e miniature (anche di tutte le sottocartelle insieme), con pagine, Info e rinomina, Sistema, Unisci e Cestina dai pulsanti o dal tasto destro.
+* **Controllo della libreria:** doppioni (anche in cartelle diverse), file danneggiati e fumetti non in WebP. La prima volta legge tutto, poi solo i file nuovi o cambiati; un filtro mostra i problemi di tutta la libreria.
+* **Cartelle in ordine:** fumetti spostati trascinandoli sull'albero, oppure nelle cartelle costruite dalle info (`<Publisher>/<Series>`), anche in automatico dopo la sistemazione. Mai sovrascritture; gli spostamenti si annullano dalla Cronologia.
+
 ***🛠️ Standardizzazione Universale***
 
 * **Conversione Totale:** Importa .pdf, .cbr, .rar, .zip, .cb7, .7z ed .epub (a fumetti) e trasformali istantaneamente nello standard .cbz. I file protetti da password o con DRM, e gli EPUB di solo testo, vengono segnalati in un messaggio invece di sparire.
-* **Ottimizzazione WebP:** Riduci drasticamente il peso della tua collezione senza sacrificare la qualità visiva.
+* **Ottimizzazione WebP:** Riduci drasticamente il peso della tua collezione senza sacrificare la qualità visiva. Nelle Opzioni scegli la qualità e il dispositivo su cui leggi: le pagine più grandi del suo schermo vengono rimpicciolite.
 * **Sanificazione Archivi:** Eliminazione automatica di file "spazzatura" come .DS_Store, __MACOSX o file temporanei.
 
 ### 🧠 Intelligenza e Controllo
@@ -81,7 +89,7 @@ Il log su Windows si trova in `%LOCALAPPDATA%\ComicOptimizer\comicoptimizer.log`
 
 #### 🐧 Linux (AppImage)
 
-L'AppImage non è tra i file delle Release: si compila in locale con `bash tools/build_appimage.sh` (vedi sotto). Per avviarla:
+Scarica l'AppImage dalla pagina [Releases](https://github.com/Shuren81/ComicOptimizer/releases) (oppure compilala in locale con `bash tools/build_appimage.sh`, vedi sotto). Si aggiorna da sola con il pulsante *Aggiorna app*. Per avviarla:
 
 ```bash
 ./ComicOptimizer-*.AppImage
@@ -117,9 +125,11 @@ pip install -r requirements.txt
 ### 🛠️ Utilizzo Rapido
 
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
-* **Importazione:** trascina i tuoi file o cartelle in un punto qualsiasi della finestra (quando la lista è vuota la schermata è pulita: niente pulsanti, solo la scritta "Trascina qui i file" su un disegno al neon) (i file con estensioni non supportate non vengono importati). Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
+* **Libreria:** la finestra si apre sulla tua libreria (la cartella si sceglie in *Opzioni*). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Doppio click per le pagine, tasto destro per le azioni; trascina i fumetti su una cartella dell'albero per spostarli. *Controlla* rifà il controllo di doppioni, danneggiati e WebP; il menu accanto filtra i problemi.
+* **Opzioni:** cartella e schema delle cartelle della libreria, spostamento automatico, qualità WebP, "Leggi su" (riduzione delle pagine per il tuo dispositivo), ricompressione dei WebP, originali cancellati o nel cestino, processi, schema di rinomina, controllo all'avvio e dimensione delle miniature.
+* **Importazione:** trascina i tuoi file o cartelle in un punto qualsiasi della finestra: compare la lista di lavoro (*← LIBRERIA* torna alla libreria, che ricompare da sola quando la lista si svuota). I file con estensioni non supportate non vengono importati. Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.
-* **Selezione:** clicca sulle card per selezionarle, oppure trascina il mouse sulla griglia per selezionarne tante con un riquadro (con Ctrl il riquadro le toglie; vicino al bordo la griglia scorre da sola). Shift+click seleziona un intervallo, "Seleziona tutto" o `Ctrl+A` le seleziona tutte; con una selezione il pulsante diventa "Deseleziona tutto" (o `Esc`). Con una selezione compaiono "Rinomina" e "Cestina", con almeno due fumetti anche "Unisci"; "Sistema" chiede se sistemare i selezionati o tutti.
+* **Selezione:** clicca sulle card per selezionarle, oppure trascina il mouse sulla griglia per selezionarne tante con un riquadro (con Ctrl il riquadro le toglie; vicino al bordo la griglia scorre da sola). Shift+click seleziona un intervallo, "Seleziona tutto" o `Ctrl+A` le seleziona tutte; con una selezione il pulsante diventa "Deseleziona tutto" (o `Esc`). Con una selezione compaiono "Rinomina", "Sposta in libreria" e "Cestina", con almeno due fumetti anche "Unisci"; "Sistema" chiede se sistemare i selezionati o tutti. Il tasto destro su una card mostra le stesse azioni.
 * **Unione:** "Unisci" unisce i fumetti in ordine naturale del nome. Scegli nome e destinazione, poi "Unisci" o "Unisci e converti" (WebP). Gli originali vanno nel cestino solo dopo la verifica del nuovo CBZ.
 * **Ottimizzazione:** scegli se riparare i file (uniformare i numeri di pagina e convertire in .CBZ) o convertire le pagine in WebP per risparmiare spazio.
 * **Ordinamento pagine:** per ogni file è possibile modificare l'ordine delle pagine, aggiungerne di nuove e/o rimuoverne. I numeri di pagina vengono adeguati. Doppio click su una pagina per vederla in grande (frecce ← → o pulsanti ◀ ▶ per scorrere, Esc per chiudere). Le nuove pagine caricate vengono inserite in fondo: **ricordati di spostarle manualmente nella posizione preferita**.
@@ -146,9 +156,11 @@ comicoptimizer/
   ricerca.py              fonti di ricerca: ComicVine, MyAnimeList, AniList, ComicsBox
   card.py                 card di un fumetto nella griglia
   editor.py               editor avanzato delle pagine
+  library.py              Libreria: albero, miniature, controllo, Opzioni, spostamenti nelle cartelle
+  aggiorna.py             controllo della versione su GitHub e aggiornamento dell'AppImage
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt
-tests/                    test automatici (venv/bin/python tests/test_metadata.py, test_selection.py, test_layout.py, test_platform.py, test_processing.py, test_maximize.py)
+tests/                    test automatici, uno per area (venv/bin/python tests/test_library.py, test_processing.py, ...)
 tools/make_banner.py      genera il banner (comicoptimizer_banner.png)
 tools/make_drop_art.py    genera il disegno della lista vuota (comicoptimizer_drop.png)
 tools/build_appimage.sh   compila l'AppImage in locale
@@ -170,7 +182,7 @@ Lo script per Windows usa le stesse opzioni della compilazione automatica su Git
 
 **100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC. Unica eccezione, solo se la usi tu: la *Ricerca online* (finestra Info e rinomina) invia alla fonte scelta (ComicVine, MyAnimeList, AniList o ComicsBox) **il testo che vedi e confermi**, con la tua chiave API se la fonte ne chiede una, e ne scarica schede e copertine. Mai i file né il percorso. Senza aprirla l'app non usa Internet.
 
-**Resilienza:** Se interrompi un'operazione, i tuoi file originali rimangono intatti: vengono spostati nel cestino solo dopo che il nuovo archivio è stato creato e verificato. Se il cestino non è disponibile (per esempio su un disco di rete) l'originale resta al suo posto: nulla viene mai cancellato definitivamente. Le cartelle temporanee vengono sempre ripulite.
+**Resilienza:** Se interrompi un'operazione, i tuoi file originali rimangono intatti: vengono spostati nel cestino solo dopo che il nuovo archivio è stato creato e verificato. Se il cestino non è disponibile (per esempio su un disco di rete) l'originale resta al suo posto: nulla viene cancellato definitivamente, a meno che tu non lo scelga nelle Opzioni (e anche allora solo dopo la verifica del nuovo CBZ). Le cartelle temporanee vengono sempre ripulite.
 
 ### ☕ Sostieni il progetto
 
