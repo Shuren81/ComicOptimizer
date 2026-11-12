@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.6.2] — 2026-11-12
+
+- **Cambiato:** il log scrive con che opzioni parte la conversione (qualità, lato massimo, WebP già fatti ricompressi o copiati).
+
 ## [3.6.1] — 2026-11-12
 
 - **Cambiato:** la Libreria è alta tre righe intere di copertine (meno se lo schermo è basso; prima si abbassa il banner) e si ridimensiona quando cambi la dimensione delle miniature: mai copertine tagliate.

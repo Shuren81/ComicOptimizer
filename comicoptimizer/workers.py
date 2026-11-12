@@ -381,7 +381,10 @@ class ProcessingWorker(QThread):
                 workers = opzione("lavoro/processi", 0) or max(1, (os.cpu_count() or 2) - 1)
                 pool = ProcessPoolExecutor(max_workers=workers,
                                            mp_context=multiprocessing.get_context("spawn"))
-                log.info(f"Conversione WebP su {workers} processi paralleli")
+                lato = opzione("webp/lato", 0)
+                log.info(f"Conversione WebP su {workers} processi paralleli: qualità {webp_quality()}, "
+                         f"lato massimo {f'{lato} px' if lato else 'originale'}, "
+                         f"WebP già fatti {'ricompressi' if opzione('webp/ricomprimi', False) else 'copiati'}")
             self._run_tasks(pool, summary)
         except Exception as e:
             log.error(f"ProcessingWorker: errore imprevisto: {e}", exc_info=True)
