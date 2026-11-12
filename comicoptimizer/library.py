@@ -363,6 +363,8 @@ class OpzioniLibreria(QDialog):
     def _mostra_righe(self):
         for i, (riga, *_r) in enumerate(self.righe):
             riga.setVisible(i < self.quante.value())
+        self.layout().activate()                      # la finestra cresce (o cala) con le righe
+        self.resize(self.width(), self.sizeHint().height())
 
     def _attiva(self, schema):
         """I tasti dei campi delle cartelle valgono per lo schema dove si è cliccato per ultimo."""

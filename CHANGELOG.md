@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.8.2] — 2026-11-12
+
+- **Corretto:** nelle Opzioni, aggiungendo una libreria la finestra si allunga: la riga nuova non resta più tagliata a metà.
+
 ## [3.8.1] — 2026-11-12
 
 - **Tolto:** il tema chiaro provato nella 3.8.0 (testi e campi illeggibili): resta solo il tema scuro.

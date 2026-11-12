@@ -249,8 +249,9 @@ def test_sposta(app, work):
     o.inverti("Publisher", schema)
     assert schema.text() == "<Series>/<Year><Publisher>", schema.text()
     schema.setText("<Publisher>/<Series>")
+    alta = o.height()
     o.quante.setValue(2)
-    assert o.righe[1][0].isVisibleTo(o)
+    assert o.righe[1][0].isVisibleTo(o) and o.height() > alta, "la finestra si allunga con la riga nuova"
     o.righe[1][1].setText("Manga")
     o.righe[1][2].setText(manga)
     o.righe[1][3].setText("<Writer>")
