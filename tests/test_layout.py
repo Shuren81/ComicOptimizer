@@ -175,4 +175,6 @@ def banner_and_empty_grid(work):
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
+        from PyQt6.QtCore import QSettings      # niente libreria vera (né il suo controllo all'avvio)
+        QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         main(work)

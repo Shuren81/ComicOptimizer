@@ -230,23 +230,69 @@ def test_sposta(app, work):
 
     win.on_file_done(a, a, 2)                          # come a fine lavoro
     assert win._job_outputs == [a]
-    # opzioni: i tasti dei campi aggiungono e tolgono pezzi dello schema; OK salva
+    # opzioni: più librerie (nome e cartella), schema di ognuna; i tasti valgono per lo schema cliccato
+    from comicoptimizer import library
     from comicoptimizer.library import OpzioniLibreria, impostazione
+    manga = os.path.join(work, "manga")
+    os.makedirs(manga)
     o = OpzioniLibreria(v)
-    o.inverti("Publisher")
-    assert o.schema.text() == "<Series>", o.schema.text()
-    o.schema.insert("/")
-    o.inverti("Year")
-    o.inverti("Publisher")
-    assert o.schema.text() == "<Series>/<Year><Publisher>", o.schema.text()
-    o.schema.setText("<Publisher>/<Series>")
+    _r, nome, dove, schema = o.righe[0]
+    assert not o.righe[1][0].isVisibleTo(o), "di serie una libreria sola"
+    nome.setText("Comics")
+    dove.setText(lib)
+    schema.setText("<Publisher>/<Series>")
+    o._attiva(schema)
+    o.inverti("Publisher", schema)
+    assert schema.text() == "<Series>", schema.text()
+    schema.insert("/")
+    o.inverti("Year", schema)
+    o.inverti("Publisher", schema)
+    assert schema.text() == "<Series>/<Year><Publisher>", schema.text()
+    schema.setText("<Publisher>/<Series>")
+    o.quante.setValue(2)
+    assert o.righe[1][0].isVisibleTo(o)
+    o.righe[1][1].setText("Manga")
+    o.righe[1][2].setText(manga)
+    o.righe[1][3].setText("<Writer>")
     o.auto.setChecked(True)
     from comicoptimizer.images import webp_quality
     assert o.qualita.currentData() == 85, "di serie il livello Medio, quello di prima"
     o.qualita.setCurrentIndex(0)
     o.accept()
-    assert impostazione("auto") and impostazione("schema") == "<Publisher>/<Series>"
+    assert impostazione("auto") and library.librerie() == [lib, manga]
+    assert library.info_libreria(manga)["nome"] == "Manga" and os.path.exists(os.path.join(manga, library.INFO_FILE))
+    assert v.schema() == "<Publisher>/<Series>"
     assert webp_quality() == 75 and OpzioniLibreria(v).qualita.currentIndex() == 0
+    v._riempi_scelta()
+    assert [v.scelta.itemText(i) for i in range(v.scelta.count())] == ["Comics", "Manga"]
+    v.scelta.setCurrentIndex(1)
+    assert v.root == manga and v.schema() == "<Writer>"
+    v.scelta.setCurrentIndex(0)
+    assert v.root == lib
+
+    # primo controllo: avvisa che è lungo; "No" non lo avvia. Già fatto: parte, e lo Stop è subito
+    domande = []
+    vera_domanda = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: (domande.append(a[2]), QMessageBox.StandardButton.No)[1])
+    v.scan()
+    QMessageBox.question = vera_domanda
+    assert domande and "molte ore" in domande[0] and "Manga" in domande[0] and v.scanner is None
+    for r in (lib, manga):
+        library.salva_info(r, controllata=True)
+    from comicoptimizer import workers
+    lento, vero_controllo = workers._integrity_and_signature, workers._integrity_and_signature
+    workers._ANALYSIS_CACHE.clear()
+    workers._integrity_and_signature = lambda p: (time.sleep(3), lento(p))[1]   # fumetti enormi
+    v.report = lambda: None
+    v.scan()
+    assert v.scanner is not None
+    attendi(app, lambda: False, 0.3)
+    inizio = time.time()
+    v._stop_scan()
+    assert attendi(app, lambda: v.scanner is None, 5) and time.time() - inizio < 1.5, \
+        "Ferma controllo si ferma subito, senza aspettare i file in lettura"
+    workers._integrity_and_signature = vero_controllo
+    time.sleep(3)                                      # i controlli rimasti finiscono in background
     o = OpzioniLibreria(v)
     o.miniature.setCurrentIndex(2)
     o.inverti("Number", o.rinomina)

@@ -1,12 +1,14 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.6.3
+### 📚 ComicOptimizer v3.7.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v3.7: più librerie.** Nelle Opzioni scegli quante librerie hai (es. fumetti italiani, manga, comics americani), ognuna con nome, cartella e schema delle cartelle; un menu le alterna. Nome e schema stanno in un file nascosto (`.comicoptimizer.json`) nella cartella della libreria. Il controllo le copre tutte e avvisa che la prima volta è molto lungo.
 
 **v3.6: Opzioni.** Il pulsante Opzioni raccoglie le impostazioni: qualità WebP, **"Leggi su"** (le pagine più grandi dello schermo del tuo iPad, tablet o telefono vengono rimpicciolite: file molto più leggeri, stessa nitidezza), ricompressione dei WebP, originali cancellati o nel cestino, processi, schema di rinomina, controllo all'avvio e dimensione delle miniature. Il riepilogo di fine lavoro mostra la dimensione delle pagine, prima e dopo.
 
@@ -56,7 +58,7 @@ La **versione 2.0** segna un punto di svolta per il progetto:
 
 ***📚 Libreria***
 
-* **La tua collezione nel programma:** albero delle cartelle e miniature (anche di tutte le sottocartelle insieme), con pagine, Info e rinomina, Sistema, Unisci e Cestina dai pulsanti o dal tasto destro.
+* **La tua collezione nel programma:** una o più librerie (es. fumetti italiani, manga, comics americani), ognuna con il suo nome, la sua cartella e il suo schema delle cartelle. Albero delle cartelle e miniature (anche di tutte le sottocartelle insieme), con pagine, Info e rinomina, Sistema, Unisci e Cestina dai pulsanti o dal tasto destro.
 * **Controllo della libreria:** doppioni (anche in cartelle diverse), file danneggiati e fumetti non in WebP. La prima volta legge tutto, poi solo i file nuovi o cambiati; un filtro mostra i problemi di tutta la libreria.
 * **Cartelle in ordine:** fumetti spostati trascinandoli sull'albero, oppure nelle cartelle costruite dalle info (`<Publisher>/<Series>`), anche in automatico dopo la sistemazione. Mai sovrascritture; gli spostamenti si annullano dalla Cronologia.
 
@@ -125,7 +127,7 @@ pip install -r requirements.txt
 ### 🛠️ Utilizzo Rapido
 
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
-* **Libreria:** la finestra si apre sulla tua libreria (la cartella si sceglie in *Opzioni*). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Doppio click per le pagine, tasto destro per le azioni; trascina i fumetti su una cartella dell'albero per spostarli. *Controlla* rifà il controllo di doppioni, danneggiati e WebP; il menu accanto filtra i problemi.
+* **Libreria:** la finestra si apre sulla tua libreria (le librerie si aggiungono in *Opzioni*, il menu in alto le alterna). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Doppio click per le pagine, tasto destro per le azioni; trascina i fumetti su una cartella dell'albero per spostarli. *Controlla* rifà il controllo di doppioni, danneggiati e WebP; il menu accanto filtra i problemi.
 * **Opzioni:** cartella e schema delle cartelle della libreria, spostamento automatico, qualità WebP, "Leggi su" (riduzione delle pagine per il tuo dispositivo), ricompressione dei WebP, originali cancellati o nel cestino, processi, schema di rinomina, controllo all'avvio e dimensione delle miniature.
 * **Importazione:** trascina i tuoi file o cartelle in un punto qualsiasi della finestra: compare la lista di lavoro (*← LIBRERIA* torna alla libreria, che ricompare da sola quando la lista si svuota). I file con estensioni non supportate non vengono importati. Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.

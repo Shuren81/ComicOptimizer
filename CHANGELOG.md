@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0] — 2026-11-12
+
+- **Nuovo:** **più librerie** (fino a 6): nelle Opzioni scegli quante, e per ognuna nome, cartella e schema delle cartelle (es. fumetti italiani `<Publisher>/<Series>`, manga `<Writer> - <Series>`). Un menu nella Libreria le alterna. Nome, schema e stato del controllo stanno in un file nascosto `.comicoptimizer.json` nella cartella base della libreria. La libreria della 3.6 diventa la prima, con il suo schema.
+- **Cambiato:** il controllo copre tutte le librerie (i doppioni anche fra librerie diverse) e il riepilogo dice in quale sono i problemi. I fumetti sistemati vanno nella libreria aperta.
+- **Nuovo:** prima del **primo controllo** di una libreria un avviso spiega che legge ogni fumetto e può durare molte ore, e chiede se avviarlo.
+- **Corretto:** «Ferma controllo» si ferma subito, invece di aspettare la fine dei fumetti in lettura (con file grandi l'app sembrava bloccata).
+
 ## [3.6.3] — 2026-11-12
 
 - **Nuovo:** il riepilogo di fine lavoro mostra la dimensione delle pagine (la più grande): com'era e com'è diventata, oppure che non è stata modificata.
