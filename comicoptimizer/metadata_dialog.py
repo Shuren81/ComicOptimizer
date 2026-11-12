@@ -251,7 +251,8 @@ class SearchDialog(QDialog):
 
         self.stato = QLabel()
         self.stato.setWordWrap(True)
-        self.stato.setStyleSheet("color: #00e5ff; font-weight: bold;")
+        self.stato.setObjectName("accento")   # colore dal tema (style.py)
+        self.stato.setStyleSheet("font-weight: bold;")
         sinistra.addWidget(self.stato)
         sinistra.addWidget(QLabel("Filtra i risultati:"))
         self.filtro = QLineEdit()

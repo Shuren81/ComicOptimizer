@@ -11,6 +11,7 @@ from PyQt6.QtCore import QDir, QEvent, QMimeData, QModelIndex, QSettings, QSize,
 from PyQt6.QtGui import QBrush, QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -41,7 +42,7 @@ from .logsetup import log
 from .comicinfo import nome_da_schema, togli_tag_schema
 from .config import IS_WIN, MINIATURE, WEBP_LATI, WEBP_LIVELLI, WEBP_QUALITY, opzione
 from .metadata_dialog import CAMPI_TESTO, SETTINGS, ConfermaRinomina, leggi_dati
-from .style import set_variant
+from .style import TEMI, applica_tema, set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
 from . import history, workers
 from .workers import ThumbWorker, _Stoppable
@@ -305,6 +306,7 @@ class OpzioniLibreria(QDialog):
         self.avvio = self._casella(f, "Controlla la libreria all'avvio (solo i file cambiati)",
                                    "libreria/controllo_avvio", True)
         self.miniature = self._scelta(f, "Miniature:", MINIATURE, "libreria/miniature", 140)
+        self.tema = self._scelta(f, "Tema:", TEMI, "aspetto/tema", "scuro")
 
         f = self._gruppo(l, "Conversione in WebP")
         self.qualita = self._scelta(f, "Qualità:", [(f"{t} — qualità {q}", q) for t, q in WEBP_LIVELLI],
@@ -476,7 +478,8 @@ class LibraryView(QWidget):
             self.filtro.addItem(testo)
         self.filtro.currentIndexChanged.connect(lambda: self.refresh(force=True))
         self.lbl_scan = QLabel()
-        self.lbl_scan.setStyleSheet("color: #00e5ff")
+        self.lbl_scan.setObjectName("accento")   # colore dal tema (style.py)
+        self.lbl_scan.setStyleSheet("")
         self.b_scan = QPushButton("Controlla")
         self.b_scan.setToolTip("Integrità, doppioni e WebP di tutta la libreria (rilegge solo i file cambiati)")
         self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
@@ -580,6 +583,7 @@ class LibraryView(QWidget):
 
     def options(self):
         if OpzioniLibreria(self).exec():
+            applica_tema(QApplication.instance(), opzione("aspetto/tema", "scuro"))
             self.set_thumb_size()
             tutte = librerie()
             nuove = [c for c in tutte if c not in self.scanned_roots]

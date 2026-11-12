@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.8.0] — 2026-11-12
+
+- **Nuovo:** **tema chiaro**: nelle Opzioni scegli il tema, scuro (di serie) o chiaro. Cambia subito, senza riavviare. I pulsanti colorati restano uguali; le scritte azzurre diventano più scure, per leggersi sul fondo chiaro.
+
 ## [3.7.2] — 2026-11-12
 
 - **Corretto:** l'avviso del primo controllo compare ogni volta che l'indice di questa installazione non conosce ancora la libreria (prima bastava che l'avesse controllata un'altra installazione, es. l'AppImage, e il programma da sorgente rileggeva tutto senza avvisare). Il file nascosto della libreria tiene solo nome e schema.

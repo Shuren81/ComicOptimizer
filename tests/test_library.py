@@ -197,6 +197,11 @@ def test_controllo(app, lib):
     win.close()
 
 
+def opzione_tema():
+    from comicoptimizer.config import opzione
+    return opzione("aspetto/tema", "scuro")
+
+
 def test_sposta(app, work):
     from PyQt6.QtWidgets import QDialog, QMessageBox
     from comicoptimizer import history, library, metadata_dialog
@@ -306,6 +311,17 @@ def test_sposta(app, work):
         "Ferma controllo si ferma subito, senza aspettare i file in lettura"
     workers._integrity_and_signature = vero_controllo
     time.sleep(3)                                      # i controlli rimasti finiscono in background
+    # tema: scelto nelle Opzioni, il chiaro cambia i colori neutri (e l'azzurro delle scritte)
+    from comicoptimizer.style import STYLESHEET, applica_tema
+    o = OpzioniLibreria(v)
+    assert o.tema.currentData() == "scuro"
+    o.tema.setCurrentIndex(1)
+    o.accept()
+    assert opzione_tema() == "chiaro"
+    applica_tema(app, "chiaro")
+    assert "#00838f" in app.styleSheet() and "#1e1e1e" not in app.styleSheet()
+    applica_tema(app, "scuro")
+    assert app.styleSheet() == STYLESHEET
     o = OpzioniLibreria(v)
     o.miniature.setCurrentIndex(2)
     o.inverti("Number", o.rinomina)
