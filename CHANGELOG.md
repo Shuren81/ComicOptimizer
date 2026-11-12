@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.5] — 2026-11-12
+
+- **Nuovo:** pulsante **Opzioni** nella Libreria: cartella della libreria, spostamento automatico dei fumetti sistemati e schema delle cartelle, con i tasti +Publisher, +Series, +Writer, +Penciller, +Year, +StoryArc e + / (sottocartella) che aggiungono o tolgono i pezzi. Tolti dalla schermata principale.
+- **Cambiato:** la Libreria è larga una copertina in più.
+- **Cambiato:** file e cartelle trascinati da fuori in qualunque punto della finestra, anche sull'albero delle cartelle, aprono la lista di lavoro. I fumetti trascinati dalla Libreria si spostano solo sulle cartelle dell'albero.
+
 ## [3.5.4] — 2026-11-12
 
 - **Nuovo:** tasto destro anche sulle card della lista di lavoro: Pagine, Info e rinomina, Sistema, Unisci, Sposta in libreria, Togli dalla lista e Cestina, in base alla selezione. Su una card non selezionata seleziona solo lei.

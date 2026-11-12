@@ -89,7 +89,7 @@ def banner_and_empty_grid(work):
     assert not hasattr(w, "drop_zone")
     pix = w.title_lbl.pixmap()
     m = w.centralWidget().layout().contentsMargins()
-    grid_w = min(w._win_width_for_cols(w._cols_for_count(config.COLS_MAX)), w.width())   # vuota: la Libreria, larga
+    grid_w = min(w._win_width_for_cols(w._view_cols()), w.width())   # vuota: la Libreria, larga
     assert pix.width() == grid_w - m.left() - m.right(), (pix.width(), w.width())
     assert abs(pix.height() - pix.width() * 260 / 2000) <= 1
     # lista vuota: scritta con disegno, niente pulsanti, frase d'invito;

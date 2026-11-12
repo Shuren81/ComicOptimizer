@@ -353,6 +353,12 @@ class MainWindow(QMainWindow):
             return self._cols_fit(self.width(), 50)
         return min(max(COLS_DEFAULT, min(n, COLS_MAX)), self._cols_fit_screen())
 
+    def _view_cols(self):
+        """Colonne per la larghezza della finestra: la Libreria una in più della lista più grande."""
+        if self.views.currentWidget() is self.library and not self.isMaximized():
+            return self._cols_fit(QApplication.primaryScreen().availableGeometry().width(), COLS_MAX + 1)
+        return self._cols_for_count(len(self.cards))
+
     def _cols_fit(self, avail, most):
         """Quante colonne di card (al massimo `most`, almeno 1) entrano in `avail` pixel."""
         cols = most
@@ -384,8 +390,7 @@ class MainWindow(QMainWindow):
 
     def _refit_width(self):
         """Riadatta la larghezza quando compaiono/spariscono i pulsanti della barra."""
-        n = COLS_MAX if self.views.currentWidget() is self.library else len(self.cards)
-        self._apply_window_width(self._cols_for_count(n))
+        self._apply_window_width(self._view_cols())
 
     def _apply_window_width(self, cols):
         """Ridimensiona la finestra alla larghezza giusta per `cols` colonne.
@@ -1573,8 +1578,7 @@ class MainWindow(QMainWindow):
         n    = len(self.cards)
         if not n:
             self.views.setCurrentWidget(self.library)   # lista vuota: si torna alla Libreria
-        # la Libreria è larga quanto la lista più grande (quella che entra nello schermo)
-        cols = self._cols_for_count(COLS_MAX if self.views.currentWidget() is self.library else n)
+        cols = self._view_cols()
         self._grid_cols = cols
         self._apply_window_width(cols)
         # massimizzata: la griglia al centro (lo spazio avanzato si divide ai due lati)
@@ -1608,7 +1612,8 @@ class MainWindow(QMainWindow):
             "QStackedWidget#grid_stack { border: 2px dashed #00e5ff; border-radius: 14px; }" if a else "")
 
     def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls():
+        # i fumetti trascinati dalla Libreria vanno sulle cartelle dell'albero, non nella lista di lavoro
+        if e.mimeData().hasUrls() and e.source() is not self.library.list:
             e.accept()
             self.set_drop_style(True)
         else:

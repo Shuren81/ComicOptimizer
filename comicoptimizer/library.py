@@ -5,12 +5,15 @@ import os
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from PyQt6.QtCore import QDir, QMimeData, QModelIndex, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QDir, QEvent, QMimeData, QModelIndex, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -30,7 +33,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFileSystemModel
 
 from .logsetup import log
-from .comicinfo import nome_da_schema
+from .comicinfo import nome_da_schema, togli_tag_schema
 from .metadata_dialog import SETTINGS, ConfermaRinomina, leggi_dati
 from .style import set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
@@ -185,6 +188,96 @@ class LibraryScanWorker(_Stoppable):
         self.finished.emit(workers.classify(paths, checked)[0], fresh)
 
 
+CAMPI_CARTELLE = ("Publisher", "Series", "Writer", "Penciller", "Year", "StoryArc")
+
+
+def impostazione(chiave):
+    """Opzioni della libreria in QSettings: 'auto' (bool) e 'schema'."""
+    cfg = QSettings(*SETTINGS)
+    if chiave == "auto":
+        return cfg.value("libreria/auto", False, type=bool)
+    return (cfg.value("libreria/schema", SCHEMA_PREDEFINITO) or "").strip() or SCHEMA_PREDEFINITO
+
+
+class OpzioniLibreria(QDialog):
+    """Cartella della libreria, spostamento automatico e schema delle cartelle."""
+
+    def __init__(self, view):
+        super().__init__(view)
+        self.setWindowTitle("Opzioni della libreria")
+        self.setMinimumWidth(620)
+        f = QFormLayout(self)
+        riga = QHBoxLayout()
+        self.cartella = QLineEdit(view.root)
+        self.cartella.setPlaceholderText("La cartella dove tieni i fumetti")
+        b = QPushButton("Scegli…")
+        b.clicked.connect(self._scegli)
+        riga.addWidget(self.cartella, 1)
+        riga.addWidget(b)
+        f.addRow("Libreria:", riga)
+
+        self.auto = QCheckBox("Sposta nella libreria i fumetti sistemati nella lista di lavoro")
+        self.auto.setChecked(impostazione("auto"))
+        f.addRow(self.auto)
+
+        self.schema = QLineEdit(impostazione("schema"))
+        self.schema.setToolTip("Campi del ComicInfo.xml tra < >, cartelle separate da /.\n"
+                               "I campi vuoti spariscono; un fumetto senza nessuno di quei campi resta dov'è.")
+        f.addRow("Cartelle:", self.schema)
+        tasti = QHBoxLayout()
+        self.bottoni = {}
+        for campo in CAMPI_CARTELLE:
+            b = QPushButton(f"+{campo}")
+            b.setProperty("sz", "small")
+            b.setAutoDefault(False)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # il cursore resta nello schema
+            b.clicked.connect(lambda _on, c=campo: self.inverti(c))
+            tasti.addWidget(b)
+            self.bottoni[campo] = b
+        b = QPushButton("+ /")
+        b.setProperty("sz", "small")
+        b.setToolTip("Sottocartella")
+        b.setAutoDefault(False)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.clicked.connect(lambda: self.schema.insert("/"))
+        tasti.addWidget(b)
+        f.addRow("", tasti)
+        self.schema.textChanged.connect(self._colori)
+        self._colori()
+
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        f.addRow(bb)
+
+    def _scegli(self):
+        folder = QFileDialog.getExistingDirectory(self, "Cartella della libreria", self.cartella.text())
+        if folder:
+            self.cartella.setText(folder)
+
+    def inverti(self, campo):
+        schema = self.schema.text()
+        if f"<{campo}>" in schema:
+            self.schema.setText(togli_tag_schema(schema, campo).strip("/ "))
+        else:
+            self.schema.insert(f"<{campo}>")
+
+    def _colori(self):
+        for campo, b in self.bottoni.items():
+            set_variant(b, "success" if f"<{campo}>" in self.schema.text() else "")
+
+    def accept(self):
+        folder = self.cartella.text().strip()
+        if folder and not os.path.isdir(folder):
+            QMessageBox.warning(self, "Libreria", "La cartella non esiste.")
+            return
+        cfg = QSettings(*SETTINGS)
+        cfg.setValue("libreria/auto", self.auto.isChecked())
+        cfg.setValue("libreria/schema", self.schema.text().strip() or SCHEMA_PREDEFINITO)
+        cfg.setValue("libreria/cartella", folder)
+        super().accept()
+
+
 class _ComicList(QListWidget):
     """Griglia di miniature; trascinando i fumetti escono i loro percorsi (per l'albero)."""
 
@@ -216,8 +309,6 @@ class LibraryView(QWidget):
         bar = QHBoxLayout()
         self.lbl_root = QLabel()
         self.lbl_root.setStyleSheet("color: #aaa")
-        b_root = QPushButton("Scegli cartella…")
-        b_root.clicked.connect(self.choose_root)
         b_home = QPushButton("⌂ Tutta la libreria")
         b_home.setToolTip("Torna alla cartella principale della libreria")
         b_home.clicked.connect(self.go_root)
@@ -232,28 +323,18 @@ class LibraryView(QWidget):
         self.b_scan = QPushButton("Controlla")
         self.b_scan.setToolTip("Integrità, doppioni e WebP di tutta la libreria (rilegge solo i file cambiati)")
         self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
-        bar.addWidget(b_root)
         bar.addWidget(b_home)
         bar.addWidget(self.lbl_root, 1)
         bar.addWidget(self.lbl_scan)
         bar.addWidget(self.b_scan)
+        b_opts = QPushButton("Opzioni")
+        b_opts.setToolTip("Cartella della libreria, spostamento automatico e schema delle cartelle")
+        b_opts.clicked.connect(self.options)
+        bar.addWidget(b_opts)
         bar.addWidget(self.filtro)
         bar.addWidget(self.chk_sub)
         l.addLayout(bar)
 
-        cfg = QSettings(*SETTINGS)
-        riga = QHBoxLayout()
-        self.chk_auto = QCheckBox("Sposta qui i fumetti sistemati nella lista di lavoro, in cartelle:")
-        self.chk_auto.setChecked(cfg.value("libreria/auto", False, type=bool))
-        self.chk_auto.toggled.connect(lambda on: QSettings(*SETTINGS).setValue("libreria/auto", on))
-        self.schema = QLineEdit(cfg.value("libreria/schema", SCHEMA_PREDEFINITO))
-        self.schema.setToolTip("Campi del ComicInfo.xml tra < >, cartelle separate da /: es. <Publisher>/<Series>.\n"
-                               "Un fumetto senza quei campi resta dov'è.")
-        self.schema.editingFinished.connect(
-            lambda: QSettings(*SETTINGS).setValue("libreria/schema", self.schema.text().strip() or SCHEMA_PREDEFINITO))
-        riga.addWidget(self.chk_auto)
-        riga.addWidget(self.schema, 1)
-        l.addLayout(riga)
 
         actions = QHBoxLayout()
         for text, slot, variant, tip in (
@@ -287,6 +368,7 @@ class LibraryView(QWidget):
         self.tree.setEditTriggers(QAbstractItemView.EditTrigger.EditKeyPressed)   # doppio click apre, F2 rinomina
         self.tree.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.tree.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.tree.viewport().installEventFilter(self)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
         self.model.fileRenamed.connect(
@@ -318,11 +400,22 @@ class LibraryView(QWidget):
 
     # --- cartelle ---
 
-    def choose_root(self):
-        folder = QFileDialog.getExistingDirectory(self, "Cartella della libreria", self.root)
-        if folder:
-            QSettings(*SETTINGS).setValue("libreria/cartella", folder)
-            self.set_root(folder)
+    def options(self):
+        if OpzioniLibreria(self).exec():
+            folder = QSettings(*SETTINGS).value("libreria/cartella", "") or ""
+            if folder != self.root:
+                self.set_root(folder)
+                self.scan()
+
+    def eventFilter(self, obj, ev):
+        # file trascinati da fuori sull'albero: nella lista di lavoro, non spostati nella libreria
+        if ev.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop) \
+                and ev.source() is not self.list and ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+            if ev.type() == QEvent.Type.Drop:
+                self.win.import_paths([u.toLocalFile() for u in ev.mimeData().urls()])
+            return True
+        return False
 
     def set_root(self, folder):
         self.root = folder
@@ -338,7 +431,7 @@ class LibraryView(QWidget):
 
     def show_folder(self, folder):
         self.folder = folder
-        self.lbl_root.setText(folder or "Nessuna libreria: scegli la cartella dove tieni i fumetti, "
+        self.lbl_root.setText(folder or "Nessuna libreria: scegli la cartella in Opzioni, "
                                         "o trascina qui i file da sistemare")
         self.refresh(force=True)
 
@@ -499,7 +592,7 @@ class LibraryView(QWidget):
         sel = sel or self.selected()
         if not sel or not self.root or not self.win._free():
             return
-        piano, senza_info = piano_spostamenti(self.root, self.schema.text().strip() or SCHEMA_PREDEFINITO, sel)
+        piano, senza_info = piano_spostamenti(self.root, impostazione("schema"), sel)
         if piano and ConfermaRinomina(piano, self, "Riordina dalle info", f"Spostare {len(piano)} fumetti?",
                                       "Sposta").exec():
             self.win._do_renames(piano, history.new_batch())
@@ -508,11 +601,11 @@ class LibraryView(QWidget):
 
     def auto_move(self, paths):
         """A fine lavoro: i CBZ sistemati fuori dalla libreria ci finiscono, nelle cartelle dello schema."""
-        if not (self.root and self.chk_auto.isChecked()):
+        if not (self.root and impostazione("auto")):
             return
         root = os.path.join(os.path.abspath(self.root), "")
         fuori = [p for p in paths if os.path.exists(p) and not os.path.abspath(p).startswith(root)]
-        piano, senza_info = piano_spostamenti(self.root, self.schema.text().strip() or SCHEMA_PREDEFINITO, fuori)
+        piano, senza_info = piano_spostamenti(self.root, impostazione("schema"), fuori)
         if piano:
             log.info(f"Libreria: {len(piano)} fumetti spostati nella libreria")
             self.win._do_renames(piano, history.new_batch())
@@ -523,7 +616,7 @@ class LibraryView(QWidget):
         if senza_info:
             nomi = "\n".join(os.path.basename(p) for p in senza_info[:8])
             QMessageBox.information(self, "Libreria", f"{len(senza_info)} fumetti non hanno le info dello schema "
-                                    f"«{self.schema.text()}» e restano dove sono:\n{nomi}")
+                                    f"«{impostazione('schema')}» e restano dove sono:\n{nomi}")
         elif altrimenti:
             QMessageBox.information(self, "Libreria", altrimenti)
 

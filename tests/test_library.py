@@ -57,6 +57,24 @@ def test_vista(app, lib):
     assert v.folder == lib and v.paths == [], "⌂ torna alla cartella principale"
     v.show_folder(os.path.join(lib, "Batman"))
 
+    # la Libreria allarga la finestra di una colonna in più della lista più grande (se lo schermo basta)
+    from comicoptimizer import config
+    if win._cols_fit(10 ** 5, config.COLS_MAX + 1) == win._cols_fit_screen() + 1:
+        assert win._view_cols() == config.COLS_MAX + 1
+
+    # file trascinati da fuori sull'albero: nella lista di lavoro, non spostati nella libreria
+    from PyQt6.QtCore import QMimeData, QPointF, QUrl, Qt as _Qt
+    from PyQt6.QtGui import QDropEvent
+    md = QMimeData()
+    md.setUrls([QUrl.fromLocalFile(c)])
+    ev = QDropEvent(QPointF(5, 5), _Qt.DropAction.MoveAction, md, _Qt.MouseButton.LeftButton,
+                    _Qt.KeyboardModifier.NoModifier)
+    importati = []
+    vero_import, win.import_paths = win.import_paths, importati.append
+    v.eventFilter(v.tree.viewport(), ev)
+    win.import_paths = vero_import
+    assert importati == [[c]] and os.path.exists(c), importati
+
     # menu col tasto destro: Unisci solo con 2 o più fumetti
     voci = lambda: [x.text() for x in v.list_menu().actions() if x.text()]
     v.list.item(0).setSelected(True)
@@ -203,7 +221,19 @@ def test_sposta(app, work):
 
     win.on_file_done(a, a, 2)                          # come a fine lavoro
     assert win._job_outputs == [a]
-    v.chk_auto.setChecked(True)
+    # opzioni: i tasti dei campi aggiungono e tolgono pezzi dello schema; OK salva
+    from comicoptimizer.library import OpzioniLibreria, impostazione
+    o = OpzioniLibreria(v)
+    o.inverti("Publisher")
+    assert o.schema.text() == "<Series>", o.schema.text()
+    o.schema.insert("/")
+    o.inverti("Year")
+    o.inverti("Publisher")
+    assert o.schema.text() == "<Series>/<Year><Publisher>", o.schema.text()
+    o.schema.setText("<Publisher>/<Series>")
+    o.auto.setChecked(True)
+    o.accept()
+    assert impostazione("auto") and impostazione("schema") == "<Publisher>/<Series>"
     v.auto_move([a, senza, dentro])
     nuovo = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
     assert os.path.exists(nuovo) and not os.path.exists(a) and os.path.exists(gia), "mai sovrascrivere"
