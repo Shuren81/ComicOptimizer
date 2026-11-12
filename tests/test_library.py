@@ -189,10 +189,36 @@ def test_controllo(app, lib):
     v = win.library
     v.set_root(lib)
     v.results = res
+    v.dupe_of = dict(workers.DUPE_OF)
+    assert v.dupe_of == {b: a}, v.dupe_of
     v.filtro.setCurrentIndex(2)
-    assert v.paths == [b], v.paths
+    assert v.paths == [a, b], "il doppione accanto al file che si tiene"
+    assert "doppione di «Batman 01.cbz»" in v.list.item(1).toolTip()
+    v.cerca.setText("(1)")
+    v.refresh(force=True)
+    assert v.paths == [a, b], "la ricerca tiene tutto il gruppo"
+    v.cerca.setText("robin")
+    v.refresh(force=True)
+    assert v.paths == []
     v.filtro.setCurrentIndex(3)
+    v.cerca.clear()
+    v.refresh(force=True)
     assert v.paths == [c] and "danneggiato" in v.list.item(0).toolTip()
+
+    # ricerca per nome: dalla cartella principale in tutta la libreria, altrimenti nella cartella aperta
+    v.filtro.setCurrentIndex(0)
+    v.go_root()
+    v.cerca.setText("BATMAN 01")
+    v.refresh(force=True)
+    assert v.paths == [a, b], v.paths
+    v.cerca.setText("robin nuovo")
+    v.refresh(force=True)
+    assert v.paths == [e], v.paths
+    v.show_folder(os.path.join(lib, "Batman"))
+    assert v.paths == [], "in una sottocartella cerca solo lì"
+    v.cerca.clear()
+    v.refresh(force=True)
+    assert v.paths == [a]
     v.stop()
     win.close()
 
@@ -249,6 +275,9 @@ def test_sposta(app, work):
     o.inverti("Publisher", schema)
     assert schema.text() == "<Series>/<Year><Publisher>", schema.text()
     schema.setText("<Publisher>/<Series>")
+    o.show()
+    righe1 = o.righe[0][0].height()
+    assert righe1 >= o.righe[0][0].sizeHint().height(), "aperta con una libreria: la riga non è schiacciata"
     alta = o.height()
     o.quante.setValue(2)
     assert o.righe[1][0].isVisibleTo(o) and o.height() > alta, "la finestra si allunga con la riga nuova"

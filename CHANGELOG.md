@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.9.0] — 2026-11-12
+
+- **Nuovo:** nella Libreria il campo **Cerca per nome**: filtra i fumetti mostrati (una cartella, i doppioni, i danneggiati…); dalla cartella principale cerca in tutta la libreria. Con più parole devono esserci tutte.
+- **Nuovo:** con il filtro **Doppioni** ogni copia è affiancata al fumetto che si tiene, e i gruppi hanno sfondi alterni; la descrizione dice di quale file è doppione.
+- **Corretto:** nelle Opzioni la riga della libreria non è più schiacciata aprendo la finestra con una libreria sola.
+
 ## [3.8.2] — 2026-11-12
 
 - **Corretto:** nelle Opzioni, aggiungendo una libreria la finestra si allunga: la riga nuova non resta più tagliata a metà.

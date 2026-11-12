@@ -195,7 +195,9 @@ class LibraryScanWorker(_Stoppable):
         if self.aborted:
             self.cancelled.emit()
             return
-        self.finished.emit(workers.classify(paths, checked)[0], fresh)
+        results = workers.classify(paths, checked)[0]
+        self.dupe_of = dict(workers.DUPE_OF)          # copiato subito: anche la lista di lavoro usa classify
+        self.finished.emit(results, fresh)
 
 
 CAMPI_CARTELLE = ("Publisher", "Series", "Writer", "Penciller", "Year", "StoryArc")
@@ -360,11 +362,16 @@ class OpzioniLibreria(QDialog):
         f.addRow(etichetta, c)
         return c
 
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._mostra_righe()                          # misura giusta solo ora, col tema applicato
+
     def _mostra_righe(self):
         for i, (riga, *_r) in enumerate(self.righe):
             riga.setVisible(i < self.quante.value())
-        self.layout().activate()                      # la finestra cresce (o cala) con le righe
-        self.resize(self.width(), self.sizeHint().height())
+        if self.isVisible():                          # all'apertura la misura Qt, col tema già applicato
+            self.layout().activate()                  # la finestra cresce (o cala) con le righe
+            self.resize(self.width(), self.sizeHint().height())
 
     def _attiva(self, schema):
         """I tasti dei campi delle cartelle valgono per lo schema dove si è cliccato per ultimo."""
@@ -456,6 +463,7 @@ class LibraryView(QWidget):
         self.paths = []
         self.results = {}                             # stato di ogni fumetto, dall'ultimo controllo
         self.scanned_roots = []                       # librerie dell'ultimo controllo
+        self.dupe_of = {}                             # doppione → il file che si tiene
         self.scanner = None
         self._queue = deque()
         self._running = set()
@@ -471,6 +479,14 @@ class LibraryView(QWidget):
         b_home = QPushButton("⌂ Tutta la libreria")
         b_home.setToolTip("Torna alla cartella principale della libreria")
         b_home.clicked.connect(self.go_root)
+        self.cerca = QLineEdit()
+        self.cerca.setPlaceholderText("Cerca per nome…")
+        self.cerca.setClearButtonEnabled(True)
+        self.cerca.setToolTip("Cerca nei fumetti mostrati; dalla cartella principale, in tutta la libreria.\n"
+                              "Più parole: devono esserci tutte.")
+        self._attesa = QTimer(self, singleShot=True, interval=300)   # non a ogni tasto
+        self._attesa.timeout.connect(lambda: self.refresh(force=True))
+        self.cerca.textChanged.connect(self._attesa.start)
         self.chk_sub = QCheckBox("Includi sottocartelle")
         self.chk_sub.toggled.connect(lambda: self.show_folder(self.folder))
         self.filtro = QComboBox()
@@ -491,6 +507,7 @@ class LibraryView(QWidget):
         b_opts.setToolTip("Cartella della libreria, spostamento automatico e schema delle cartelle")
         b_opts.clicked.connect(self.options)
         bar.addWidget(b_opts)
+        bar.addWidget(self.cerca)
         bar.addWidget(self.filtro)
         bar.addWidget(self.chk_sub)
         l.addLayout(bar)
@@ -634,12 +651,27 @@ class LibraryView(QWidget):
         """Rilegge la cartella; ricostruisce la griglia solo se i fumetti sono cambiati o con `force`.
         Senza `force` (dopo un lavoro, una rinomina, il cestino) ricontrolla la libreria: solo i file cambiati."""
         stati = FILTRI[self.filtro.currentIndex()][1]
+        parole = self.cerca.text().lower().split()
+        trovato = lambda p: all(w in os.path.basename(p).lower() for w in parole)
+        gruppi = {}                                   # doppioni: ogni fumetto accanto a quello che si tiene
         if stati:
             paths = sorted((p for p, s in self.results.items()
                             if s in stati and in_libreria(p, self.root) and os.path.exists(p)),
                            key=get_natural_sort_key)
+            if stati == {4}:
+                for p in paths:
+                    gruppi.setdefault(self.dupe_of.get(p, p), []).append(p)
+                gruppi = {k: ([k] if k not in v and os.path.exists(k) else []) + v
+                          for k, v in sorted(gruppi.items(), key=lambda kv: get_natural_sort_key(kv[0]))
+                          if not parole or any(trovato(p) for p in [k] + v)}   # tutto il gruppo se uno combacia
+                paths = [p for v in gruppi.values() for p in v]
+        elif parole and self.folder == self.root and self.root:   # dalla radice: tutta la libreria
+            noti = [p for p in self.results if in_libreria(p, self.root)]
+            paths = sorted(noti or list_comics(self.root, True), key=get_natural_sort_key)
         else:
             paths = list_comics(self.folder, self.chk_sub.isChecked()) if self.folder else []
+        if parole and not gruppi:
+            paths = [p for p in paths if trovato(p)]
         if not force and self.results:
             QTimer.singleShot(0, self.scan)           # dopo un lavoro: stati aggiornati (rilegge solo i cambiati)
         if paths == self.paths and not force:
@@ -647,10 +679,15 @@ class LibraryView(QWidget):
         self.paths = paths
         self._queue.clear()
         self.list.clear()
+        sfondo = {p: n % 2 for n, v in enumerate(gruppi.values()) for p in v}   # gruppi a colori alterni
         for p in paths:
             item = QListWidgetItem(os.path.basename(p))
+            if sfondo.get(p):
+                item.setBackground(QBrush(QColor("#263238")))
             item.setData(Qt.ItemDataRole.UserRole, p)
             testo, colore = STATI.get(self.results.get(p), ("", None))
+            if p in self.dupe_of:
+                testo += f" di «{os.path.basename(self.dupe_of[p])}»"
             item.setToolTip(p + (f"\n{testo}" if testo else ""))
             if colore:
                 item.setForeground(QBrush(QColor(colore)))
@@ -736,6 +773,7 @@ class LibraryView(QWidget):
         self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
 
     def _scanned(self, results, fresh, always_ask):
+        self.dupe_of = self.scanner.dupe_of
         self._scan_ended()
         self.results = results
         self.refresh(force=True)

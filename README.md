@@ -1,12 +1,14 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.8.2
+### 📚 ComicOptimizer v3.9.0
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
 Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer nasce dall'esigenza di trasformare collezioni disordinate e pesanti in librerie fluide, standardizzate e pronte per qualsiasi lettore.
 
 ### 🆕 Novità
+
+**v3.9: ricerca e doppioni affiancati.** Nella Libreria un campo cerca per nome nei fumetti mostrati (dalla cartella principale, in tutta la libreria). Con il filtro Doppioni ogni copia sta accanto al fumetto che si tiene, e i gruppi hanno sfondi alterni.
 
 **v3.7: più librerie.** Nelle Opzioni scegli quante librerie hai (es. fumetti italiani, manga, comics americani), ognuna con nome, cartella e schema delle cartelle; un menu le alterna. Nome e schema stanno in un file nascosto (`.comicoptimizer.json`) nella cartella della libreria. Il controllo le copre tutte e avvisa che la prima volta è molto lungo.
 
@@ -127,7 +129,7 @@ pip install -r requirements.txt
 ### 🛠️ Utilizzo Rapido
 
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
-* **Libreria:** la finestra si apre sulla tua libreria (le librerie si aggiungono in *Opzioni*, il menu in alto le alterna). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Doppio click per le pagine, tasto destro per le azioni; trascina i fumetti su una cartella dell'albero per spostarli. *Controlla* rifà il controllo di doppioni, danneggiati e WebP; il menu accanto filtra i problemi.
+* **Libreria:** la finestra si apre sulla tua libreria (le librerie si aggiungono in *Opzioni*, il menu in alto le alterna). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Doppio click per le pagine, tasto destro per le azioni; trascina i fumetti su una cartella dell'albero per spostarli. *Controlla* rifà il controllo di doppioni, danneggiati e WebP; il menu accanto filtra i problemi (i doppioni accanto al file che si tiene). Il campo *Cerca per nome* filtra quello che vedi; dalla cartella principale cerca in tutta la libreria.
 * **Opzioni:** cartella e schema delle cartelle della libreria, spostamento automatico, qualità WebP, "Leggi su" (riduzione delle pagine per il tuo dispositivo), ricompressione dei WebP, originali cancellati o nel cestino, processi, schema di rinomina, controllo all'avvio e dimensione delle miniature.
 * **Importazione:** trascina i tuoi file o cartelle in un punto qualsiasi della finestra: compare la lista di lavoro (*← LIBRERIA* torna alla libreria, che ricompare da sola quando la lista si svuota). I file con estensioni non supportate non vengono importati. Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.

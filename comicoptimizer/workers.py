@@ -246,6 +246,9 @@ def _integrity_and_signature(p):
     return ok, sig, status
 
 
+DUPE_OF = {}   # doppione → il file che si tiene, dall'ultimo classify (per mostrarli affiancati)
+
+
 def classify(paths, checked):
     """{percorso: stato} e numero di doppioni, dai controlli (integro, impronta, stato) di ogni file.
     5 = danneggiato, 4 = doppione (stesso nome o stesse pagine), altrimenti lo stato del file."""
@@ -268,12 +271,14 @@ def classify(paths, checked):
         return (0 if good_cbz else 1, len(os.path.basename(x)), get_natural_sort_key(x))
 
     dupes_count = 0
+    DUPE_OF.clear()
     for ps in list(groups.values()) + list(by_sig.values()):
         if len(ps) > 1:
             ps = sorted(ps, key=keep_first)
             for loser in ps[1:]:
                 if loser not in results:
                     results[loser] = 4
+                    DUPE_OF[loser] = ps[0]
                     dupes_count += 1
                     log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
                               f"= '{os.path.basename(ps[0])}'")
