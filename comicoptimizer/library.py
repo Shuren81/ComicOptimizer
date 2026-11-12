@@ -5,7 +5,7 @@ import os
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from PyQt6.QtCore import QDir, QMimeData, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QDir, QMimeData, QModelIndex, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -218,6 +218,9 @@ class LibraryView(QWidget):
         self.lbl_root.setStyleSheet("color: #aaa")
         b_root = QPushButton("Scegli cartella…")
         b_root.clicked.connect(self.choose_root)
+        b_home = QPushButton("⌂ Tutta la libreria")
+        b_home.setToolTip("Torna alla cartella principale della libreria")
+        b_home.clicked.connect(self.go_root)
         self.chk_sub = QCheckBox("Includi sottocartelle")
         self.chk_sub.toggled.connect(lambda: self.show_folder(self.folder))
         self.filtro = QComboBox()
@@ -230,6 +233,7 @@ class LibraryView(QWidget):
         self.b_scan.setToolTip("Integrità, doppioni e WebP di tutta la libreria (rilegge solo i file cambiati)")
         self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
         bar.addWidget(b_root)
+        bar.addWidget(b_home)
         bar.addWidget(self.lbl_root, 1)
         bar.addWidget(self.lbl_scan)
         bar.addWidget(self.b_scan)
@@ -252,20 +256,21 @@ class LibraryView(QWidget):
         l.addLayout(riga)
 
         actions = QHBoxLayout()
-        self.buttons = []
-        for text, slot, variant in (("PAGINE", self.open_pages, None),
-                                    ("INFO E RINOMINA", self.rename, None),
-                                    ("SISTEMA", self.repair, "primary"),
-                                    ("RIORDINA", self.reorder, None),
-                                    ("NELLA LISTA", self.to_work_list, None),
-                                    ("CESTINA", self.trash, "danger")):
+        for text, slot, variant, tip in (
+                ("PAGINE", self.open_pages, None, "Apre le pagine del fumetto (anche con doppio click)"),
+                ("INFO E RINOMINA", self.rename, None, "Metadati (ComicInfo.xml), ricerca online e rinomina"),
+                ("SISTEMA", self.repair, "primary", "Ripara o converte in WebP i selezionati"),
+                ("ORDINA IN CARTELLE", self.reorder, None,
+                 "Sposta i selezionati nelle cartelle dello schema (es. Editore/Serie) lette dalle info;\n"
+                 "si annulla dalla Cronologia"),
+                ("CESTINA", self.trash, "danger", "Sposta nel cestino i selezionati")):
             b = QPushButton(text)
             b.setMinimumHeight(36)
+            b.setToolTip(tip)
             if variant:
                 set_variant(b, variant)
             b.clicked.connect(slot)
             actions.addWidget(b)
-            self.buttons.append((b, slot))
         actions.addStretch()
         l.addLayout(actions)
 
@@ -287,7 +292,7 @@ class LibraryView(QWidget):
         self.model.fileRenamed.connect(
             lambda *_: self.show_folder(self.model.filePath(self.tree.currentIndex()) or self.root))
         self.tree.selectionModel().currentChanged.connect(
-            lambda cur, _prev: self.show_folder(self.model.filePath(cur)))
+            lambda cur, _prev: self.show_folder(self.model.filePath(cur) or self.root))
 
         self.list = _ComicList()
         self.list.setViewMode(QListView.ViewMode.IconMode)
@@ -321,14 +326,20 @@ class LibraryView(QWidget):
 
     def set_root(self, folder):
         self.root = folder
-        self.lbl_root.setText(folder or "Nessuna libreria: scegli la cartella dove tieni i fumetti")
         self.tree.setEnabled(bool(folder))
         if folder:
             self.tree.setRootIndex(self.model.setRootPath(folder))
         self.show_folder(folder)
 
+    def go_root(self):
+        self.tree.setCurrentIndex(QModelIndex())      # niente cartella scelta: show_folder(root)
+        if self.folder != self.root:
+            self.show_folder(self.root)
+
     def show_folder(self, folder):
         self.folder = folder
+        self.lbl_root.setText(folder or "Nessuna libreria: scegli la cartella dove tieni i fumetti, "
+                                        "o trascina qui i file da sistemare")
         self.refresh(force=True)
 
     def refresh(self, force=False):
@@ -441,7 +452,7 @@ class LibraryView(QWidget):
         box.exec()
         clicked = box.clickedButton()
         if clicked is b_show:
-            self.win.tabs.setCurrentWidget(self)
+            self.win.show_view(self)
             self.filtro.setCurrentIndex(next(i for i, (_t, st) in enumerate(FILTRI)
                                              if st and any(self.results[p] in st for p in dupes + broken + convert)))
         elif clicked is b_conv and self.win._free():
@@ -515,25 +526,34 @@ class LibraryView(QWidget):
         elif altrimenti:
             QMessageBox.information(self, "Libreria", altrimenti)
 
-    def to_work_list(self):
-        sel = self.selected()
-        if sel:
-            self.win.import_paths(sel)
-            self.win.tabs.setCurrentIndex(0)
-
     def trash(self):
         sel = self.selected()
         if sel and self.win._free() and QMessageBox.question(
                 self, "Cestina", f"Spostare {len(sel)} file nel cestino?") == QMessageBox.StandardButton.Yes:
             self.win.trash_files(sel)
 
-    def _list_menu(self, pos):
-        if not self.selected():
-            return
+    def list_menu(self):
+        """Le azioni possibili sulla selezione (tasto destro sulla griglia)."""
+        sel = self.selected()
         menu = QMenu(self)
-        for b, slot in self.buttons:
-            menu.addAction(b.text().capitalize(), slot)
-        menu.exec(self.list.viewport().mapToGlobal(pos))
+        if sel:
+            if len(sel) == 1:
+                menu.addAction("Pagine", self.open_pages)
+            menu.addAction("Info e rinomina", self.rename)
+            menu.addAction("Sistema", self.repair)
+            if len(sel) > 1:
+                menu.addAction("Unisci", lambda: self.win.merge_paths(sel))
+            menu.addAction("Ordina in cartelle", self.reorder)
+            menu.addSeparator()
+            menu.addAction("Cestina", self.trash)
+        if self.win.cards:
+            menu.addAction("Torna alla lista di lavoro", lambda: self.win.show_view(self.win.work_tab))
+        return menu
+
+    def _list_menu(self, pos):
+        menu = self.list_menu()
+        if not menu.isEmpty():
+            menu.exec(self.list.viewport().mapToGlobal(pos))
 
     def _tree_menu(self, pos):
         index = self.tree.indexAt(pos)

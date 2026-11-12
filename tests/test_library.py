@@ -45,7 +45,7 @@ def test_vista(app, lib):
 
     win = MainWindow()
     v = win.library
-    assert win.tabs.count() == 2 and v.root == "", "senza libreria scelta la scheda è vuota"
+    assert win.views.currentWidget() is v and v.root == "", "si parte dalla Libreria (vuota)"
     v.set_root(lib)
     assert v.paths == [], "nella cartella principale non ci sono fumetti sciolti"
     v.chk_sub.setChecked(True)
@@ -53,6 +53,27 @@ def test_vista(app, lib):
     v.chk_sub.setChecked(False)
     v.show_folder(os.path.join(lib, "Batman"))
     assert v.paths == [a, b] and v.list.count() == 2
+    v.go_root()
+    assert v.folder == lib and v.paths == [], "⌂ torna alla cartella principale"
+    v.show_folder(os.path.join(lib, "Batman"))
+
+    # menu col tasto destro: Unisci solo con 2 o più fumetti
+    voci = lambda: [x.text() for x in v.list_menu().actions() if x.text()]
+    v.list.item(0).setSelected(True)
+    assert "Pagine" in voci() and "Unisci" not in voci(), voci()
+    v.list.item(1).setSelected(True)
+    assert "Unisci" in voci() and "Pagine" not in voci(), voci()
+    v.list.clearSelection()
+
+    # file trascinati: compare la lista di lavoro; svuotata, si torna alla Libreria
+    win.import_paths([c])
+    assert win.views.currentWidget() is win.work_tab
+    assert attendi(app, lambda: c in win.cards)
+    assert win.views.currentWidget() is win.work_tab and "Torna alla lista di lavoro" in voci()
+    win.show_view(v)
+    assert win.views.currentWidget() is v and c in win.cards, "← LIBRERIA non svuota la lista"
+    win.clear_all()
+    assert win.views.currentWidget() is v
 
     # miniature: create in background e salvate in cache
     assert attendi(app, lambda: all(os.path.exists(library.thumb_path(p)) for p in (a, b)))

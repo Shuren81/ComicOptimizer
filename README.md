@@ -1,6 +1,6 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.5.2
+### 📚 ComicOptimizer v3.5.3
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
@@ -8,7 +8,7 @@ Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer n
 
 ### 🆕 Novità
 
-**v3.5.0: Libreria.** Una scheda nuova mostra la tua libreria: albero delle cartelle, miniature, pagine e Info e rinomina con un doppio click, fumetti da spostare trascinandoli sulle cartelle. All'avvio controlla doppioni, file danneggiati e fumetti non in WebP (dopo la prima volta, solo i file cambiati); i fumetti sistemati possono finire da soli nella libreria, in cartelle come `<Publisher>/<Series>`.
+**v3.5: Libreria.** La finestra si apre sulla tua libreria (i file trascinati aprono la lista di lavoro): albero delle cartelle, miniature, pagine e Info e rinomina con un doppio click, fumetti da spostare trascinandoli sulle cartelle. All'avvio controlla doppioni, file danneggiati e fumetti non in WebP (dopo la prima volta, solo i file cambiati); i fumetti sistemati possono finire da soli nella libreria, in cartelle come `<Publisher>/<Series>`.
 
 **v3.4.1: Aggiorna app.** Il pulsante in basso mostra la versione in uso e controlla su GitHub se ce n'è una nuova: su Linux l'AppImage si aggiorna da sola, su Windows e macOS si apre la pagina della release.
 

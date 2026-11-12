@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QStyle,
     QSystemTrayIcon,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -384,7 +383,7 @@ class MainWindow(QMainWindow):
 
     def _refit_width(self):
         """Riadatta la larghezza quando compaiono/spariscono i pulsanti della barra."""
-        n = len(self.cards)
+        n = COLS_MAX if self.views.currentWidget() is self.library else len(self.cards)
         self._apply_window_width(self._cols_for_count(n))
 
     def _apply_window_width(self, cols):
@@ -540,6 +539,11 @@ class MainWindow(QMainWindow):
         self.btn_trash_dupes.clicked.connect(self.trash_all_duplicates)
 
         top_bar.setSpacing(8)
+        self.btn_lib = QPushButton("← LIBRERIA")
+        self.btn_lib.setMinimumHeight(42)
+        self.btn_lib.setToolTip("Torna alla Libreria (la lista di lavoro resta)")
+        self.btn_lib.clicked.connect(lambda: self.show_view(self.library))
+        top_bar.addWidget(self.btn_lib)
         top_bar.addWidget(self.btn_clear)
         top_bar.addWidget(self.btn_all)
         top_bar.addWidget(self.btn_sel_all)
@@ -631,10 +635,12 @@ class MainWindow(QMainWindow):
         self.set_drop_style(False)
         work_l.addWidget(self.grid_stack)
         self.library = LibraryView(self)
-        self.tabs = QTabWidget()
-        self.tabs.addTab(work_tab, "Lavoro")
-        self.tabs.addTab(self.library, "📚 Libreria")
-        layout.addWidget(self.tabs)
+        # schermata unica: la Libreria; il Lavoro la sostituisce finché la lista non è vuota
+        self.work_tab = work_tab
+        self.views = QStackedWidget()
+        self.views.addWidget(self.library)
+        self.views.addWidget(work_tab)
+        layout.addWidget(self.views)
         self._drag_selector = _DragSelector(self)
 
         footer = QHBoxLayout()
@@ -1075,6 +1081,7 @@ class MainWindow(QMainWindow):
 
     def import_files(self, paths):
         self.set_working(False)
+        self.views.setCurrentWidget(self.work_tab)       # lista vuota alla fine: refresh_grid torna alla Libreria
         added = 0
         for p, count in paths:
             if p not in self.cards:
@@ -1142,11 +1149,13 @@ class MainWindow(QMainWindow):
                  f"{'dopo' if after else 'prima del'}le sottocartelle")
 
     def merge_selected(self):
-        """Unisce i fumetti selezionati (ordine naturale del nome) in un unico CBZ."""
+        self.merge_paths([p for p, c in self.cards.items() if c.selected])
+
+    def merge_paths(self, paths):
+        """Unisce i fumetti (ordine naturale del nome) in un unico CBZ."""
         if not self._free():
             return
-        sel = sorted((p for p, c in self.cards.items() if c.selected),
-                     key=lambda p: get_natural_sort_key(os.path.basename(p)))
+        sel = sorted(paths, key=lambda p: get_natural_sort_key(os.path.basename(p)))
         if len(sel) < 2:
             return
         dlg = MergeDialog(sel, self)
@@ -1516,7 +1525,10 @@ class MainWindow(QMainWindow):
                 w.setParent(None)
 
         n    = len(self.cards)
-        cols = self._cols_for_count(n)
+        if not n:
+            self.views.setCurrentWidget(self.library)   # lista vuota: si torna alla Libreria
+        # la Libreria è larga quanto la lista più grande (quella che entra nello schermo)
+        cols = self._cols_for_count(COLS_MAX if self.views.currentWidget() is self.library else n)
         self._grid_cols = cols
         self._apply_window_width(cols)
         # massimizzata: la griglia al centro (lo spazio avanzato si divide ai due lati)
@@ -1565,9 +1577,13 @@ class MainWindow(QMainWindow):
         if urls:
             self.import_paths(urls)
 
+    def show_view(self, w):
+        self.views.setCurrentWidget(w)
+        self.refresh_grid()
+
     def import_paths(self, urls):
         """Fumetti e cartelle nella lista di lavoro (trascinati o dalla Libreria)."""
-        self.tabs.setCurrentIndex(0)
+        self.views.setCurrentWidget(self.work_tab)   # le card arrivano con import_files
         self.set_working(True, "Scansione...")
         iw = ImportWorker(urls)
         iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))

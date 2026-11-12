@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.5.3] — 2026-11-12
+
+- **Cambiato:** **schermata unica**: niente più schede, la finestra mostra la Libreria. Trascinando dei file compare la lista di lavoro; con **← LIBRERIA** (o quando la lista si svuota) si torna alla Libreria.
+- **Cambiato:** la Libreria allarga la finestra come la lista di lavoro più grande.
+- **Nuovo:** pulsante **⌂ Tutta la libreria** per tornare alla cartella principale.
+- **Nuovo:** tasto destro sui fumetti della Libreria: le azioni possibili per la selezione, compresa **Unisci** (2 o più fumetti).
+- **Cambiato:** RIORDINA si chiama **ORDINA IN CARTELLE**; tolto NELLA LISTA. Ogni pulsante ha la sua spiegazione.
+
 ## [3.5.2] — 2026-11-11
 
 - **Nuovo:** **spostamento automatico nella libreria**: con la casella "Sposta qui i fumetti sistemati…" spuntata, a fine lavoro i CBZ sistemati nella lista di lavoro finiscono nella libreria, in cartelle costruite dalle info con uno schema come `<Publisher>/<Series>`. I campi vuoti spariscono; un fumetto senza quelle info resta dov'è e viene segnalato. Mai sovrascrivere: un nome già usato prende `_1`.
