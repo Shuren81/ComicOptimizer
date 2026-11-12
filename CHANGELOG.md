@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.7.1] — 2026-11-12
+
+- **Corretto:** nelle Opzioni i pulsanti «Scegli…» delle librerie si leggono (prima il testo era tagliato) e il campo «Quante» è largo quanto basta per una cifra.
+
 ## [3.7.0] — 2026-11-12
 
 - **Nuovo:** **più librerie** (fino a 6): nelle Opzioni scegli quante, e per ognuna nome, cartella e schema delle cartelle (es. fumetti italiani `<Publisher>/<Series>`, manga `<Writer> - <Series>`). Un menu nella Libreria le alterna. Nome, schema e stato del controllo stanno in un file nascosto `.comicoptimizer.json` nella cartella base della libreria. La libreria della 3.6 diventa la prima, con il suo schema.

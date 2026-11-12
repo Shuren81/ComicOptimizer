@@ -264,6 +264,7 @@ class OpzioniLibreria(QDialog):
         self.quante = QSpinBox()
         self.quante.setRange(1, MAX_LIBRERIE)
         self.quante.setValue(max(1, len(cartelle)))
+        self.quante.setFixedWidth(70)                 # una cifra: non serve tutta la riga
         self.quante.setToolTip("Es. una per i fumetti italiani, una per i manga, una per gli americani")
         f.addRow("Quante:", self.quante)
         self.righe = []                               # (riga, nome, cartella, schema) di ogni libreria
@@ -278,6 +279,8 @@ class OpzioniLibreria(QDialog):
             dove = QLineEdit(cartella)
             dove.setPlaceholderText("Cartella dove sono i fumetti")
             b = QPushButton("Scegli…")
+            b.setProperty("sz", "small")              # alto come i campi accanto, se no il testo si taglia
+            set_variant(b, "")
             b.clicked.connect(lambda _on, d=dove, n=nome: self._scegli(d, n))
             schema = QLineEdit(info["schema"])
             schema.setToolTip("Cartelle per Ordina in cartelle e lo spostamento automatico: campi del "
