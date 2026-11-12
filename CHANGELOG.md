@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.7.2] — 2026-11-12
+
+- **Corretto:** l'avviso del primo controllo compare ogni volta che l'indice di questa installazione non conosce ancora la libreria (prima bastava che l'avesse controllata un'altra installazione, es. l'AppImage, e il programma da sorgente rileggeva tutto senza avvisare). Il file nascosto della libreria tiene solo nome e schema.
+
 ## [3.7.1] — 2026-11-12
 
 - **Corretto:** nelle Opzioni i pulsanti «Scegli…» delle librerie si leggono (prima il testo era tagliato) e il campo «Quante» è largo quanto basta per una cifra.

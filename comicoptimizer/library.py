@@ -202,7 +202,7 @@ CAMPI_CARTELLE = ("Publisher", "Series", "Writer", "Penciller", "Year", "StoryAr
 
 
 MAX_LIBRERIE = 6
-INFO_FILE = ".comicoptimizer.json"     # nella cartella base di ogni libreria: nome, schema, controllata
+INFO_FILE = ".comicoptimizer.json"     # nella cartella base di ogni libreria: nome e schema
 
 
 def librerie():
@@ -215,10 +215,10 @@ def librerie():
 
 
 def info_libreria(cartella):
-    """{'nome', 'schema', 'controllata'} dal file nascosto della libreria (o i valori di partenza)."""
+    """{'nome', 'schema'} dal file nascosto della libreria (o i valori di partenza)."""
     vecchio = (QSettings(*SETTINGS).value("libreria/schema", "") or "").strip()   # opzione della 3.5
     info = {"nome": os.path.basename(os.path.normpath(cartella)),
-            "schema": vecchio or SCHEMA_PREDEFINITO, "controllata": False}
+            "schema": vecchio or SCHEMA_PREDEFINITO}
     try:
         with open(os.path.join(cartella, INFO_FILE), encoding="utf-8") as f:
             info.update(json.load(f))
@@ -717,9 +717,10 @@ class LibraryView(QWidget):
         self.scanner.start()
 
     def _gia_controllata(self, root):
-        """Controllo completo già fatto (o almeno avviato: l'indice ha dei suoi fumetti)."""
+        """Controllo già fatto (o avviato): l'indice di questa installazione ha dei suoi fumetti.
+        Non nel file della libreria: AppImage e programma da sorgente hanno indici diversi."""
         base = os.path.join(os.path.abspath(root), "")
-        return info_libreria(root)["controllata"] or any(k.startswith(base) for k in workers._ANALYSIS_CACHE)
+        return any(k.startswith(base) for k in workers._ANALYSIS_CACHE) or not list_comics(root, True)
 
     def _stop_scan(self):
         self.lbl_scan.setText("Fermo il controllo…")
@@ -735,11 +736,6 @@ class LibraryView(QWidget):
     def _scanned(self, results, fresh, always_ask):
         self._scan_ended()
         self.results = results
-        for r in self.scanned_roots:
-            try:
-                salva_info(r, controllata=True)
-            except OSError:
-                pass                                  # cartella in sola lettura: lo dirà l'indice
         self.refresh(force=True)
         if always_ask or any(results.get(p) in (0, 1, 4, 5) for p in fresh):   # solo problemi nuovi
             self.report()

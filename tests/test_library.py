@@ -270,20 +270,33 @@ def test_sposta(app, work):
     v.scelta.setCurrentIndex(0)
     assert v.root == lib
 
-    # primo controllo: avvisa che è lungo; "No" non lo avvia. Già fatto: parte, e lo Stop è subito
+    # primo controllo: avvisa che è lungo (solo per le librerie che l'indice non conosce ancora e che
+    # hanno dei fumetti); "No" non lo avvia. Già controllate: parte senza chiedere, e lo Stop è subito
+    from comicoptimizer import workers
+    v.report = lambda: None                            # niente finestra di riepilogo nel test
+    workers._ANALYSIS_CACHE.clear()
+    m = cbz(os.path.join(manga, "M.cbz"), [(1, 1, 1)])
     domande = []
     vera_domanda = QMessageBox.question
     QMessageBox.question = staticmethod(lambda *a, **k: (domande.append(a[2]), QMessageBox.StandardButton.No)[1])
     v.scan()
+    assert len(domande) == 1 and "molte ore" in domande[0] and "Manga" in domande[0] and "Comics" in domande[0]
+    assert v.scanner is None
+    workers._ANALYSIS_CACHE[os.path.join(lib, "x.cbz")] = ((0, 0), True, "", 1)   # Comics già controllata
+    v.scan()
+    assert len(domande) == 2 and "Manga" in domande[1] and "Comics" not in domande[1], domande
+    os.remove(m)                                       # libreria vuota: niente da avvisare
+    v.scan()
     QMessageBox.question = vera_domanda
-    assert domande and "molte ore" in domande[0] and "Manga" in domande[0] and v.scanner is None
-    for r in (lib, manga):
-        library.salva_info(r, controllata=True)
-    from comicoptimizer import workers
+    assert len(domande) == 2 and v.scanner is not None
+    v.scanner.wait()
+    attendi(app, lambda: v.scanner is None)
+    cbz(m, [(1, 1, 1)])
     lento, vero_controllo = workers._integrity_and_signature, workers._integrity_and_signature
-    workers._ANALYSIS_CACHE.clear()
+    workers._ANALYSIS_CACHE.clear()                    # tutti da rileggere, ma librerie già conosciute:
+    for finto in (os.path.join(lib, "x.cbz"), os.path.join(manga, "x.cbz")):   # niente avviso
+        workers._ANALYSIS_CACHE[finto] = ((0, 0), True, "", 1)
     workers._integrity_and_signature = lambda p: (time.sleep(3), lento(p))[1]   # fumetti enormi
-    v.report = lambda: None
     v.scan()
     assert v.scanner is not None
     attendi(app, lambda: False, 0.3)
