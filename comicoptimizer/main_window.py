@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QProgressDialog,
+    QMenu,
     QPushButton,
     QRubberBand,
     QScrollArea,
@@ -532,6 +533,13 @@ class MainWindow(QMainWindow):
         self.btn_undo_rename.setVisible(False)
         self.btn_undo_rename.clicked.connect(self.undo_rename)
 
+        self.btn_move = QPushButton("SPOSTA IN LIBRERIA")
+        self.btn_move.setMinimumHeight(42)
+        self.btn_move.setToolTip("Sposta i selezionati nella libreria, nelle cartelle dello schema "
+                                 "(es. Editore/Serie) lette dalle info; si annulla dalla Cronologia")
+        self.btn_move.setVisible(False)
+        self.btn_move.clicked.connect(lambda: self.library.reorder(self._selected()))
+
         self.btn_trash_dupes = QPushButton("PULISCI DUPLICATI")
         self.btn_trash_dupes.setMinimumHeight(42)
         set_variant(self.btn_trash_dupes, "muted")
@@ -549,6 +557,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_sel_all)
         top_bar.addWidget(self.btn_merge)
         top_bar.addWidget(self.btn_rename)
+        top_bar.addWidget(self.btn_move)
         top_bar.addWidget(self.btn_undo_rename)
         top_bar.addWidget(self.btn_trash_sel)
         top_bar.addWidget(self.btn_trash_dupes)
@@ -593,7 +602,7 @@ class MainWindow(QMainWindow):
         self.status_stack.addWidget(work_w)
 
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
-        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_undo_rename,
+        for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_move, self.btn_undo_rename,
                    self.btn_trash_sel, self.btn_trash_dupes):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
@@ -642,6 +651,9 @@ class MainWindow(QMainWindow):
         self.views.addWidget(work_tab)
         layout.addWidget(self.views)
         self._drag_selector = _DragSelector(self)
+        self.grid_w.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.grid_w.customContextMenuRequested.connect(
+            lambda pos: self._card_menu(self._drag_selector._card_at(pos), self.grid_w.mapToGlobal(pos)))
 
         footer = QHBoxLayout()
         self.n_btn = QPushButton(f"Novità v{APP_VERSION}")
@@ -1048,6 +1060,7 @@ class MainWindow(QMainWindow):
         self.btn_merge.setVisible(sel_n > 1)
         self.btn_rename.setVisible(sel_n > 0)
         self.btn_trash_sel.setVisible(sel_n > 0)
+        self.btn_move.setVisible(sel_n > 0 and bool(self.library.root))
         self.btn_sel_all.setVisible(bool(self.cards))
         self.btn_sel_all.setText("DESELEZIONA TUTTO" if sel_n else "SELEZIONA TUTTO")
 
@@ -1147,6 +1160,39 @@ class MainWindow(QMainWindow):
         (self._loose_last.add if after else self._loose_last.discard)(folder)
         log.info(f"Cartella '{os.path.basename(folder)}': immagini sciolte "
                  f"{'dopo' if after else 'prima del'}le sottocartelle")
+
+    def _selected(self):
+        return [p for p, c in self.cards.items() if c.selected]
+
+    def card_menu(self):
+        """Le azioni possibili sulle card selezionate (tasto destro), come nella Libreria."""
+        sel = self._selected()
+        menu = QMenu(self)
+        if not sel:
+            return menu
+        if len(sel) == 1:
+            menu.addAction("Pagine", lambda: self.open_editor(sel[0]))
+        menu.addAction("Info e rinomina", lambda: self.rename_cards(sel))
+        menu.addAction("Sistema", self.repair_selected)
+        if len(sel) > 1:
+            menu.addAction("Unisci", lambda: self.merge_paths(sel))
+        if self.library.root:
+            menu.addAction("Sposta in libreria", lambda: self.library.reorder(sel))
+        menu.addSeparator()
+        menu.addAction("Togli dalla lista", lambda: [self.rem(p) for p in sel])
+        menu.addAction("Cestina", self.trash_selected)
+        return menu
+
+    def _card_menu(self, card, pos):
+        if card and not card.selected:               # tasto destro su una card non selezionata: solo lei
+            self.select_all(False)
+            card.selected = True
+            card.update_style()
+            self.last_clicked = card
+            self._update_sel_buttons()
+        menu = self.card_menu()
+        if not menu.isEmpty():
+            menu.exec(pos)
 
     def merge_selected(self):
         self.merge_paths([p for p, c in self.cards.items() if c.selected])

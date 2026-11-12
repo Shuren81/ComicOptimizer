@@ -70,6 +70,19 @@ def test_vista(app, lib):
     assert win.views.currentWidget() is win.work_tab
     assert attendi(app, lambda: c in win.cards)
     assert win.views.currentWidget() is win.work_tab and "Torna alla lista di lavoro" in voci()
+    # tasto destro su una card non selezionata: la seleziona e mostra il menu
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtGui import QContextMenuEvent
+    from PyQt6.QtWidgets import QMenu
+    menu_aperti = []
+    vero_exec, QMenu.exec = QMenu.exec, lambda self, *a: menu_aperti.append([x.text() for x in self.actions()])
+    try:
+        win.refresh_grid()
+        app.sendEvent(win.cards[c], QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(5, 5)))
+    finally:
+        QMenu.exec = vero_exec
+    assert win.cards[c].selected and menu_aperti and "Sposta in libreria" in menu_aperti[0], menu_aperti
+    assert win.btn_move.isVisibleTo(win)
     win.show_view(v)
     assert win.views.currentWidget() is v and c in win.cards, "← LIBRERIA non svuota la lista"
     win.clear_all()
@@ -200,6 +213,15 @@ def test_sposta(app, work):
     metadata_dialog.ConfermaRinomina.exec = lambda self: QDialog.DialogCode.Accepted
     win.undo_batch(history.batches()[0])
     assert os.path.exists(a) and not os.path.exists(nuovo)
+
+    # SPOSTA IN LIBRERIA dalla lista di lavoro: un fumetto già sistemato trascinato nella finestra
+    win.import_files([(a, 1)])
+    win.cards[a].selected = True
+    win._update_sel_buttons()
+    win.btn_move.click()
+    spostato = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
+    assert os.path.exists(spostato) and spostato in win.cards and a not in win.cards
+    win.clear_all()
 
     # Riordina dalle info, dentro la libreria
     v.show_folder(lib)

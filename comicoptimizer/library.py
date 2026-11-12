@@ -493,10 +493,11 @@ class LibraryView(QWidget):
             if mode != "cancel":
                 self.win.process_paths(sel, mode == "convert")
 
-    def reorder(self):
-        """Riordina dalle info i fumetti selezionati, con conferma; si annulla dalla Cronologia."""
-        sel = self.selected()
-        if not sel or not self.win._free():
+    def reorder(self, sel=None):
+        """Sposta i fumetti (i selezionati della Libreria, o quelli della lista di lavoro) nelle cartelle
+        dello schema dentro la libreria, con conferma; si annulla dalla Cronologia."""
+        sel = sel or self.selected()
+        if not sel or not self.root or not self.win._free():
             return
         piano, senza_info = piano_spostamenti(self.root, self.schema.text().strip() or SCHEMA_PREDEFINITO, sel)
         if piano and ConfermaRinomina(piano, self, "Riordina dalle info", f"Spostare {len(piano)} fumetti?",

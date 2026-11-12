@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.5.4] — 2026-11-12
+
+- **Nuovo:** tasto destro anche sulle card della lista di lavoro: Pagine, Info e rinomina, Sistema, Unisci, Sposta in libreria, Togli dalla lista e Cestina, in base alla selezione. Su una card non selezionata seleziona solo lei.
+- **Nuovo:** pulsante **SPOSTA IN LIBRERIA** per i fumetti selezionati nella lista di lavoro (anche già sistemati): finiscono nelle cartelle dello schema, dopo una conferma con l'elenco; si annulla dalla Cronologia.
+
 ## [3.5.3] — 2026-11-12
 
 - **Cambiato:** **schermata unica**: niente più schede, la finestra mostra la Libreria. Trascinando dei file compare la lista di lavoro; con **← LIBRERIA** (o quando la lista si svuota) si torna alla Libreria.
