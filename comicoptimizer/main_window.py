@@ -360,7 +360,7 @@ class MainWindow(QMainWindow):
     def _view_cols(self):
         """Colonne per la larghezza della finestra: la Libreria una in più della lista più grande."""
         if self.views.currentWidget() is self.library and not self.isMaximized():
-            return self._cols_fit(QApplication.primaryScreen().availableGeometry().width(), COLS_MAX + 1)
+            return self._cols_fit(self._avail().width(), COLS_MAX + 1)
         return self._cols_for_count(len(self.cards))
 
     def _cols_fit(self, avail, most):
@@ -373,7 +373,20 @@ class MainWindow(QMainWindow):
 
     def _cols_fit_screen(self):
         """Quante colonne di card entrano nella larghezza dello schermo (almeno 1)."""
-        return self._cols_fit(QApplication.primaryScreen().availableGeometry().width(), COLS_MAX)
+        return self._cols_fit(self._avail().width(), COLS_MAX)
+
+    def _avail(self):
+        """Spazio libero del monitor in cui sta la finestra (con più monitor non è per forza il principale)."""
+        h = self.windowHandle()
+        screen = h.screen() if h and len(QApplication.screens()) > 1 else QApplication.primaryScreen()
+        return screen.availableGeometry()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not getattr(self, "_screen_hooked", False):   # spostata su un altro monitor: misure nuove
+            self._screen_hooked = True
+            self.windowHandle().screenChanged.connect(lambda _s: QTimer.singleShot(0, self.refresh_grid))
+            QTimer.singleShot(0, self.refresh_grid)   # prima misura fatta col monitor principale
 
     def changeEvent(self, e):
         super().changeEvent(e)
@@ -406,7 +419,7 @@ class MainWindow(QMainWindow):
                     min(self.width() - m.left() - m.right(), self._banner.width()),
                     Qt.TransformationMode.SmoothTransformation))
             return
-        screen = QApplication.primaryScreen().availableGeometry()
+        screen = self._avail()
         # La larghezza deve bastare anche per le barre dei pulsanti sopra e sotto
         # alla griglia (altrimenti su schermi stretti alcuni pulsanti finiscono
         # fuori dalla finestra, senza modo di raggiungerli).
@@ -446,7 +459,7 @@ class MainWindow(QMainWindow):
         self.centralWidget().layout().activate()
         gh = lst.gridSize().height()
         other = self.height() - lst.viewport().height()
-        free = QApplication.primaryScreen().availableGeometry().height() - (self.frameGeometry().height() - self.height())
+        free = self._avail().height() - (self.frameGeometry().height() - self.height())
         need = other + LIBRARY_ROWS * gh + 8 - free
         pix = self.title_lbl.pixmap()
         if need > 0 and not self._banner.isNull():   # come con le card: prima si abbassa il banner
@@ -469,7 +482,7 @@ class MainWindow(QMainWindow):
         missing = CARD_H + m.top() + m.bottom() - self.grid_stack.height()
         if missing <= 0:
             return
-        screen_h = QApplication.primaryScreen().availableGeometry().height()
+        screen_h = self._avail().height()
         grow = max(0, min(missing, screen_h - self.height()))
         if grow:
             self.resize(self.width(), self.height() + grow)

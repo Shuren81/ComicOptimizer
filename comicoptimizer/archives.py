@@ -182,6 +182,35 @@ def get_archive_file_list(path):
     return imgs
 
 
+def check_quick(path):
+    """Controllo rapido, senza leggere le pagine: l'archivio si apre e nessuna pagina va oltre la fine
+    del file (trova i download troncati e i file che non sono archivi, non una pagina rovinata)."""
+    if os.path.isdir(path):
+        return True
+    real_fmt = detect_real_format(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.pdf' or real_fmt == 'pdf':
+        return HAS_PDF
+    if real_fmt == 'zip' or (real_fmt is None and ext in ('.cbz', '.zip')):
+        try:
+            size = os.path.getsize(path)
+            with zipfile.ZipFile(path) as z:
+                return all(0 <= i.header_offset and i.header_offset + i.compress_size <= size
+                           for i in z.infolist())
+        except Exception:
+            return False
+    return bool(get_archive_file_list(path))          # RAR / 7z: l'elenco delle pagine si legge
+
+
+def has_comicinfo(path):
+    """True se l'archivio ZIP ha il ComicInfo.xml (solo l'indice dello ZIP: veloce)."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return any(n.lower().endswith("comicinfo.xml") for n in z.namelist())
+    except Exception:
+        return False
+
+
 def check_integrity(path):
     """
     Verifica l'integrità dell'archivio usando il formato REALE (magic bytes),

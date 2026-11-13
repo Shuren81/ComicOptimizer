@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.0] — 2026-11-13
+
+- **Cambiato:** il controllo della libreria è **rapido**: non legge le pagine, verifica che ogni archivio si apra e sia intero (trova i download interrotti e i file che non sono archivi), i doppioni, i fumetti da convertire in WebP e se c'è il ComicInfo.xml. Sulla libreria di prova: circa 90 ms a fumetto, minuti invece di ore. Niente più avviso all'avvio.
+- **Nuovo:** pulsante **Completo**: il controllo di prima, che legge ogni pagina (trova anche una pagina rovinata in un file intero). Avvisa che dura ore, si ferma e riprende, e su un disco a piatti legge un file alla volta (leggerne 6 insieme fa saltare la testina).
+- **Nuovo:** filtro **Senza info (ComicInfo)**: i fumetti sani senza ComicInfo.xml.
+- **Corretto:** con più monitor la finestra prende le misure da quello in cui si trova (prima sempre dal principale, e su un secondo monitor più piccolo usciva dallo schermo) e si ridimensiona se la sposti.
+
 ## [3.9.1] — 2026-11-13
 
 - **Corretto:** fra due doppioni si tiene la copia con le info (ComicInfo.xml), di solito quella già sistemata e rinominata: prima si teneva il nome più corto, e «Cestina doppioni» avrebbe spostato nel cestino proprio i fumetti sistemati.

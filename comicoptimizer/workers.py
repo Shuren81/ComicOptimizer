@@ -17,10 +17,12 @@ from PyQt6.QtCore import QMutex, QMutexLocker, QThread, QWaitCondition, pyqtSign
 from .archives import (
     archive_problem,
     check_integrity,
+    check_quick,
     detect_real_format,
     extract_archive,
     get_archive_file_list,
     get_archive_signature,
+    has_comicinfo,
 )
 from .cbz import CBZ_MARK, build_comicinfo, file_status, verify_cbz
 from .epub import epub_meta, epub_problem
@@ -178,7 +180,8 @@ class ImportWorker(_Stoppable):
                 return problem or "illeggibile o senza immagini", flist
         return None, flist
 
-# Risultati dei controlli lenti per file: (dimensione, data), integro, impronta, stato. Valgono finché
+# Risultati dei controlli per file: (dimensione, data), integro, impronta, stato, ha il ComicInfo, controllo
+# completo (ogni pagina letta) o rapido. Valgono finché
 # il file non cambia: dopo un lavoro, o al controllo della libreria, si rilegge solo ciò che è cambiato.
 # Si salvano su disco (libreria.json, accanto alla cronologia delle rinomine).
 _ANALYSIS_CACHE = {}
@@ -193,8 +196,9 @@ def load_index():
     try:
         with open(_index_path(), encoding="utf-8") as f:
             data = json.load(f)
-        for p, (size, mtime, ok, sig, status) in data.items():
-            _ANALYSIS_CACHE.setdefault(p, ((size, mtime), ok, sig, status))
+        for p, (size, mtime, ok, sig, status, *resto) in data.items():
+            info, completo = resto or (None, True)   # righe della 3.9.0: controllo completo, info da leggere
+            _ANALYSIS_CACHE.setdefault(p, ((size, mtime), ok, sig, status, info, completo))
     except (OSError, ValueError, TypeError) as e:
         if not isinstance(e, FileNotFoundError):
             log.warning(f"Indice della libreria non letto: {e}")
@@ -203,8 +207,8 @@ def load_index():
 def save_index():
     """Scrittura sicura (.tmp poi sostituzione); i file che non esistono più si tolgono, ma non quelli
     di una cartella che manca del tutto (disco della libreria staccato: tornerà)."""
-    data = {p: [k[0], k[1], ok, sig, status]
-            for p, (k, ok, sig, status) in list(_ANALYSIS_CACHE.items())
+    data = {p: [k[0], k[1], *rest]
+            for p, (k, *rest) in list(_ANALYSIS_CACHE.items())
             if os.path.exists(p) or not os.path.isdir(os.path.dirname(p))}
     tmp = _index_path() + ".tmp"
     try:
@@ -225,11 +229,12 @@ def remember(p, ok=True):
     """Mette in cache un file appena verificato (es. il CBZ appena creato)."""
     st = os.stat(p)
     _ANALYSIS_CACHE[p] = ((st.st_size, st.st_mtime_ns), ok, _short_sig(p) if ok else None,
-                          file_status(p) if ok else None)
+                          file_status(p) if ok else None, has_comicinfo(p), True)
 
 
-def _integrity_and_signature(p):
-    """(integro, impronta, stato); dalla cache se il file non è cambiato."""
+def _integrity_and_signature(p, completo=True):
+    """(integro, impronta, stato); dalla cache se il file non è cambiato (e, per un controllo completo,
+    se non era stato solo rapido). `completo=False`: senza leggere le pagine (vedi check_quick)."""
     if os.path.isdir(p):
         ok = check_integrity(p)
         return ok, None, file_status(p) if ok else None   # cartella: nessun costo, niente memoria
@@ -239,12 +244,14 @@ def _integrity_and_signature(p):
     except OSError:
         return False, None, None
     hit = _ANALYSIS_CACHE.get(p)
-    if hit and hit[0] == key:
-        return hit[1:]
-    ok = check_integrity(p)
+    if hit and hit[0] == key and (hit[5] or not completo):
+        if hit[4] is None:                            # indice della 3.9.0: manca solo il ComicInfo
+            _ANALYSIS_CACHE[p] = (*hit[:4], has_comicinfo(p), hit[5])
+        return hit[1:4]
+    ok = (check_integrity if completo else check_quick)(p)
     sig = _short_sig(p) if ok else None
     status = file_status(p) if ok else None
-    _ANALYSIS_CACHE[p] = (key, ok, sig, status)
+    _ANALYSIS_CACHE[p] = (key, ok, sig, status, has_comicinfo(p) if ok else False, completo)
     return ok, sig, status
 
 
@@ -269,11 +276,8 @@ def classify(paths, checked, log_dupes=True):
         # poi il nome più corto (le copie di solito sono "… (1)", "… - Copia")
         # e quello con le info (ComicInfo.xml): di solito è la copia già sistemata e rinominata
         good_cbz = x.lower().endswith('.cbz') and detect_real_format(x) == 'zip'
-        try:
-            with zipfile.ZipFile(x) as z:
-                info = any(n.lower().endswith("comicinfo.xml") for n in z.namelist())
-        except (OSError, zipfile.BadZipFile):
-            info = False
+        hit = _ANALYSIS_CACHE.get(x)
+        info = hit[4] if hit and hit[4] is not None else has_comicinfo(x)
         return (0 if good_cbz else 1, 0 if info else 1, len(os.path.basename(x)), get_natural_sort_key(x))
 
     dupes_count, dupe_of = 0, {}

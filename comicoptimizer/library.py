@@ -84,7 +84,8 @@ def list_comics(folder, recursive=False):
 # stato (vedi classify in workers.py) → (testo, colore) nella griglia
 STATI = {0: ("da sistemare", "#ff9800"), 1: ("CBZ, non WebP", "#ffc107"), 3: ("WebP", None),
          4: ("doppione", "#e040fb"), 5: ("danneggiato", "#f44336")}
-FILTRI = (("Cartella scelta", None), ("Da convertire in WebP", {0, 1}), ("Doppioni", {4}), ("Danneggiati", {5}))
+FILTRI = (("Cartella scelta", None), ("Da convertire in WebP", {0, 1}), ("Doppioni", {4}), ("Danneggiati", {5}),
+          ("Senza info (ComicInfo)", {0, 1, 3}))    # i fumetti sani senza ComicInfo.xml (vedi refresh)
 
 
 SCHEMA_PREDEFINITO = "<Publisher>/<Series>"
@@ -118,14 +119,37 @@ def piano_spostamenti(root, schema, paths):
     return piano, senza_info
 
 
-def _cached(p):
-    """True se il controllo del file è già in cache e il file non è cambiato."""
+def _cached(p, completo=False):
+    """True se il controllo del file è già in cache e il file non è cambiato (per un controllo
+    completo: se anche quello in cache era completo; senza il ComicInfo registrato va riletto)."""
     hit = workers._ANALYSIS_CACHE.get(p)
     try:
         st = os.stat(p)
     except OSError:
         return False
-    return bool(hit) and hit[0] == (st.st_size, st.st_mtime_ns)
+    return (bool(hit) and hit[0] == (st.st_size, st.st_mtime_ns) and hit[4] is not None
+            and (hit[5] or not completo))
+
+
+def disco_meccanico(path):
+    """Linux: True se `path` sta su un disco a piatti (lì leggere più file insieme fa saltare la testina).
+    Il disco dal punto di montaggio in /proc/mounts: con btrfs il numero di dispositivo del file non serve."""
+    try:
+        path = os.path.realpath(path)
+        with open("/proc/mounts") as f:
+            montaggi = [riga.split()[:2] for riga in f]
+        dev = max((m for m in montaggi if m[0].startswith("/dev/")
+                   and (path + "/").startswith(m[1].replace("\\040", " ").rstrip("/") + "/")),
+                  key=lambda m: len(m[1]))[0]
+        base = os.path.realpath(os.path.join("/sys/class/block", os.path.basename(os.path.realpath(dev))))
+        for d in (base, os.path.dirname(base)):       # partizione, poi il suo disco
+            f = os.path.join(d, "queue", "rotational")
+            if os.path.exists(f):
+                with open(f) as fh:
+                    return fh.read().strip() == "1"
+    except (OSError, ValueError):
+        pass
+    return False
 
 
 def adopt_moved(paths):
@@ -153,24 +177,28 @@ class LibraryScanWorker(_Stoppable):
     THREADS = 6
     SAVE_EVERY = 200
 
-    def __init__(self, roots):
+    def __init__(self, roots, completo=False):
         super().__init__()
         self.roots = [roots] if isinstance(roots, str) else list(roots)
+        self.completo = completo                      # False: rapido, senza leggere le pagine
 
     def _check(self, p):
         if not self._helper_started():
             return None
-        return workers._integrity_and_signature(p)
+        return workers._integrity_and_signature(p, self.completo)
 
     def run(self):
         self._started()
         paths = [p for r in self.roots for p in list_comics(r, recursive=True)]
         adopt_moved(paths)
-        fresh = [p for p in paths if not _cached(p)]
-        log.info(f"Libreria: {len(paths)} fumetti, {len(fresh)} da controllare")
+        fresh = [p for p in paths if not _cached(p, self.completo)]
+        # controllo completo su un disco a piatti: un file alla volta (leggerne 6 insieme è più lento)
+        threads = 1 if self.completo and any(disco_meccanico(r) for r in self.roots) else self.THREADS
+        log.info(f"Libreria: {len(paths)} fumetti, {len(fresh)} da controllare "
+                 f"({'completo' if self.completo else 'rapido'}, {threads} alla volta)")
         nuovi = set(fresh)
-        checked = {p: workers._ANALYSIS_CACHE[p][1:] for p in paths if p not in nuovi}
-        pool = ThreadPoolExecutor(self.THREADS)
+        checked = {p: workers._ANALYSIS_CACHE[p][1:4] for p in paths if p not in nuovi}
+        pool = ThreadPoolExecutor(threads)
         pending = {pool.submit(self._check, p): p for p in fresh}
         n = 0
         try:
@@ -296,13 +324,19 @@ class LibraryView(QWidget):
         self.lbl_scan = QLabel()
         self.lbl_scan.setStyleSheet("color: #00e5ff")
         self.b_scan = QPushButton("Controlla")
-        self.b_scan.setToolTip("Integrità, doppioni e WebP di tutta la libreria (rilegge solo i file cambiati)")
+        self.b_scan.setToolTip("Controllo rapido di tutte le librerie: file interi, doppioni, WebP, ComicInfo\n"
+                               "(non legge le pagine; rilegge solo i file cambiati)")
         self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
+        self.b_full = QPushButton("Completo")
+        self.b_full.setToolTip("Controllo completo: legge ogni pagina di ogni fumetto (trova anche le pagine\n"
+                               "rovinate). Lento: con migliaia di fumetti, ore. Si ferma e riprende.")
+        self.b_full.clicked.connect(lambda: self.scan(always_ask=True, completo=True))
         bar.addWidget(self.scelta)
         bar.addWidget(b_home)
         bar.addWidget(self.lbl_root, 1)
         bar.addWidget(self.lbl_scan)
         bar.addWidget(self.b_scan)
+        bar.addWidget(self.b_full)
         b_opts = QPushButton("Opzioni")
         b_opts.setToolTip("Cartella della libreria, spostamento automatico e schema delle cartelle")
         b_opts.clicked.connect(self.options)
@@ -456,8 +490,10 @@ class LibraryView(QWidget):
         trovato = lambda p: all(w in os.path.basename(p).lower() for w in parole)
         gruppi = {}                                   # doppioni: ogni fumetto accanto a quello che si tiene
         if stati:
+            senza_info = FILTRI[self.filtro.currentIndex()][0].startswith("Senza info")
             paths = sorted((p for p, s in self.results.items()
-                            if s in stati and in_libreria(p, self.root) and os.path.exists(p)),
+                            if s in stati and in_libreria(p, self.root) and os.path.exists(p)
+                            and not (senza_info and workers._ANALYSIS_CACHE.get(p, (0,) * 6)[4])),
                            key=get_natural_sort_key)
             if stati == {4}:
                 for p in paths:
@@ -531,37 +567,30 @@ class LibraryView(QWidget):
 
     # --- controllo della libreria ---
 
-    def scan(self, always_ask=False):
+    def scan(self, always_ask=False, completo=False):
         roots = librerie()
         if not roots or self.scanner:
             return
         workers.load_index()
-        prime = [r for r in roots if not self._gia_controllata(r)]
-        if prime and QMessageBox.question(
-                self, "Primo controllo della libreria",
-                f"<b>{', '.join(info_libreria(r)['nome'] for r in prime)}</b>: il primo controllo legge ogni "
-                "fumetto per intero (integrità, doppioni, WebP).<br><br><b>Con migliaia di fumetti può durare "
-                "molte ore.</b> Intanto puoi usare il programma, e puoi fermarlo quando vuoi con «Ferma "
-                "controllo»: la volta dopo riprende da dove era arrivato.<br><br>Avvio il controllo adesso?",
+        if completo and QMessageBox.question(
+                self, "Controllo completo",
+                "Il controllo completo legge ogni pagina di ogni fumetto, per trovare anche quelle "
+                "rovinate.<br><br><b>Con migliaia di fumetti può durare molte ore.</b> Intanto puoi usare "
+                "il programma, e fermarlo quando vuoi con «Ferma controllo»: la volta dopo riprende da dove "
+                "era arrivato.<br><br>Avvio il controllo completo?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
         self.scanned_roots = roots
-        self.scanner = LibraryScanWorker(roots)
+        self.scanner = LibraryScanWorker(roots, completo)
         self.scanner.progress.connect(lambda v, t: self.lbl_scan.setText(f"Controllo: {v}/{t}"))
         self.scanner.finished.connect(lambda res, fresh: self._scanned(res, fresh, always_ask))
         self.scanner.cancelled.connect(self._scan_ended)
         self.b_scan.setText("Ferma controllo")
         self.b_scan.clicked.disconnect()
         self.b_scan.clicked.connect(self._stop_scan)
-        self.lbl_scan.setText("Controllo…")
+        self.b_full.setEnabled(False)
+        self.lbl_scan.setText("Controllo completo…" if completo else "Controllo…")
         self.scanner.start()
-
-    def _gia_controllata(self, root):
-        """Controllo già fatto (o avviato): l'indice di questa installazione ha dei suoi fumetti.
-        Non nel file della libreria: AppImage e programma da sorgente hanno indici diversi."""
-        base = os.path.join(os.path.abspath(root), "")
-        return any(k.startswith(base) for k in workers._ANALYSIS_CACHE) or not any(   # al primo fumetto si ferma
-            f.lower().endswith(_ARCHIVE_EXTS) for _r, _d, fs in os.walk(root) for f in fs)
 
     def _stop_scan(self):
         self.lbl_scan.setText("Fermo il controllo…")
@@ -571,6 +600,7 @@ class LibraryView(QWidget):
         self.scanner = None
         self.lbl_scan.setText("")
         self.b_scan.setText("Controlla")
+        self.b_full.setEnabled(True)
         self.b_scan.clicked.disconnect()
         self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
 

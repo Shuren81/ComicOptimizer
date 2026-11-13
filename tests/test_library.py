@@ -153,7 +153,7 @@ def test_controllo(app, lib):
     try:
         def controlla():
             out = []
-            w = library.LibraryScanWorker(lib)
+            w = library.LibraryScanWorker(lib, completo=True)   # conta le letture complete
             w.finished.connect(lambda res, fresh: out.append((res, fresh)))
             w.run()
             controlla.dupe_of = w.dupe_of
@@ -205,6 +205,8 @@ def test_controllo(app, lib):
     v.cerca.clear()
     v.refresh(force=True)
     assert v.paths == [c] and "danneggiato" in v.list.item(0).toolTip()
+    v.filtro.setCurrentIndex(4)                        # sani e senza ComicInfo (doppioni e rotti a parte)
+    assert v.paths == [a, e], v.paths
 
     # ricerca per nome: dalla cartella principale in tutta la libreria, altrimenti nella cartella aperta
     v.filtro.setCurrentIndex(0)
@@ -238,12 +240,35 @@ def test_doppioni_e_indice(app, work):
 
     staccato = os.path.join(work, "disco-staccato", "X.cbz")       # la cartella non c'è più
     cancellato = os.path.join(work, "cancellato.cbz")             # la cartella c'è, il file no
-    workers._ANALYSIS_CACHE.update({staccato: ((1, 1), True, "s", 3), cancellato: ((1, 1), True, "s", 3)})
+    workers._ANALYSIS_CACHE.update({staccato: ((1, 1), True, "s", 3, True, True),
+                                    cancellato: ((1, 1), True, "s", 3, True, True)})
     workers.save_index()
     workers._ANALYSIS_CACHE.clear()
     workers.load_index()
     assert staccato in workers._ANALYSIS_CACHE and cancellato not in workers._ANALYSIS_CACHE
     workers._ANALYSIS_CACHE.clear()
+
+    # indice della 3.9.0 (5 campi): vale come controllo completo, il ComicInfo si rilegge
+    import json
+    with open(workers._index_path(), "w") as f:
+        json.dump({sistemato: [1, 2, True, "s", 3]}, f)
+    workers.load_index()
+    assert workers._ANALYSIS_CACHE[sistemato] == ((1, 2), True, "s", 3, None, True)
+    workers._ANALYSIS_CACHE.clear()
+
+    # controllo rapido: un download troncato si vede senza leggere le pagine
+    from comicoptimizer.archives import check_quick
+    troncato = os.path.join(work, "troncato.cbz")
+    with open(sistemato, "rb") as f:
+        dati = f.read()
+    with open(troncato, "wb") as f:
+        f.write(dati[:len(dati) // 2] + dati[-200:])   # metà file, ma l'indice dello ZIP c'è ancora
+    assert check_quick(sistemato) and not check_quick(troncato)
+    with open(troncato, "wb") as f:
+        f.write(dati[:len(dati) - 300])                # download interrotto: manca la fine
+    assert not check_quick(troncato)
+    from comicoptimizer.library import disco_meccanico
+    assert disco_meccanico(work) in (True, False)
 
 
 def test_sposta(app, work):
@@ -325,8 +350,8 @@ def test_sposta(app, work):
     v.scelta.setCurrentIndex(0)
     assert v.root == lib
 
-    # primo controllo: avvisa che è lungo (solo per le librerie che l'indice non conosce ancora e che
-    # hanno dei fumetti); "No" non lo avvia. Già controllate: parte senza chiedere, e lo Stop è subito
+    # controllo rapido: parte senza chiedere, non legge le pagine, registra il ComicInfo.
+    # Completo: avvisa che è lungo ("No" non lo avvia), rilegge anche i file già visti dal rapido
     from comicoptimizer import workers
     v.report = lambda: None                            # niente finestra di riepilogo nel test
     workers._ANALYSIS_CACHE.clear()
@@ -334,24 +359,24 @@ def test_sposta(app, work):
     domande = []
     vera_domanda = QMessageBox.question
     QMessageBox.question = staticmethod(lambda *a, **k: (domande.append(a[2]), QMessageBox.StandardButton.No)[1])
+    letture = []
+    vero_controllo = workers.check_integrity
+    workers.check_integrity = lambda p: (letture.append(p), vero_controllo(p))[1]
     v.scan()
-    assert len(domande) == 1 and "molte ore" in domande[0] and "Manga" in domande[0] and "Comics" in domande[0]
-    assert v.scanner is None
-    workers._ANALYSIS_CACHE[os.path.join(lib, "x.cbz")] = ((0, 0), True, "", 1)   # Comics già controllata
-    v.scan()
-    assert len(domande) == 2 and "Manga" in domande[1] and "Comics" not in domande[1], domande
-    os.remove(m)                                       # libreria vuota: niente da avvisare
-    v.scan()
-    QMessageBox.question = vera_domanda
-    assert len(domande) == 2 and v.scanner is not None
+    assert domande == [] and v.scanner is not None
     v.scanner.wait()
     attendi(app, lambda: v.scanner is None)
-    cbz(m, [(1, 1, 1)])
+    assert letture == [], "il rapido non legge le pagine"
+    assert workers._ANALYSIS_CACHE[m][4] is False and workers._ANALYSIS_CACHE[m][5] is False
+    v.scan(completo=True)
+    assert len(domande) == 1 and "molte ore" in domande[0] and v.scanner is None
+    QMessageBox.question = vera_domanda
+    workers.check_integrity = vero_controllo
+
     lento, vero_controllo = workers._integrity_and_signature, workers._integrity_and_signature
-    workers._ANALYSIS_CACHE.clear()                    # tutti da rileggere, ma librerie già conosciute:
-    for finto in (os.path.join(lib, "x.cbz"), os.path.join(manga, "x.cbz")):   # niente avviso
-        workers._ANALYSIS_CACHE[finto] = ((0, 0), True, "", 1)
-    workers._integrity_and_signature = lambda p: (time.sleep(3), lento(p))[1]   # fumetti enormi
+    workers._ANALYSIS_CACHE.clear()                    # tutti da rileggere
+    os.remove(workers._index_path())                   # anche quello salvato su disco
+    workers._integrity_and_signature = lambda p, c=True: (time.sleep(3), lento(p, c))[1]   # fumetti enormi
     v.scan()
     assert v.scanner is not None
     attendi(app, lambda: False, 0.3)
