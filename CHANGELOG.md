@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.10.3] — 2026-11-13
+
+- **Corretto:** dalla 3.10.1, con più monitor, la finestra si apriva sempre sul secondo: all'apertura veniva «riportata dentro lo schermo» prima che il sistema scegliesse dove metterla. Ora all'apertura decide il sistema, come prima; la finestra rientra nello schermo solo quando la sposti o cambia monitor.
+
 ## [3.10.2] — 2026-11-13
 
 - **Corretto:** nella Libreria **SISTEMA** senza fumetti selezionati non faceva niente: ora lavora su tutti i fumetti mostrati. Con dei fumetti selezionati diventa **SISTEMA N**.

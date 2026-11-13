@@ -71,6 +71,9 @@ def test_vista(app, lib):
     assert win.title_lbl.pixmap().width() < win.width(), "il banner sta nella finestra stretta"
     win.move(0, -120)                                  # barra del titolo sopra lo schermo
     win._dentro_schermo()
+    assert win.frameGeometry().top() < win._avail().top(), "all'apertura decide il sistema, non noi"
+    win._posizionata = True                            # dopo il primo secondo
+    win._dentro_schermo()
     assert attendi(app, lambda: win.frameGeometry().top() >= win._avail().top()), "torna dentro lo schermo"
     assert win.frameGeometry().height() <= win._avail().height() + 1
     win.hide()

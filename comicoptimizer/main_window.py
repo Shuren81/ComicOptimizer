@@ -387,6 +387,9 @@ class MainWindow(QMainWindow):
             self._screen_hooked = True
             self.windowHandle().screenChanged.connect(lambda _s: QTimer.singleShot(0, self.refresh_grid))
             QTimer.singleShot(0, self.refresh_grid)   # prima misura fatta col monitor principale
+            # all'apertura la posizione è ancora (0, 0): se la spostassimo noi, il sistema non sceglierebbe
+            # più il monitor. shortcut: 1 s di attesa, se un sistema la posizionasse più tardi andrebbe allungato
+            QTimer.singleShot(1000, lambda: setattr(self, "_posizionata", True))
 
     def changeEvent(self, e):
         super().changeEvent(e)
@@ -451,7 +454,7 @@ class MainWindow(QMainWindow):
 
     def _dentro_schermo(self):
         """Riporta la finestra, barra del titolo compresa, dentro il monitor (es. spostata su uno più piccolo)."""
-        if not self.isVisible() or self.isMaximized():
+        if not self.isVisible() or self.isMaximized() or not getattr(self, "_posizionata", False):
             return
         a, f = self._avail(), self.frameGeometry()
         x = min(max(f.left(), a.left()), a.right() - f.width() + 1)

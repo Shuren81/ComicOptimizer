@@ -1,6 +1,6 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.10.2
+### 📚 ComicOptimizer v3.10.3
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
