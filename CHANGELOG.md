@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.10.1] — 2026-11-13
+
+- **Corretto:** spostando la finestra su un monitor più basso, la barra del titolo finiva fuori dallo schermo: ora l'altezza tiene conto della barra e la finestra viene riportata tutta dentro il monitor.
+
 ## [3.10.0] — 2026-11-13
 
 - **Cambiato:** il controllo della libreria è **rapido**: non legge le pagine, verifica che ogni archivio si apra e sia intero (trova i download interrotti e i file che non sono archivi), i doppioni, i fumetti da convertire in WebP e se c'è il ComicInfo.xml. Sulla libreria di prova: circa 90 ms a fumetto, minuti invece di ore. Niente più avviso all'avvio.

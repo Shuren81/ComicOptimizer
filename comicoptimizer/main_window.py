@@ -434,13 +434,30 @@ class MainWindow(QMainWindow):
             self.title_lbl.setPixmap(self._banner.scaledToWidth(
                 min(self._win_width_for_cols(cols), w) - m.left() - m.right(),
                 Qt.TransformationMode.SmoothTransformation))
-        self.setMinimumHeight(min(600, screen.height()))
-        self.setMaximumHeight(screen.height())
+        alto = screen.height() - self._cornice()      # lo schermo meno la barra del titolo
+        self.setMinimumHeight(min(600, alto))
+        self.setMaximumHeight(alto)
         if not self.isVisible():
-            self.resize(w, min(h, screen.height()))
+            self.resize(w, min(h, alto))
         self._fit_height()
+        self._dentro_schermo()
         if self.views.currentWidget() is self.library:
             QTimer.singleShot(0, self._trim_library)      # dopo il ridimensionamento
+
+    def _cornice(self):
+        """Altezza di barra del titolo e bordi (se il sistema non l'ha ancora detta, quella tipica)."""
+        return (self.frameGeometry().height() - self.height()
+                or self.style().pixelMetric(QStyle.PixelMetric.PM_TitleBarHeight))
+
+    def _dentro_schermo(self):
+        """Riporta la finestra, barra del titolo compresa, dentro il monitor (es. spostata su uno più piccolo)."""
+        if not self.isVisible() or self.isMaximized():
+            return
+        a, f = self._avail(), self.frameGeometry()
+        x = min(max(f.left(), a.left()), a.right() - f.width() + 1)
+        y = min(max(f.top(), a.top()), a.bottom() - f.height() + 1)
+        if (x, y) != (f.left(), f.top()):
+            self.move(x, y)                           # move() sposta la finestra con la sua cornice
 
     def _trim_library(self):
         """La Libreria finisce poco dopo l'ultima copertina: via lo spazio che non basta per un'altra."""
@@ -459,7 +476,7 @@ class MainWindow(QMainWindow):
         self.centralWidget().layout().activate()
         gh = lst.gridSize().height()
         other = self.height() - lst.viewport().height()
-        free = self._avail().height() - (self.frameGeometry().height() - self.height())
+        free = self._avail().height() - self._cornice()
         need = other + LIBRARY_ROWS * gh + 8 - free
         pix = self.title_lbl.pixmap()
         if need > 0 and not self._banner.isNull():   # come con le card: prima si abbassa il banner
@@ -471,6 +488,7 @@ class MainWindow(QMainWindow):
         while rows > 1 and other + rows * gh + 8 > free:
             rows -= 1
         self.setFixedHeight(other + rows * gh + 8)
+        self._dentro_schermo()
 
     def _fit_height(self):
         """Con dei fumetti, una fila intera di card deve stare senza barra di scorrimento:
@@ -482,7 +500,7 @@ class MainWindow(QMainWindow):
         missing = CARD_H + m.top() + m.bottom() - self.grid_stack.height()
         if missing <= 0:
             return
-        screen_h = self._avail().height()
+        screen_h = self._avail().height() - self._cornice()
         grow = max(0, min(missing, screen_h - self.height()))
         if grow:
             self.resize(self.width(), self.height() + grow)

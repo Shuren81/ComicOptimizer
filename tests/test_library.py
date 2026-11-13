@@ -69,6 +69,10 @@ def test_vista(app, lib):
     assert attendi(app, lambda: (v.list.viewport().height() - 8) % v.list.gridSize().height() == 0), \
         "in altezza righe intere di copertine"
     assert win.title_lbl.pixmap().width() < win.width(), "il banner sta nella finestra stretta"
+    win.move(0, -120)                                  # barra del titolo sopra lo schermo
+    win._dentro_schermo()
+    assert attendi(app, lambda: win.frameGeometry().top() >= win._avail().top()), "torna dentro lo schermo"
+    assert win.frameGeometry().height() <= win._avail().height() + 1
     win.hide()
 
     # file trascinati da fuori sull'albero: nella lista di lavoro, non spostati nella libreria
