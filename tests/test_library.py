@@ -88,6 +88,26 @@ def test_vista(app, lib):
     win.import_paths = vero_import
     assert importati == [[c]] and os.path.exists(c), importati
 
+    # SELEZIONA TUTTO / DESELEZIONA, e SISTEMA: con N selezionati "SISTEMA N", senza selezione tutti i mostrati
+    sistema, tutti = v.pulsanti["SISTEMA"], v.pulsanti["SELEZIONA TUTTO"]
+    v.list.clearSelection()
+    assert sistema.text() == "SISTEMA" and tutti.text() == "SELEZIONA TUTTO"
+    tutti.click()
+    assert len(v.selected()) == v.list.count() == 2 and sistema.text() == "SISTEMA 2"
+    assert tutti.text() == "DESELEZIONA TUTTO"
+    tutti.click()
+    assert v.selected() == [] and sistema.text() == "SISTEMA"
+    lavori = []
+    vero_modo, vero_process = win.ask_mode, win.process_paths
+    win.ask_mode, win.process_paths = (lambda: "convert"), (lambda paths, webp: lavori.append((paths, webp)))
+    sistema.click()
+    assert lavori == [(v.paths, True)] and len(v.paths) == 2, lavori
+    v.list.item(0).setSelected(True)
+    sistema.click()
+    assert lavori[-1] == ([v.paths[0]], True)
+    win.ask_mode, win.process_paths = vero_modo, vero_process
+    v.list.clearSelection()
+
     # menu col tasto destro: Unisci solo con 2 o più fumetti
     voci = lambda: [x.text() for x in v.list_menu().actions() if x.text()]
     v.list.item(0).setSelected(True)

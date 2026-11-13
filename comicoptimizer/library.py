@@ -348,10 +348,14 @@ class LibraryView(QWidget):
 
 
         actions = QHBoxLayout()
+        self.pulsanti = {}
         for text, slot, variant, tip in (
+                ("SELEZIONA TUTTO", self.toggle_all, None, "Seleziona tutti i fumetti mostrati, o toglie la selezione"
+                                                          " (anche Ctrl+A)"),
                 ("PAGINE", self.open_pages, None, "Apre le pagine del fumetto (anche con doppio click)"),
                 ("INFO E RINOMINA", self.rename, None, "Metadati (ComicInfo.xml), ricerca online e rinomina"),
-                ("SISTEMA", self.repair, "primary", "Ripara o converte in WebP i selezionati"),
+                ("SISTEMA", self.repair, "primary", "Ripara o converte in WebP i selezionati\n"
+                                                    "(senza selezione: tutti i fumetti mostrati)"),
                 ("ORDINA IN CARTELLE", self.reorder, None,
                  "Sposta i selezionati nelle cartelle dello schema (es. Editore/Serie) lette dalle info;\n"
                  "si annulla dalla Cronologia"),
@@ -363,6 +367,7 @@ class LibraryView(QWidget):
                 set_variant(b, variant)
             b.clicked.connect(slot)
             actions.addWidget(b)
+            self.pulsanti[text] = b
         actions.addStretch()
         l.addLayout(actions)
 
@@ -399,6 +404,7 @@ class LibraryView(QWidget):
         self.list.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.list.setMovement(QListView.Movement.Static)
         self.list.itemDoubleClicked.connect(lambda _i: self.open_pages())
+        self.list.itemSelectionChanged.connect(self._selezione_cambiata)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._list_menu)
 
@@ -675,8 +681,16 @@ class LibraryView(QWidget):
         if sel:
             self.win.rename_cards(sel)
 
+    def _selezione_cambiata(self):
+        n = len(self.list.selectedItems())
+        self.pulsanti["SISTEMA"].setText(f"SISTEMA {n}" if n else "SISTEMA")
+        self.pulsanti["SELEZIONA TUTTO"].setText("DESELEZIONA TUTTO" if n else "SELEZIONA TUTTO")
+
+    def toggle_all(self):
+        self.list.clearSelection() if self.list.selectedItems() else self.list.selectAll()
+
     def repair(self):
-        sel = self.selected()
+        sel = self.selected() or list(self.paths)     # senza selezione: tutti i fumetti mostrati
         if sel and self.win._free():
             mode = self.win.ask_mode()
             if mode != "cancel":

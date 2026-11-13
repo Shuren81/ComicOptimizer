@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.10.2] — 2026-11-13
+
+- **Corretto:** nella Libreria **SISTEMA** senza fumetti selezionati non faceva niente: ora lavora su tutti i fumetti mostrati. Con dei fumetti selezionati diventa **SISTEMA N**.
+- **Corretto:** nella Libreria mancava il pulsante **SELEZIONA TUTTO / DESELEZIONA TUTTO**, come nella lista di lavoro.
+
 ## [3.10.1] — 2026-11-13
 
 - **Corretto:** spostando la finestra su un monitor più basso, la barra del titolo finiva fuori dallo schermo: ora l'altezza tiene conto della barra e la finestra viene riportata tutta dentro il monitor.
