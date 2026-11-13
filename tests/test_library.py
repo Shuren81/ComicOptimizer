@@ -156,6 +156,7 @@ def test_controllo(app, lib):
             w = library.LibraryScanWorker(lib)
             w.finished.connect(lambda res, fresh: out.append((res, fresh)))
             w.run()
+            controlla.dupe_of = w.dupe_of
             return out[0]
 
         res, fresh = controlla()
@@ -189,7 +190,7 @@ def test_controllo(app, lib):
     v = win.library
     v.set_root(lib)
     v.results = res
-    v.dupe_of = dict(workers.DUPE_OF)
+    v.dupe_of = controlla.dupe_of
     assert v.dupe_of == {b: a}, v.dupe_of
     v.filtro.setCurrentIndex(2)
     assert v.paths == [a, b], "il doppione accanto al file che si tiene"
@@ -221,6 +222,28 @@ def test_controllo(app, lib):
     assert v.paths == [a]
     v.stop()
     win.close()
+
+
+def test_doppioni_e_indice(app, work):
+    """Doppioni: si tiene la copia con le info. Indice: un disco staccato non perde i suoi controlli."""
+    from comicoptimizer import workers
+    grezzo = cbz(os.path.join(work, "Batman 01.cbz"), [(9, 9, 9)])
+    sistemato = os.path.join(work, "Batman (2025) - #01 - Titolo lungo.cbz")
+    shutil.copy(grezzo, sistemato)
+    with zipfile.ZipFile(sistemato, "a") as z:
+        z.writestr("ComicInfo.xml", "<ComicInfo><Series>Batman</Series></ComicInfo>")
+    stesso = (True, "impronta", 3)
+    res, n, dupe_of = workers.classify([grezzo, sistemato], {grezzo: stesso, sistemato: stesso})
+    assert res[grezzo] == 4 and res[sistemato] == 3 and dupe_of == {grezzo: sistemato}, (res, dupe_of)
+
+    staccato = os.path.join(work, "disco-staccato", "X.cbz")       # la cartella non c'è più
+    cancellato = os.path.join(work, "cancellato.cbz")             # la cartella c'è, il file no
+    workers._ANALYSIS_CACHE.update({staccato: ((1, 1), True, "s", 3), cancellato: ((1, 1), True, "s", 3)})
+    workers.save_index()
+    workers._ANALYSIS_CACHE.clear()
+    workers.load_index()
+    assert staccato in workers._ANALYSIS_CACHE and cancellato not in workers._ANALYSIS_CACHE
+    workers._ANALYSIS_CACHE.clear()
 
 
 def test_sposta(app, work):
@@ -258,7 +281,9 @@ def test_sposta(app, work):
     assert win._job_outputs == [a]
     # opzioni: più librerie (nome e cartella), schema di ognuna; i tasti valgono per lo schema cliccato
     from comicoptimizer import library
-    from comicoptimizer.library import OpzioniLibreria, impostazione
+    from comicoptimizer.config import opzione
+    from comicoptimizer.opzioni import Opzioni as OpzioniLibreria
+    impostazione = lambda chiave: opzione("libreria/auto", False)
     manga = os.path.join(work, "manga")
     os.makedirs(manga)
     o = OpzioniLibreria(v)
@@ -387,7 +412,7 @@ def main():
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         from comicoptimizer import history
         history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")
-        for prova in (test_vista, test_controllo, test_sposta):
+        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_sposta):
             cartella = os.path.join(work, prova.__name__)
             os.makedirs(cartella)
             prova(app, cartella)

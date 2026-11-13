@@ -201,9 +201,11 @@ def load_index():
 
 
 def save_index():
-    """Scrittura sicura (.tmp poi sostituzione); i file che non esistono più si tolgono."""
+    """Scrittura sicura (.tmp poi sostituzione); i file che non esistono più si tolgono, ma non quelli
+    di una cartella che manca del tutto (disco della libreria staccato: tornerà)."""
     data = {p: [k[0], k[1], ok, sig, status]
-            for p, (k, ok, sig, status) in list(_ANALYSIS_CACHE.items()) if os.path.exists(p)}
+            for p, (k, ok, sig, status) in list(_ANALYSIS_CACHE.items())
+            if os.path.exists(p) or not os.path.isdir(os.path.dirname(p))}
     tmp = _index_path() + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -246,12 +248,10 @@ def _integrity_and_signature(p):
     return ok, sig, status
 
 
-DUPE_OF = {}   # doppione → il file che si tiene, dall'ultimo classify (per mostrarli affiancati)
-
-
-def classify(paths, checked):
-    """{percorso: stato} e numero di doppioni, dai controlli (integro, impronta, stato) di ogni file.
-    5 = danneggiato, 4 = doppione (stesso nome o stesse pagine), altrimenti lo stato del file."""
+def classify(paths, checked, log_dupes=True):
+    """({percorso: stato}, numero di doppioni, {doppione: file che si tiene}), dai controlli (integro,
+    impronta, stato) di ogni file. 5 = danneggiato, 4 = doppione (stesso nome o stesse pagine),
+    altrimenti lo stato del file."""
     results, groups, by_sig = {}, {}, {}   # stesso nome (fumetto.cbr + fumetto.cbz) / stesso contenuto
     for p in paths:
         is_ok, sig, _status = checked[p]
@@ -267,25 +267,31 @@ def classify(paths, checked):
     def keep_first(x):
         # Tiene preferibilmente il .cbz che è davvero uno ZIP, poi l'ordine naturale
         # poi il nome più corto (le copie di solito sono "… (1)", "… - Copia")
+        # e quello con le info (ComicInfo.xml): di solito è la copia già sistemata e rinominata
         good_cbz = x.lower().endswith('.cbz') and detect_real_format(x) == 'zip'
-        return (0 if good_cbz else 1, len(os.path.basename(x)), get_natural_sort_key(x))
+        try:
+            with zipfile.ZipFile(x) as z:
+                info = any(n.lower().endswith("comicinfo.xml") for n in z.namelist())
+        except (OSError, zipfile.BadZipFile):
+            info = False
+        return (0 if good_cbz else 1, 0 if info else 1, len(os.path.basename(x)), get_natural_sort_key(x))
 
-    dupes_count = 0
-    DUPE_OF.clear()
+    dupes_count, dupe_of = 0, {}
     for ps in list(groups.values()) + list(by_sig.values()):
         if len(ps) > 1:
             ps = sorted(ps, key=keep_first)
             for loser in ps[1:]:
                 if loser not in results:
                     results[loser] = 4
-                    DUPE_OF[loser] = ps[0]
+                    dupe_of[loser] = ps[0]
                     dupes_count += 1
-                    log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
-                              f"= '{os.path.basename(ps[0])}'")
+                    if log_dupes:
+                        log.debug(f"  Duplicato: '{os.path.basename(loser)}' "
+                                  f"= '{os.path.basename(ps[0])}'")
     for p in paths:
         if p not in results:
             results[p] = checked[p][2]
-    return results, dupes_count
+    return results, dupes_count, dupe_of
 
 class AnalysisWorker(_Stoppable):
     progress = pyqtSignal(int, int)
@@ -322,7 +328,7 @@ class AnalysisWorker(_Stoppable):
                     _ANALYSIS_CACHE.pop(p, None)
             self.cancelled.emit()
             return
-        self.finished.emit(*classify(self.paths, checked))
+        self.finished.emit(*classify(self.paths, checked)[:2])
 
 class ProcessingWorker(QThread):
     """

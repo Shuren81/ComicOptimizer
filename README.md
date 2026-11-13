@@ -1,6 +1,6 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.9.0
+### 📚 ComicOptimizer v3.9.1
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
@@ -160,7 +160,8 @@ comicoptimizer/
   ricerca.py              fonti di ricerca: ComicVine, MyAnimeList, AniList, ComicsBox
   card.py                 card di un fumetto nella griglia
   editor.py               editor avanzato delle pagine
-  library.py              Libreria: albero, miniature, controllo, Opzioni, spostamenti nelle cartelle
+  library.py              Libreria: albero, miniature, controllo, spostamenti nelle cartelle
+  opzioni.py              finestra Opzioni (librerie, conversione WebP, Info e rinomina)
   aggiorna.py             controllo della versione su GitHub e aggiornamento dell'AppImage
   main_window.py          finestra principale
   app.py                  avvio dell'applicazione Qt

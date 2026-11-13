@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.9.1] — 2026-11-13
+
+- **Corretto:** fra due doppioni si tiene la copia con le info (ComicInfo.xml), di solito quella già sistemata e rinominata: prima si teneva il nome più corto, e «Cestina doppioni» avrebbe spostato nel cestino proprio i fumetti sistemati.
+- **Corretto:** avviando il programma con il disco della libreria staccato, l'indice non perde più i suoi fumetti: al ricollegamento non serve rifare il controllo completo.
+- **Cambiato:** il primo controllo non blocca più la finestra all'avvio per cercare i fumetti di una libreria nuova, e parte subito anche con decine di migliaia di file.
+- **Cambiato:** nel log, a ogni controllo della libreria, una riga col numero di doppioni invece dell'elenco completo.
+- **Interno:** la finestra Opzioni ha un suo file (`opzioni.py`); i doppioni affiancati non usano più una variabile condivisa con la lista di lavoro.
+
 ## [3.9.0] — 2026-11-12
 
 - **Nuovo:** nella Libreria il campo **Cerca per nome**: filtra i fumetti mostrati (una cartella, i doppioni, i danneggiati…); dalla cartella principale cerca in tutta la libreria. Con più parole devono esserci tutte.
