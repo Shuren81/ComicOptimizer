@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.1] — 2026-11-14
+
+- **Corretto:** con il disegno della Libreria vuota (es. all'avvio, se la cartella principale non ha fumetti sciolti) la finestra non prendeva le sue misure: era più bassa e tornava il tasto per massimizzarla.
+
 ## [3.11.0] — 2026-11-14
 
 - **Cambiato:** **prima le info, poi il lavoro**: i fumetti trascinati nella finestra aprono subito *Info e rinomina* con i soli fumetti importati (le info servono per spostarli nella libreria dopo la conversione). Il pulsante **Avanti ▸ Lista di lavoro** porta alla lista, dove si convertono o si uniscono.

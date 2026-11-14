@@ -71,6 +71,13 @@ def test_vista(app, lib):
     assert attendi(app, lambda: (v.list.viewport().height() - 8) % v.list.gridSize().height() == 0), \
         "in altezza righe intere di copertine"
     assert win.title_lbl.pixmap().width() < win.width(), "il banner sta nella finestra stretta"
+    alta = win.height()
+    v.go_root()                                        # niente fumetti sciolti: il disegno al posto della griglia
+    assert v.griglia.currentWidget() is v.vuota
+    win.refresh_grid()
+    assert attendi(app, lambda: win.minimumHeight() == win.maximumHeight() == alta), \
+        "anche col disegno la finestra resta fissa, alta come con le copertine"
+    v.show_folder(os.path.join(lib, "Batman"))
     win.move(0, -120)                                  # barra del titolo sopra lo schermo
     win._dentro_schermo()
     assert win.frameGeometry().top() < win._avail().top(), "all'apertura decide il sistema, non noi"

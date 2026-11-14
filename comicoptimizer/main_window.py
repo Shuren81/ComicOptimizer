@@ -462,12 +462,19 @@ class MainWindow(QMainWindow):
         if (x, y) != (f.left(), f.top()):
             self.move(x, y)                           # move() sposta la finestra con la sua cornice
 
+    def _area_copertine(self):
+        """(larghezza, altezza) per le copertine: dal contenitore della griglia, che ha le misure giuste
+        anche quando al posto della griglia c'è il disegno della Libreria vuota."""
+        lst, g = self.library.list, self.library.griglia
+        bordo = 2 * lst.frameWidth()
+        return g.width() - bordo - lst.verticalScrollBar().sizeHint().width(), g.height() - bordo
+
     def _trim_library(self):
         """La Libreria finisce poco dopo l'ultima copertina: via lo spazio che non basta per un'altra."""
         lst = self.library.list
-        if self.isMaximized() or self.views.currentWidget() is not self.library or not lst.isVisible():
+        if self.isMaximized() or self.views.currentWidget() is not self.library or not self.library.isVisible():
             return
-        extra = lst.viewport().width() % lst.gridSize().width()
+        extra = self._area_copertine()[0] % lst.gridSize().width()
         if extra > 8:
             self.setFixedWidth(self.width() - extra + 8)
             if not self._banner.isNull():
@@ -478,7 +485,7 @@ class MainWindow(QMainWindow):
         # in altezza: LIBRARY_ROWS righe intere (meno se lo schermo è basso), mai copertine tagliate
         self.centralWidget().layout().activate()
         gh = lst.gridSize().height()
-        other = self.height() - lst.viewport().height()
+        other = self.height() - self._area_copertine()[1]
         free = self._avail().height() - self._cornice()
         need = other + LIBRARY_ROWS * gh + 8 - free
         pix = self.title_lbl.pixmap()
@@ -486,7 +493,7 @@ class MainWindow(QMainWindow):
             self.title_lbl.setPixmap(self._banner.scaledToHeight(
                 max(40, pix.height() - need), Qt.TransformationMode.SmoothTransformation))
             self.centralWidget().layout().activate()
-            other = self.height() - lst.viewport().height()
+            other = self.height() - self._area_copertine()[1]
         rows = LIBRARY_ROWS
         while rows > 1 and other + rows * gh + 8 > free:
             rows -= 1
