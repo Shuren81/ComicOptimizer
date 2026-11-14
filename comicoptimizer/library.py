@@ -8,7 +8,7 @@ from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from PyQt6.QtCore import QDir, QEvent, QMimeData, QModelIndex, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QIcon, QImage, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QImage, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -269,6 +269,10 @@ def in_libreria(p, root):
     return os.path.abspath(p).startswith(os.path.join(os.path.abspath(root), ""))
 
 
+def apri_cartella(cartella):
+    QDesktopServices.openUrl(QUrl.fromLocalFile(cartella))
+
+
 class _ComicList(QListWidget):
     """Griglia di miniature; trascinando i fumetti escono i loro percorsi (per l'albero)."""
 
@@ -279,6 +283,20 @@ class _ComicList(QListWidget):
         data = QMimeData()
         data.setUrls([QUrl.fromLocalFile(i.data(Qt.ItemDataRole.UserRole)) for i in items])
         return data
+
+    def _come_ctrl(self, e):
+        """Il click semplice aggiunge o toglie quel fumetto (come le card della lista di lavoro):
+        è un Ctrl+click. Shift+click (intervallo) resta com'è."""
+        if e.button() == Qt.MouseButton.LeftButton and not e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            e = QMouseEvent(e.type(), e.position(), e.globalPosition(), e.button(), e.buttons(),
+                            e.modifiers() | Qt.KeyboardModifier.ControlModifier)
+        return e
+
+    def mousePressEvent(self, e):
+        super().mousePressEvent(self._come_ctrl(e))
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(self._come_ctrl(e))
 
 
 class LibraryView(QWidget):
@@ -323,25 +341,23 @@ class LibraryView(QWidget):
         self.filtro.currentIndexChanged.connect(lambda: self.refresh(force=True))
         self.lbl_scan = QLabel()
         self.lbl_scan.setStyleSheet("color: #00e5ff")
-        self.b_scan = QPushButton("Controlla")
-        self.b_scan.setToolTip("Controllo rapido di tutte le librerie: file interi, doppioni, WebP, ComicInfo\n"
-                               "(non legge le pagine; rilegge solo i file cambiati)")
-        self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
-        self.b_full = QPushButton("Completo")
-        self.b_full.setToolTip("Controllo completo: legge ogni pagina di ogni fumetto (trova anche le pagine\n"
-                               "rovinate). Lento: con migliaia di fumetti, ore. Si ferma e riprende.")
-        self.b_full.clicked.connect(lambda: self.scan(always_ask=True, completo=True))
+        self.b_stop = QPushButton("■ Ferma")
+        self.b_stop.setToolTip("Ferma il controllo della libreria (la volta dopo riprende da dove era arrivato)")
+        self.b_stop.clicked.connect(self._stop_scan)
+        self.b_stop.hide()                            # solo durante il controllo (che si avvia dalle Opzioni)
+        self.b_apri = QPushButton("📂 Apri cartella")
+        self.b_apri.clicked.connect(lambda: apri_cartella(self.folder))
         bar.addWidget(self.scelta)
         bar.addWidget(b_home)
-        bar.addWidget(self.lbl_root, 1)
+        bar.addWidget(self.b_apri)
+        bar.addWidget(self.lbl_root)
+        bar.addWidget(self.cerca, 1)
         bar.addWidget(self.lbl_scan)
-        bar.addWidget(self.b_scan)
-        bar.addWidget(self.b_full)
+        bar.addWidget(self.b_stop)
         b_opts = QPushButton("Opzioni")
-        b_opts.setToolTip("Cartella della libreria, spostamento automatico e schema delle cartelle")
+        b_opts.setToolTip("Librerie, controllo della libreria, conversione WebP, Info e rinomina")
         b_opts.clicked.connect(self.options)
         bar.addWidget(b_opts)
-        bar.addWidget(self.cerca)
         bar.addWidget(self.filtro)
         bar.addWidget(self.chk_sub)
         l.addLayout(bar)
@@ -354,8 +370,8 @@ class LibraryView(QWidget):
                                                           " (anche Ctrl+A)"),
                 ("PAGINE", self.open_pages, None, "Apre le pagine del fumetto (anche con doppio click)"),
                 ("INFO E RINOMINA", self.rename, None, "Metadati (ComicInfo.xml), ricerca online e rinomina"),
-                ("SISTEMA", self.repair, "primary", "Ripara o converte in WebP i selezionati\n"
-                                                    "(senza selezione: tutti i fumetti mostrati)"),
+                ("AZIONI", None, "primary", "Ripara, converti in WebP, cestina i doppioni:\n"
+                                              "sui selezionati, o su tutti i fumetti mostrati"),
                 ("ORDINA IN CARTELLE", self.reorder, None,
                  "Sposta i selezionati nelle cartelle dello schema (es. Editore/Serie) lette dalle info;\n"
                  "si annulla dalla Cronologia"),
@@ -365,9 +381,13 @@ class LibraryView(QWidget):
             b.setToolTip(tip)
             if variant:
                 set_variant(b, variant)
-            b.clicked.connect(slot)
+            if slot:
+                b.clicked.connect(slot)
             actions.addWidget(b)
             self.pulsanti[text] = b
+        azioni = QMenu(self)
+        azioni.aboutToShow.connect(lambda: (azioni.clear(), self._riempi_azioni(azioni)))
+        self.pulsanti["AZIONI"].setMenu(azioni)
         actions.addStretch()
         l.addLayout(actions)
 
@@ -439,7 +459,8 @@ class LibraryView(QWidget):
 
     def options(self):
         from .opzioni import Opzioni                  # qui: opzioni.py usa le funzioni di questo file
-        if Opzioni(self).exec():
+        dlg = Opzioni(self)
+        if dlg.exec():
             self.set_thumb_size()
             tutte = librerie()
             nuove = [c for c in tutte if c not in self.scanned_roots]
@@ -447,7 +468,9 @@ class LibraryView(QWidget):
             self.root = root
             self._riempi_scelta()
             self._cambia_libreria(self.scelta.currentIndex()) if tutte else self.set_root("")
-            if nuove:
+            if dlg.controllo is not None:             # "Controlla ora" / "Controllo completo…"
+                self.scan(always_ask=True, completo=dlg.controllo)
+            elif nuove:
                 self.scan()
             self.win.refresh_grid()                   # larghezza della finestra sulle nuove miniature
 
@@ -484,8 +507,10 @@ class LibraryView(QWidget):
 
     def show_folder(self, folder):
         self.folder = folder
-        self.lbl_root.setText(folder or "Nessuna libreria: scegli la cartella in Opzioni, "
-                                        "o trascina qui i file da sistemare")
+        self.lbl_root.setText("Nessuna libreria: scegli la cartella in Opzioni, o trascina qui i file da sistemare")
+        self.lbl_root.setVisible(not folder)
+        self.b_apri.setVisible(bool(folder))
+        self.b_apri.setToolTip(f"Apre nel gestore file:\n{folder}")
         self.refresh(force=True)
 
     def refresh(self, force=False):
@@ -591,10 +616,7 @@ class LibraryView(QWidget):
         self.scanner.progress.connect(lambda v, t: self.lbl_scan.setText(f"Controllo: {v}/{t}"))
         self.scanner.finished.connect(lambda res, fresh: self._scanned(res, fresh, always_ask))
         self.scanner.cancelled.connect(self._scan_ended)
-        self.b_scan.setText("Ferma controllo")
-        self.b_scan.clicked.disconnect()
-        self.b_scan.clicked.connect(self._stop_scan)
-        self.b_full.setEnabled(False)
+        self.b_stop.show()
         self.lbl_scan.setText("Controllo completo…" if completo else "Controllo…")
         self.scanner.start()
 
@@ -605,10 +627,7 @@ class LibraryView(QWidget):
     def _scan_ended(self):
         self.scanner = None
         self.lbl_scan.setText("")
-        self.b_scan.setText("Controlla")
-        self.b_full.setEnabled(True)
-        self.b_scan.clicked.disconnect()
-        self.b_scan.clicked.connect(lambda: self.scan(always_ask=True))
+        self.b_stop.hide()
 
     def _scanned(self, results, fresh, always_ask):
         self.dupe_of = self.scanner.dupe_of
@@ -652,10 +671,8 @@ class LibraryView(QWidget):
                                                            if in_libreria(p, self.root))))
         elif clicked is b_conv and self.win._free():
             self.win.process_paths(convert, True)
-        elif clicked is b_dup and self.win._free() and QMessageBox.question(
-                self, "Cestina doppioni", f"Spostare nel cestino {len(dupes)} doppioni?\n"
-                "Di ogni gruppo resta il CBZ con il nome più corto.") == QMessageBox.StandardButton.Yes:
-            self.win.trash_files(dupes)
+        elif clicked is b_dup:
+            self.cestina_doppioni(dupes)
 
     def stop(self):
         """Alla chiusura: niente miniature nuove, controllo fermato, attesa dei thread."""
@@ -683,18 +700,29 @@ class LibraryView(QWidget):
 
     def _selezione_cambiata(self):
         n = len(self.list.selectedItems())
-        self.pulsanti["SISTEMA"].setText(f"SISTEMA {n}" if n else "SISTEMA")
+        self.pulsanti["AZIONI"].setText(f"AZIONI ({n})" if n else "AZIONI")   # la freccia la mette Qt (menu)
         self.pulsanti["SELEZIONA TUTTO"].setText("DESELEZIONA TUTTO" if n else "SELEZIONA TUTTO")
 
     def toggle_all(self):
         self.list.clearSelection() if self.list.selectedItems() else self.list.selectAll()
 
-    def repair(self):
-        sel = self.selected() or list(self.paths)     # senza selezione: tutti i fumetti mostrati
-        if sel and self.win._free():
-            mode = self.win.ask_mode()
-            if mode != "cancel":
-                self.win.process_paths(sel, mode == "convert")
+    def _riempi_azioni(self, menu):
+        """Voci di AZIONI ▾: sui selezionati, o su tutti i fumetti mostrati."""
+        paths = self.selected() or list(self.paths)
+        for testo, webp in (("Ripara", False), ("Converti in WebP", True)):
+            menu.addAction(f"{testo} ({len(paths)})",
+                           lambda w=webp: self.win._free() and self.win.process_paths(paths, w)).setEnabled(bool(paths))
+        doppi = [p for p in paths if self.results.get(p) == 4]
+        if doppi:
+            menu.addSeparator()
+            menu.addAction(f"Cestina doppioni ({len(doppi)})", lambda: self.cestina_doppioni(doppi))
+
+    def cestina_doppioni(self, doppi):
+        if self.win._free() and QMessageBox.question(
+                self, "Cestina doppioni", f"Spostare nel cestino {len(doppi)} doppioni?\n"
+                "Di ogni gruppo resta la copia con le info (ComicInfo), poi quella col nome più corto."
+                ) == QMessageBox.StandardButton.Yes:
+            self.win.trash_files(doppi)
 
     def reorder(self, sel=None):
         """Sposta i fumetti (i selezionati della Libreria, o quelli della lista di lavoro) nelle cartelle
@@ -745,12 +773,14 @@ class LibraryView(QWidget):
             if len(sel) == 1:
                 menu.addAction("Pagine", self.open_pages)
             menu.addAction("Info e rinomina", self.rename)
-            menu.addAction("Sistema", self.repair)
+            self._riempi_azioni(menu)
+            menu.addSeparator()
             if len(sel) > 1:
                 menu.addAction("Unisci", lambda: self.win.merge_paths(sel))
             menu.addAction("Ordina in cartelle", self.reorder)
             menu.addSeparator()
             menu.addAction("Cestina", self.trash)
+            menu.addAction("Apri la cartella del fumetto", lambda: apri_cartella(os.path.dirname(sel[0])))
         if self.win.cards:
             menu.addAction("Torna alla lista di lavoro", lambda: self.win.show_view(self.win.work_tab))
         return menu
@@ -766,6 +796,7 @@ class LibraryView(QWidget):
         if not folder:
             return
         menu = QMenu(self)
+        menu.addAction("Apri nel gestore file", lambda: apri_cartella(folder))
         menu.addAction("Nuova cartella…", lambda: self._new_folder(folder))
         if index.isValid():
             menu.addAction("Rinomina (F2)", lambda: self.tree.edit(index))

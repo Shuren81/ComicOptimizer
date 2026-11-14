@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -83,6 +84,20 @@ class Opzioni(QDialog):
                                   "libreria/auto")
         self.avvio = self._casella(f, "Controlla la libreria all'avvio (solo i file cambiati)",
                                    "libreria/controllo_avvio", True)
+        self.controllo = None                         # None, o il controllo da avviare chiudendo (completo?)
+        riga = QHBoxLayout()
+        for testo, completo, aiuto in (
+                ("Controlla ora", False, "Controllo rapido di tutte le librerie: file interi, doppioni, WebP,\n"
+                                         "ComicInfo (non legge le pagine; rilegge solo i file cambiati)"),
+                ("Controllo completo…", True, "Legge ogni pagina di ogni fumetto (trova anche le pagine rovinate).\n"
+                                              "Lento: con migliaia di fumetti, ore. Si ferma e riprende.")):
+            b = QPushButton(testo)
+            b.setToolTip(aiuto)
+            b.setAutoDefault(False)
+            b.clicked.connect(lambda _on, c=completo: self._controlla(c))
+            riga.addWidget(b)
+        riga.addStretch()
+        f.addRow("Controllo:", riga)
         self.miniature = self._scelta(f, "Miniature:", MINIATURE, "libreria/miniature", 140)
 
         f = self._gruppo(l, "Conversione in WebP")
@@ -142,6 +157,13 @@ class Opzioni(QDialog):
     def showEvent(self, e):
         super().showEvent(e)
         self._mostra_righe()                          # misura giusta solo ora, col tema applicato
+
+    def _controlla(self, completo):
+        """Salva le opzioni e chiude: il controllo parte dalla Libreria (vedi LibraryView.options)."""
+        self.controllo = completo
+        self.accept()
+        if self.isVisible():                          # opzioni non valide: niente controllo
+            self.controllo = None
 
     def _mostra_righe(self):
         for i, (riga, *_r) in enumerate(self.righe):

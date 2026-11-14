@@ -4,7 +4,7 @@ import os
 import sys
 
 # --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
-APP_VERSION = "3.10.3"
+APP_VERSION = "3.10.4"
 
 # --- COSTANTI ELABORAZIONE ---
 WEBP_QUALITY  = 85       # qualità WebP (0-100), il livello Medio

@@ -1,6 +1,6 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.10.3
+### 📚 ComicOptimizer v3.10.4
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
@@ -8,7 +8,7 @@ Sviluppato con passione da **Michele** *"Shuren"* **Bancheri**, ComicOptimizer n
 
 ### 🆕 Novità
 
-**v3.10: controllo rapido.** Il controllo della libreria non legge più ogni pagina: verifica che i file siano interi, trova doppioni e fumetti da convertire e annota chi ha il ComicInfo.xml (nuovo filtro *Senza info*). Minuti invece di ore. Il pulsante *Completo* legge ogni pagina, un file alla volta sui dischi meccanici.
+**v3.10: controllo rapido.** Il controllo della libreria non legge più ogni pagina: verifica che i file siano interi, trova doppioni e fumetti da convertire e annota chi ha il ComicInfo.xml (nuovo filtro *Senza info*). Minuti invece di ore. Il *Controllo completo* (in Opzioni) legge ogni pagina, un file alla volta sui dischi meccanici.
 
 **v3.9: ricerca e doppioni affiancati.** Nella Libreria un campo cerca per nome nei fumetti mostrati (dalla cartella principale, in tutta la libreria). Con il filtro Doppioni ogni copia sta accanto al fumetto che si tiene, e i gruppi hanno sfondi alterni.
 
@@ -131,7 +131,7 @@ pip install -r requirements.txt
 ### 🛠️ Utilizzo Rapido
 
 * **Avvio:** esegui `python3 main.py` dalla cartella del progetto.
-* **Libreria:** la finestra si apre sulla tua libreria (le librerie si aggiungono in *Opzioni*, il menu in alto le alterna). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Doppio click per le pagine, tasto destro per le azioni; trascina i fumetti su una cartella dell'albero per spostarli. *Controlla* rifà il controllo rapido (file interi, doppioni, WebP, ComicInfo), *Completo* legge anche ogni pagina; il menu accanto filtra i problemi (i doppioni accanto al file che si tiene). Il campo *Cerca per nome* filtra quello che vedi; dalla cartella principale cerca in tutta la libreria.
+* **Libreria:** la finestra si apre sulla tua libreria (le librerie si aggiungono in *Opzioni*, il menu in alto le alterna). A sinistra l'albero delle cartelle, a destra le miniature; *⌂ Tutta la libreria* torna alla cartella principale. Un click seleziona o toglie un fumetto, doppio click per le pagine; *📂 Apri cartella* (o il tasto destro) la apre nel gestore file. *AZIONI* ripara, converte in WebP o cestina i doppioni dei selezionati, o di tutti i fumetti mostrati. Trascina i fumetti su una cartella dell'albero per spostarli. In *Opzioni*, *Controlla ora* rifà il controllo rapido (file interi, doppioni, WebP, ComicInfo) e *Controllo completo* legge anche ogni pagina; il menu dei filtri mostra i problemi (i doppioni accanto al file che si tiene). Il campo *Cerca per nome* filtra quello che vedi; dalla cartella principale cerca in tutta la libreria.
 * **Opzioni:** cartella e schema delle cartelle della libreria, spostamento automatico, qualità WebP, "Leggi su" (riduzione delle pagine per il tuo dispositivo), ricompressione dei WebP, originali cancellati o nel cestino, processi, schema di rinomina, controllo all'avvio e dimensione delle miniature.
 * **Importazione:** trascina i tuoi file o cartelle in un punto qualsiasi della finestra: compare la lista di lavoro (*← LIBRERIA* torna alla libreria, che ricompare da sola quando la lista si svuota). I file con estensioni non supportate non vengono importati. Una cartella di sole immagini diventa un fumetto: le pagine seguono l'ordine naturale, prima le immagini della cartella e poi quelle delle sottocartelle (se ci sono entrambe, l'app chiede se le immagini sciolte vanno prima o dopo). Nelle cartelle miste (immagini più archivi o PDF) vengono importati solo gli archivi.
 * **Analisi:** viene effettuata in automatico. Ogni fumetto mostra il suo stato: da sistemare, ok, riparato, convertito, duplicato o danneggiato.

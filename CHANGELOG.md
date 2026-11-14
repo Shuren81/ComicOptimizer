@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.10.4] — 2026-11-14
+
+- **Corretto:** nella Libreria un click su un fumetto già selezionato lo deseleziona: un click semplice aggiunge o toglie quel fumetto, come nella lista di lavoro (Shift+click seleziona un intervallo).
+- **Cambiato:** SISTEMA diventa il menu **AZIONI**: Ripara, Converti in WebP e **Cestina doppioni**, sui selezionati o su tutti i fumetti mostrati, con il numero di fumetti di ogni voce. Con il filtro Doppioni si eliminano le copie da lì (resta quella con le info). Le stesse voci sono nel tasto destro.
+- **Cambiato:** «Controlla» e «Completo» passano nelle **Opzioni** («Controlla ora», «Controllo completo…»); nella barra resta l'avanzamento con **■ Ferma**, solo durante il controllo. Il campo di ricerca prende tutto lo spazio libero.
+- **Cambiato:** al posto del percorso della cartella, il pulsante **📂 Apri cartella** (e le voci del tasto destro sull'albero e sulle miniature) la apre nel gestore file.
+
 ## [3.10.3] — 2026-11-13
 
 - **Corretto:** dalla 3.10.1, con più monitor, la finestra si apriva sempre sul secondo: all'apertura veniva «riportata dentro lo schermo» prima che il sistema scegliesse dove metterla. Ora all'apertura decide il sistema, come prima; la finestra rientra nello schermo solo quando la sposti o cambia monitor.

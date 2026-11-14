@@ -91,24 +91,58 @@ def test_vista(app, lib):
     win.import_paths = vero_import
     assert importati == [[c]] and os.path.exists(c), importati
 
-    # SELEZIONA TUTTO / DESELEZIONA, e SISTEMA: con N selezionati "SISTEMA N", senza selezione tutti i mostrati
-    sistema, tutti = v.pulsanti["SISTEMA"], v.pulsanti["SELEZIONA TUTTO"]
+    # SELEZIONA TUTTO / DESELEZIONA, e AZIONI: con N selezionati "AZIONI (N)", senza selezione tutti i mostrati
+    azioni, tutti = v.pulsanti["AZIONI"], v.pulsanti["SELEZIONA TUTTO"]
     v.list.clearSelection()
-    assert sistema.text() == "SISTEMA" and tutti.text() == "SELEZIONA TUTTO"
+    assert azioni.text() == "AZIONI" and tutti.text() == "SELEZIONA TUTTO"
     tutti.click()
-    assert len(v.selected()) == v.list.count() == 2 and sistema.text() == "SISTEMA 2"
+    assert len(v.selected()) == v.list.count() == 2 and azioni.text() == "AZIONI (2)"
     assert tutti.text() == "DESELEZIONA TUTTO"
     tutti.click()
-    assert v.selected() == [] and sistema.text() == "SISTEMA"
+    assert v.selected() == [] and azioni.text() == "AZIONI"
+
+    menu_vivi = []
+
+    def voci_azioni():
+        m = QMenu()
+        menu_vivi.append(m)                            # altrimenti Qt cancella le voci
+        v._riempi_azioni(m)
+        return {a.text(): a for a in m.actions() if a.text()}
+    from PyQt6.QtWidgets import QMenu
     lavori = []
-    vero_modo, vero_process = win.ask_mode, win.process_paths
-    win.ask_mode, win.process_paths = (lambda: "convert"), (lambda paths, webp: lavori.append((paths, webp)))
-    sistema.click()
+    vero_process = win.process_paths
+    win.process_paths = lambda paths, webp: lavori.append((paths, webp))
+    voci_azioni()["Converti in WebP (2)"].trigger()
     assert lavori == [(v.paths, True)] and len(v.paths) == 2, lavori
     v.list.item(0).setSelected(True)
-    sistema.click()
-    assert lavori[-1] == ([v.paths[0]], True)
-    win.ask_mode, win.process_paths = vero_modo, vero_process
+    voci_azioni()["Ripara (1)"].trigger()
+    assert lavori[-1] == ([v.paths[0]], False)
+    assert not any(t.startswith("Cestina doppioni") for t in voci_azioni()), "niente doppioni qui"
+    win.process_paths = vero_process
+
+    # click semplice: aggiunge o toglie quel fumetto (come Ctrl+click)
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtCore import Qt as _Qt2
+    win.show()
+    attendi(app, lambda: False, 0.2)
+    clicca = lambda i: QTest.mouseClick(v.list.viewport(), _Qt2.MouseButton.LeftButton, pos=v.list.visualItemRect(
+        v.list.item(i)).center())
+    assert v.selected() == [v.paths[0]]
+    clicca(1)
+    assert sorted(v.selected()) == sorted(v.paths), "il secondo si aggiunge"
+    clicca(0)
+    assert v.selected() == [v.paths[1]], "cliccato di nuovo: si deseleziona"
+    win.hide()
+
+    # apri cartella: pulsante e tasto destro aprono la cartella giusta nel gestore file
+    from comicoptimizer import library as _lib
+    aperte = []
+    vero_apri = _lib.QDesktopServices.openUrl
+    _lib.QDesktopServices.openUrl = lambda url: aperte.append(url.toLocalFile())
+    v.b_apri.click()
+    next(a for a in v.list_menu().actions() if a.text() == "Apri la cartella del fumetto").trigger()
+    _lib.QDesktopServices.openUrl = vero_apri
+    assert aperte == [v.folder, os.path.dirname(v.paths[1])], aperte
     v.list.clearSelection()
 
     # menu col tasto destro: Unisci solo con 2 o più fumetti
@@ -222,6 +256,18 @@ def test_controllo(app, lib):
     v.filtro.setCurrentIndex(2)
     assert v.paths == [a, b], "il doppione accanto al file che si tiene"
     assert "doppione di «Batman 01.cbz»" in v.list.item(1).toolTip()
+    # AZIONI ▾ → Cestina doppioni: solo i doppioni (non la copia che si tiene), dopo la conferma
+    from PyQt6.QtWidgets import QMenu, QMessageBox
+    m = QMenu()
+    v._riempi_azioni(m)
+    voce = next(a for a in m.actions() if a.text().startswith("Cestina doppioni"))
+    assert voce.text() == "Cestina doppioni (1)"
+    cestinati, vera_domanda, vero_cestino = [], QMessageBox.question, win.trash_files
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    win.trash_files = cestinati.extend
+    voce.trigger()
+    QMessageBox.question, win.trash_files = vera_domanda, vero_cestino
+    assert cestinati == [b], cestinati
     v.cerca.setText("(1)")
     v.refresh(force=True)
     assert v.paths == [a, b], "la ricerca tiene tutto il gruppo"
@@ -405,12 +451,16 @@ def test_sposta(app, work):
     os.remove(workers._index_path())                   # anche quello salvato su disco
     workers._integrity_and_signature = lambda p, c=True: (time.sleep(3), lento(p, c))[1]   # fumetti enormi
     v.scan()
-    assert v.scanner is not None
+    assert v.scanner is not None and v.b_stop.isVisibleTo(v), "Ferma si vede solo durante il controllo"
     attendi(app, lambda: False, 0.3)
     inizio = time.time()
     v._stop_scan()
     assert attendi(app, lambda: v.scanner is None, 5) and time.time() - inizio < 1.5, \
         "Ferma controllo si ferma subito, senza aspettare i file in lettura"
+    assert not v.b_stop.isVisibleTo(v)
+    o = OpzioniLibreria(v)                             # "Controlla ora" / "Controllo completo…" dalle Opzioni
+    o._controlla(True)
+    assert o.controllo is True
     workers._integrity_and_signature = vero_controllo
     time.sleep(3)                                      # i controlli rimasti finiscono in background
     o = OpzioniLibreria(v)
