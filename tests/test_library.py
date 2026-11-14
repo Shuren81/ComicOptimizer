@@ -57,6 +57,9 @@ def test_vista(app, lib):
     assert v.paths == [a, b] and v.list.count() == 2
     v.go_root()
     assert v.folder == lib and v.paths == [], "⌂ torna alla cartella principale"
+    from PyQt6.QtCore import Qt
+    indice = v.model.index(os.path.join(lib, "Batman"))
+    assert v.model.data(indice, Qt.ItemDataRole.ToolTipRole) == "Batman", "nome intero della cartella"
     v.show_folder(os.path.join(lib, "Batman"))
 
     # la Libreria allarga la finestra di una colonna in più della lista più grande (se lo schermo basta)

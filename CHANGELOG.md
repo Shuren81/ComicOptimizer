@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.4] — 2026-11-14
+
+- **Nuovo:** nella colonna delle cartelle della Libreria, passando col mouse su una cartella compare il suo nome intero (nella colonna i nomi lunghi sono tagliati).
+
 ## [3.11.3] — 2026-11-14
 
 - **Cambiato:** nei menu AZIONI (Libreria, lista di lavoro e tasto destro) le voci si chiamano **Ripara/Converti CBZ** e **Converti WebP**.

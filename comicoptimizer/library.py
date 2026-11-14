@@ -270,6 +270,15 @@ def in_libreria(p, root):
     return os.path.abspath(p).startswith(os.path.join(os.path.abspath(root), ""))
 
 
+class _Cartelle(QFileSystemModel):
+    """Le cartelle dell'albero: passandoci sopra col mouse il nome intero (nella colonna è tagliato)."""
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return self.fileName(index)
+        return super().data(index, role)
+
+
 def apri_cartella(cartella):
     QDesktopServices.openUrl(QUrl.fromLocalFile(cartella))
 
@@ -394,7 +403,7 @@ class LibraryView(QWidget):
 
         # shortcut: lo spostamento trascinando sull'albero lo fa Qt (mai sovrascrive), ma non va nella
         # cronologia e non si annulla; da passare per _do_renames se servisse annullarlo
-        self.model = QFileSystemModel(self)
+        self.model = _Cartelle(self)
         self.model.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot)
         self.model.setReadOnly(False)                 # rinomina delle cartelle e spostamento trascinando
         self.tree = QTreeView()
