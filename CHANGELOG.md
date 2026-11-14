@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.11.3] — 2026-11-14
+
+- **Cambiato:** nei menu AZIONI (Libreria, lista di lavoro e tasto destro) le voci si chiamano **Ripara/Converti CBZ** e **Converti WebP**.
+- **Nuovo:** voce **Sistema tutti in libreria**: sposta i fumetti (i selezionati, o tutti) nelle cartelle dello schema della libreria aperta, come *Ordina in cartelle*, dopo la conferma con l'elenco; si annulla dalla Cronologia.
+
 ## [3.11.2] — 2026-11-14
 
 - **Corretto:** nell'ordine dei risultati della ricerca online il numero contava quanto una parola del nome: cercando «Absolute Superman 25», se l'albo 25 non c'era fra i risultati, «Absolute Batman #25» finiva prima degli altri Absolute Superman. Ora contano prima le parole del nome, poi il numero.

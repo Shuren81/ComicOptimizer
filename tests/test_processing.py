@@ -406,10 +406,10 @@ def window_checks(app, work):
     lavori = []
     w.process_paths = lambda paths, webp: lavori.append((len(paths), webp))
     n = len(w.cards)
-    voci()[f"Converti in WebP ({n})"].trigger()
+    voci()[f"Converti WebP ({n})"].trigger()
     list(w.cards.values())[0].selected = True
     w._update_sel_buttons()
-    voci()["Ripara (1)"].trigger()
+    voci()["Ripara/Converti CBZ (1)"].trigger()
     assert lavori == [(n, True), (1, False)], lavori
     assert w.btn_all.text() == "AZIONI (1)"
     assert w.btn_rename.text() == "INFO E RINOMINA"

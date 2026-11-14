@@ -1492,9 +1492,12 @@ class MainWindow(QMainWindow):
         # senza selezione: niente doppioni né danneggiati, e i già convertiti non si ricomprimono
         ripara = list(cards) if sel else [p for p, c in cards.items() if c.status_code in (0, 1)]
         converti = list(cards) if sel else [p for p, c in cards.items() if c.status_code not in (3, 4, 5)]
-        for testo, paths, webp in (("Ripara", ripara, False), ("Converti in WebP", converti, True)):
+        for testo, paths, webp in (("Ripara/Converti CBZ", ripara, False), ("Converti WebP", converti, True)):
             menu.addAction(f"{testo} ({len(paths)})",
                            lambda p=paths, w=webp: self._free() and self.process_paths(p, w)).setEnabled(bool(paths))
+        tutti = list(cards)
+        menu.addAction(f"Sistema tutti in libreria ({len(tutti)})",   # nelle cartelle dello schema, come Sposta in libreria
+                       lambda: self.library.reorder(tutti)).setEnabled(bool(tutti and self.library.root))
         doppi = [p for p, c in cards.items() if c.status_code == 4]
         if doppi:
             menu.addSeparator()

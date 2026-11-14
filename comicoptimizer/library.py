@@ -723,9 +723,11 @@ class LibraryView(QWidget):
     def _riempi_azioni(self, menu):
         """Voci di AZIONI ▾: sui selezionati, o su tutti i fumetti mostrati."""
         paths = self.selected() or list(self.paths)
-        for testo, webp in (("Ripara", False), ("Converti in WebP", True)):
+        for testo, webp in (("Ripara/Converti CBZ", False), ("Converti WebP", True)):
             menu.addAction(f"{testo} ({len(paths)})",
                            lambda w=webp: self.win._free() and self.win.process_paths(paths, w)).setEnabled(bool(paths))
+        menu.addAction(f"Sistema tutti in libreria ({len(paths)})",   # = Ordina in cartelle, schema della libreria
+                       lambda: self.reorder(paths)).setEnabled(bool(paths and self.root))
         doppi = [p for p in paths if self.results.get(p) == 4]
         if doppi:
             menu.addSeparator()

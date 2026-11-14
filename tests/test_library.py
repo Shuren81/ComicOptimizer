@@ -121,10 +121,10 @@ def test_vista(app, lib):
     lavori = []
     vero_process = win.process_paths
     win.process_paths = lambda paths, webp: lavori.append((paths, webp))
-    voci_azioni()["Converti in WebP (2)"].trigger()
+    voci_azioni()["Converti WebP (2)"].trigger()
     assert lavori == [(v.paths, True)] and len(v.paths) == 2, lavori
     v.list.item(0).setSelected(True)
-    voci_azioni()["Ripara (1)"].trigger()
+    voci_azioni()["Ripara/Converti CBZ (1)"].trigger()
     assert lavori[-1] == ([v.paths[0]], False)
     assert not any(t.startswith("Cestina doppioni") for t in voci_azioni()), "niente doppioni qui"
     win.process_paths = vero_process
@@ -504,6 +504,22 @@ def test_sposta(app, work):
     win.btn_move.click()
     spostato = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
     assert os.path.exists(spostato) and spostato in win.cards and a not in win.cards
+    # AZIONI → Sistema tutti in libreria: tutti i fumetti della lista, nelle cartelle dello schema
+    win.cards[spostato].selected = False
+    from PyQt6.QtWidgets import QMenu
+    m = QMenu()
+    win._riempi_azioni(m)
+    voce = next(x for x in m.actions() if x.text().startswith("Sistema tutti in libreria"))
+    ordinati, vero_reorder = [], v.reorder
+    v.reorder = ordinati.append
+    voce.trigger()
+    v.reorder = vero_reorder
+    assert voce.text() == f"Sistema tutti in libreria ({len(win.cards)})" and ordinati == [list(win.cards)]
+    radice, v.root = v.root, ""
+    m = QMenu()
+    win._riempi_azioni(m)
+    assert not next(x for x in m.actions() if x.text().startswith("Sistema tutti")).isEnabled(), "senza libreria"
+    v.root = radice
     win.clear_all()
 
     # Riordina dalle info, dentro la libreria
