@@ -349,11 +349,11 @@ def window_checks(app, work):
     BatchPrepWorker.start = lambda self: started.append(self)
     w.ask_mode = lambda: "repair"
     w.current_worker = object()
-    for call in (lambda: w.individual_repair("x"), w.repair_trigger, w.repair_selected, w.repair_all_trigger,
+    for call in (lambda: w.individual_repair("x"),
                  w.merge_selected, lambda: w.open_editor("x"), lambda: w.rename_cards(["x"]),
                  w.trash_selected, w.trash_all_duplicates, lambda: w.confirm_and_trash("x")):
         call()
-    assert started == [] and len(infos) == 10
+    assert started == [] and len(infos) == 7
     w.current_worker = None
     fake_prep = BatchPrepWorker([], False)
     w._add_thread(fake_prep)                          # estrazione in corso (prima dell'elaborazione)
@@ -394,20 +394,25 @@ def window_checks(app, work):
     assert w._thumbs_running == 0 and not w._thumb_queue
     assert not any(isinstance(t, mw.ThumbWorker) for t in w.active_threads)
 
-    # SISTEMA: con una selezione chiede "Selezionati" o "Tutti"; senza selezione, tutti
-    calls = []
-    w.repair_selected = lambda: calls.append("sel")
-    w.repair_all_trigger = lambda: calls.append("all")
-    w.repair_trigger()
+    # AZIONI: senza selezione i fumetti idonei della lista, con una selezione solo quelli ("AZIONI (N)")
+    from PyQt6.QtWidgets import QMenu
+    tenuti = []
+
+    def voci():
+        m = QMenu()
+        tenuti.append(m)                               # altrimenti Qt cancella le voci
+        w._riempi_azioni(m)
+        return {a.text(): a for a in m.actions() if a.text()}
+    lavori = []
+    w.process_paths = lambda paths, webp: lavori.append((len(paths), webp))
+    n = len(w.cards)
+    voci()[f"Converti in WebP ({n})"].trigger()
     list(w.cards.values())[0].selected = True
-    answer[0] = "Selezionati"
-    w.repair_trigger()
-    answer[0] = "Tutti"
-    w.repair_trigger()
-    answer[0] = "Annulla"
-    w.repair_trigger()
-    assert calls == ["all", "sel", "all"], calls
-    assert w.btn_all.text() == "SISTEMA" and w.btn_rename.text() == "INFO E RINOMINA"
+    w._update_sel_buttons()
+    voci()["Ripara (1)"].trigger()
+    assert lavori == [(n, True), (1, False)], lavori
+    assert w.btn_all.text() == "AZIONI (1)"
+    assert w.btn_rename.text() == "INFO E RINOMINA"
 
     # cestino non disponibile per più file: un solo messaggio, i file restano
     warns = []

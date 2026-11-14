@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.10.5] — 2026-11-14
+
+- **Cambiato:** anche nella lista di lavoro SISTEMA diventa il menu **AZIONI**, come nella Libreria: Ripara, Converti in WebP e Cestina doppioni, sui selezionati o (senza selezione) su tutti i fumetti idonei, con il numero di ognuno. Le stesse voci sono nel tasto destro.
+- **Corretto:** spostando dei fumetti (Sposta in libreria, Ordina in cartelle, spostamento automatico) non si vedeva niente: ora c'è l'avanzamento («Spostamento: 3/20 — nome») e alla fine un messaggio con quanti fumetti sono stati spostati.
+
 ## [3.10.4] — 2026-11-14
 
 - **Corretto:** nella Libreria un click su un fumetto già selezionato lo deseleziona: un click semplice aggiunge o toglie quel fumetto, come nella lista di lavoro (Shift+click seleziona un intervallo).

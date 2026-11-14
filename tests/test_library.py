@@ -478,6 +478,7 @@ def test_sposta(app, work):
     nuovo = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
     assert os.path.exists(nuovo) and not os.path.exists(a) and os.path.exists(gia), "mai sovrascrivere"
     assert os.path.exists(senza) and os.path.exists(dentro) and avvisi and "Senza info.cbz" in avvisi[-1]
+    assert "Spostati 1 fumetti." in avvisi, "a fine spostamento lo dice"
 
     # si annulla dalla cronologia come una rinomina
     metadata_dialog.ConfermaRinomina.exec = lambda self: QDialog.DialogCode.Accepted

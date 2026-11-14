@@ -566,11 +566,14 @@ class MainWindow(QMainWindow):
         self.btn_clear.setMinimumHeight(42)
         self.btn_clear.clicked.connect(self.clear_all)
 
-        self.btn_all = QPushButton("SISTEMA")
+        self.btn_all = QPushButton("AZIONI")
         self.btn_all.setMinimumHeight(42)
         set_variant(self.btn_all, "primary")
-        self.btn_all.setToolTip("Ripara o converte in WebP tutti i fumetti, o solo i selezionati")
-        self.btn_all.clicked.connect(self.repair_trigger)
+        self.btn_all.setToolTip("Ripara, converti in WebP, cestina i doppioni:\n"
+                                "sui selezionati, o su tutti i fumetti della lista")
+        azioni = QMenu(self)
+        azioni.aboutToShow.connect(lambda: (azioni.clear(), self._riempi_azioni(azioni)))
+        self.btn_all.setMenu(azioni)
 
         self.btn_sel_all = QPushButton("SELEZIONA TUTTO")
         self.btn_sel_all.setMinimumHeight(42)
@@ -1144,6 +1147,7 @@ class MainWindow(QMainWindow):
         self.btn_move.setVisible(sel_n > 0 and bool(self.library.root))
         self.btn_sel_all.setVisible(bool(self.cards))
         self.btn_sel_all.setText("DESELEZIONA TUTTO" if sel_n else "SELEZIONA TUTTO")
+        self.btn_all.setText(f"AZIONI ({sel_n})" if sel_n else "AZIONI")   # la freccia la mette Qt (menu)
 
     def select_all(self, on=True):
         for c in self.cards.values():
@@ -1254,7 +1258,8 @@ class MainWindow(QMainWindow):
         if len(sel) == 1:
             menu.addAction("Pagine", lambda: self.open_editor(sel[0]))
         menu.addAction("Info e rinomina", lambda: self.rename_cards(sel))
-        menu.addAction("Sistema", self.repair_selected)
+        self._riempi_azioni(menu)
+        menu.addSeparator()
         if len(sel) > 1:
             menu.addAction("Unisci", lambda: self.merge_paths(sel))
         if self.library.root:
@@ -1387,7 +1392,12 @@ class MainWindow(QMainWindow):
         Con `batch` ogni rinomina riuscita va subito nella cronologia su disco.
         Restituisce le coppie (vecchio, nuovo) riuscite."""
         errors, done = [], []
-        for old, new in pairs:
+        sposta = any(os.path.dirname(o) != os.path.dirname(n) for o, n in pairs)
+        verbo = "Spostamento" if sposta else "Rinomina"
+        for i, (old, new) in enumerate(pairs, 1):
+            if len(pairs) > 1:                        # fra due dischi è una copia: si vede che lavora
+                self.set_working(True, f"{verbo}: {i}/{len(pairs)} — {os.path.basename(old)}", i - 1, len(pairs))
+                QApplication.processEvents()
             try:
                 # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
                 if os.path.exists(new) and not os.path.samefile(old, new):
@@ -1413,8 +1423,10 @@ class MainWindow(QMainWindow):
         self.reset_ui()
         self.refresh_grid()
         if errors:
-            QMessageBox.warning(self, "Rinomina", "Non rinominati (dettagli nel log):\n"
-                                + "\n".join(errors[:8]))
+            QMessageBox.warning(self, verbo, ("Non spostati" if sposta else "Non rinominati")
+                                + " (dettagli nel log):\n" + "\n".join(errors[:8]))
+        elif sposta and done:
+            QMessageBox.information(self, "Spostamento", f"Spostati {len(done)} fumetti.")
         return done
 
     def trash_file(self, p):
@@ -1458,49 +1470,22 @@ class MainWindow(QMainWindow):
         ) == QMessageBox.StandardButton.Yes:
             self.trash_files(dupes)
 
-    def repair_trigger(self):
-        """SISTEMA: con una selezione chiede se sistemare i selezionati o tutti."""
-        if not self._free():
-            return
-        sel_n = sum(1 for c in self.cards.values() if c.selected)
-        if not sel_n:
-            self.repair_all_trigger()
-            return
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Sistema")
-        msg.setText("Cosa vuoi sistemare?")
-        b_sel = msg.addButton(f"Selezionati ({sel_n})", QMessageBox.ButtonRole.AcceptRole)
-        b_all = msg.addButton(f"Tutti ({len(self.cards)})", QMessageBox.ButtonRole.ActionRole)
-        msg.addButton("Annulla", QMessageBox.ButtonRole.RejectRole)
-        msg.exec()
-        if msg.clickedButton() == b_sel:
-            self.repair_selected()
-        elif msg.clickedButton() == b_all:
-            self.repair_all_trigger()
-
-    def repair_selected(self):
-        if not self._free():
-            return
-        m = self.ask_mode()
-        if m != "cancel":
-            targets = [p for p, c in self.cards.items() if c.selected]
-            self.process_paths(targets, m == "convert")
-
-    def repair_all_trigger(self):
-        if not self._free():
-            return
-        m = self.ask_mode()
-        if m == "cancel":
-            return
-        if m == "convert":
-            # esclusi duplicati, danneggiati e già convertiti (niente ricompressione)
-            targets = [p for p, c in self.cards.items() if c.status_code not in (3, 4, 5)]
-        else:
-            targets = [p for p, c in self.cards.items() if c.status_code in (0, 1)]
-        if not targets:
-            QMessageBox.information(self, "Ottimizzazione", "Nessun file idoneo trovato.")
-            return
-        self.process_paths(targets, m == "convert")
+    def _riempi_azioni(self, menu):
+        """Voci di AZIONI (come nella Libreria): sui selezionati, o su tutti i fumetti idonei della lista."""
+        sel = self._selected()
+        cards = {p: self.cards[p] for p in sel} if sel else self.cards
+        # senza selezione: niente doppioni né danneggiati, e i già convertiti non si ricomprimono
+        ripara = list(cards) if sel else [p for p, c in cards.items() if c.status_code in (0, 1)]
+        converti = list(cards) if sel else [p for p, c in cards.items() if c.status_code not in (3, 4, 5)]
+        for testo, paths, webp in (("Ripara", ripara, False), ("Converti in WebP", converti, True)):
+            menu.addAction(f"{testo} ({len(paths)})",
+                           lambda p=paths, w=webp: self._free() and self.process_paths(p, w)).setEnabled(bool(paths))
+        doppi = [p for p, c in cards.items() if c.status_code == 4]
+        if doppi:
+            menu.addSeparator()
+            menu.addAction(f"Cestina doppioni ({len(doppi)})", lambda: self._free() and QMessageBox.question(
+                self, "Cestina doppioni", f"Spostare nel cestino {len(doppi)} doppioni?")
+                == QMessageBox.StandardButton.Yes and self.trash_files(doppi))
 
     def ask_mode(self):
         msg = QMessageBox(self)
