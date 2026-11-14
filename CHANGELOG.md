@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.2] — 2026-11-14
+
+- **Corretto:** nell'ordine dei risultati della ricerca online il numero contava quanto una parola del nome: cercando «Absolute Superman 25», se l'albo 25 non c'era fra i risultati, «Absolute Batman #25» finiva prima degli altri Absolute Superman. Ora contano prima le parole del nome, poi il numero.
+
 ## [3.11.1] — 2026-11-14
 
 - **Corretto:** con il disegno della Libreria vuota (es. all'avvio, se la cartella principale non ha fumetti sciolti) la finestra non prendeva le sue misure: era più bassa e tornava il tasto per massimizzarla.

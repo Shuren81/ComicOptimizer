@@ -159,6 +159,15 @@ class TestRicercaPerTitolo(unittest.TestCase):
         risultati = [{"etichetta": e} for e in ("Altro albo", "Batman: Hush (DC)", "Batman: L'ultimo cavaliere (DC)")]
         ordinati = ricerca.ordina_per_parole(risultati, "Batman - L'ultimo cavaliere")
         self.assertEqual([r["etichetta"] for r in ordinati], ["Batman: L'ultimo cavaliere (DC)", "Batman: Hush (DC)", "Altro albo"])
+        # il numero conta dopo il nome: senza "Superman #25" fra i risultati, prima gli altri Superman
+        risultati = [{"etichetta": "Absolute Batman #25 - The Zoo (2026)"},
+                     {"etichetta": "Absolute Superman #24 - Kansas (2026)"}]
+        ordinati = ricerca.ordina_per_parole(risultati, "absolute superman 25")
+        self.assertEqual(ordinati[0]["etichetta"], "Absolute Superman #24 - Kansas (2026)")
+        risultati.append({"etichetta": "Absolute Superman #25 - Sol (2026)"})
+        ordinati = ricerca.ordina_per_parole(risultati, "absolute superman 25")
+        self.assertEqual([r["etichetta"].split(" - ")[0] for r in ordinati],
+                         ["Absolute Superman #25", "Absolute Superman #24", "Absolute Batman #25"])
 
 
 class TestNumero(unittest.TestCase):

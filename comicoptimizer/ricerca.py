@@ -126,8 +126,15 @@ def passa_filtro(filtro, etichetta):
 
 
 def ordina_per_parole(risultati, testo):
+    """Prima chi ha più parole del nome in comune con la ricerca, poi più numeri: cercando
+    "Absolute Superman 25", "Absolute Superman #24" viene prima di "Absolute Batman #25"."""
     cercate = set(parole(testo))
-    return sorted(risultati, key=lambda r: -len(cercate & set(parole(r["etichetta"]))))
+
+    def chiave(r):
+        comuni = cercate & set(parole(r["etichetta"]))
+        numeri = sum(p.isdigit() for p in comuni)
+        return -(len(comuni) - numeri), -numeri
+    return sorted(risultati, key=chiave)
 
 
 def titolo_da_nome(nome):
