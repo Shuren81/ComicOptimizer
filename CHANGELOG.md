@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.11.0] — 2026-11-14
+
+- **Cambiato:** **prima le info, poi il lavoro**: i fumetti trascinati nella finestra aprono subito *Info e rinomina* con i soli fumetti importati (le info servono per spostarli nella libreria dopo la conversione). Il pulsante **Avanti ▸ Lista di lavoro** porta alla lista, dove si convertono o si uniscono.
+- **Nuovo:** in *Info e rinomina* il pulsante **Chiudi**, accanto a *Rinomina selezionati*: chiede conferma se ci sono modifiche non salvate.
+- **Nuovo:** **ricerca online con più fumetti selezionati**, uno alla volta: *Applica ai campi e vai al prossimo* passa al fumetto successivo (la lista e la copertina lo seguono, la ricerca parte da sola), **Salta ▸** lo lascia com'è, **Chiudi** smette senza importare. *Chiudi* c'è anche nella ricerca di un fumetto solo.
+- **Corretto:** la ricerca online ignora gli zeri davanti al numero: «Green Lantern 040 (2026)» cerca «Green Lantern 40», non più il 4, il 5…
+- **Nuovo:** la Libreria senza fumetti da mostrare ha il disegno e due righe su cosa fare.
+- **Corretto:** chiudendo *Info e rinomina* (o la ricerca) mentre si leggeva una copertina o si cercava online, il programma poteva andare in crash.
+
 ## [3.10.5] — 2026-11-14
 
 - **Cambiato:** anche nella lista di lavoro SISTEMA diventa il menu **AZIONI**, come nella Libreria: Ripara, Converti in WebP e Cestina doppioni, sui selezionati o (senza selezione) su tutti i fumetti idonei, con il numero di ognuno. Le stesse voci sono nel tasto destro.

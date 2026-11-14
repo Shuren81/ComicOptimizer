@@ -1178,9 +1178,10 @@ class MainWindow(QMainWindow):
             self.load_t(n)
 
     def import_files(self, paths):
+        """Aggiunge le card; restituisce i percorsi davvero aggiunti."""
         self.set_working(False)
         self.views.setCurrentWidget(self.work_tab)       # lista vuota alla fine: refresh_grid torna alla Libreria
-        added = 0
+        added = []
         for p, count in paths:
             if p not in self.cards:
                 if os.path.isdir(p) and not self._confirm_folder(p):
@@ -1197,9 +1198,10 @@ class MainWindow(QMainWindow):
                 self.cards[p] = c
                 self.load_t(p)
                 c.set_status(file_status(p))
-                added += 1
-        log.info(f"Importati {added} file ({len(paths)} totali scansionati).")
+                added.append(p)
+        log.info(f"Importati {len(added)} file ({len(paths)} totali scansionati).")
         self.refresh_grid()
+        return added
 
     def _show_skipped(self, skipped):
         """Un solo messaggio con i file non importati e il motivo."""
@@ -1323,13 +1325,19 @@ class MainWindow(QMainWindow):
         if sel:
             self.rename_cards(sel)
 
-    def rename_cards(self, paths):
+    def info_dopo_import(self, nuovi):
+        """Fumetti appena importati: prima info e nome (servono a spostarli nella libreria dopo la
+        conversione), poi "Avanti" porta alla lista di lavoro."""
+        if nuovi:
+            self.rename_cards(nuovi, chiudi="Avanti ▸ Lista di lavoro")
+
+    def rename_cards(self, paths, chiudi="Chiudi"):
         """Finestra Info e rinomina. I CBZ si salvano da lì; gli altri formati si convertono dopo la
         chiusura, con la catena di "Solo Ripara", per scrivere le info."""
         if not self._free():
             return
         batch = history.new_batch()          # tutti i passaggi della finestra sono un'operazione
-        dlg = MetadataDialog(paths, self, on_rename=lambda pairs: self._do_renames(pairs, batch))
+        dlg = MetadataDialog(paths, self, on_rename=lambda pairs: self._do_renames(pairs, batch), chiudi=chiudi)
         dlg.exec()   # resta aperta per più passaggi: ogni "Rinomina" chiama _do_renames
         self._refresh_undo()
         jobs = dlg.conversioni
@@ -1699,8 +1707,8 @@ class MainWindow(QMainWindow):
         self.set_working(True, "Scansione...")
         iw = ImportWorker(urls)
         iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))
-        iw.finished.connect(lambda p, s: (self._discard_thread(iw), self.import_files(p),
-                                          self._show_skipped(s)))
+        iw.finished.connect(lambda p, s: (self._discard_thread(iw), self._show_skipped(s),
+                                          self.info_dopo_import(self.import_files(p))))
         self._watch_stop(iw)
         iw.start()
         self._add_thread(iw)

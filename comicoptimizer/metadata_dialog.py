@@ -3,9 +3,11 @@
 import concurrent.futures
 import html
 import os
+import re
 import threading
 import time
 
+from PyQt6 import sip
 from PyQt6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
@@ -71,11 +73,22 @@ class _Segnale(QObject):
     fine = pyqtSignal(object, object)
 
 
+_IN_CORSO = set()   # i segnali dei thread ancora al lavoro (senza riferimento Python sparirebbero)
+
+
 def in_background(padre, lavoro, al_termine):
-    """lavoro() in un thread, poi al_termine(esito, errore) nell'interfaccia.
+    """lavoro() in un thread, poi al_termine(esito, errore) nell'interfaccia, se `padre` c'è ancora.
     Thread daemon: una ricerca lenta non blocca la chiusura del programma."""
-    segnale = _Segnale(padre)
-    segnale.fine.connect(al_termine)
+    # senza genitore: se la finestra si chiude a metà lavoro il segnale resta valido (prima il thread
+    # emetteva su un oggetto distrutto, e il programma andava in crash)
+    segnale = _Segnale()
+    _IN_CORSO.add(segnale)
+
+    def consegna(esito, errore):
+        _IN_CORSO.discard(segnale)
+        if not sip.isdeleted(padre):
+            al_termine(esito, errore)
+    segnale.fine.connect(consegna)
 
     def corpo():
         esito, errore = None, None
@@ -193,12 +206,20 @@ class VistaCopertina(QScrollArea):
         self.presa = None
 
 
-class SearchDialog(QDialog):
-    """Ricerca online. Con "Applica", `scelti` contiene i campi del risultato."""
+def senza_zeri(testo):
+    """"Green Lantern 040 (2026)" → "Green Lantern 40 (2026)": gli zeri davanti al numero confondono
+    la ricerca (in cima finirebbero il 4, il 5…)."""
+    return re.sub(r"\b0+(?=\d)", "", testo)
 
-    def __init__(self, nome_file, valori, parent=None):
+
+class SearchDialog(QDialog):
+    """Ricerca online. Con "Applica", `scelti` contiene i campi del risultato. In una sequenza di file
+    (`posizione` = "3 di 12") c'è anche "Salta": la finestra si chiude con `saltato` = True."""
+
+    def __init__(self, nome_file, valori, parent=None, posizione=""):
         super().__init__(parent)
-        self.setWindowTitle("Ricerca online")
+        self.setWindowTitle(f"Ricerca online — {posizione}: {nome_file}" if posizione else "Ricerca online")
+        self.saltato = False
         fit_dialog_to_screen(self, 980, 720, min_w=640, min_h=460)
         self.scelti = None
         self.nome_file = nome_file
@@ -206,7 +227,7 @@ class SearchDialog(QDialog):
         self.numero = valori.get("Number", "")
         self.serie_iniziale = self.serie or " ".join(
             nome_file.replace("#", " ").replace("_", " ").replace("-", " ").replace(".", " ").split())
-        self.testo_file = " ".join((nome_file, self.serie, self.numero, valori.get("Title", "")))
+        self.testo_file = senza_zeri(" ".join((nome_file, self.serie, self.numero, valori.get("Title", ""))))
         self.risultati, self.visibili = [], []
         self.copertine = {}
         self.in_download = set()
@@ -258,10 +279,24 @@ class SearchDialog(QDialog):
         sinistra.addWidget(self.filtro)
         self.lista = QListWidget()
         sinistra.addWidget(self.lista, 1)
-        self.b_applica = QPushButton("Applica ai campi")
+        self.b_applica = QPushButton("Applica ai campi" + (" e vai al prossimo" if posizione else ""))
         set_variant(self.b_applica, "success")
         self.b_applica.setAutoDefault(False)
-        sinistra.addWidget(self.b_applica)
+        riga = QHBoxLayout()
+        riga.addWidget(self.b_applica, 1)
+        if posizione:
+            b_salta = QPushButton("Salta ▸")
+            b_salta.setToolTip("Passa al fumetto successivo senza cambiare questo")
+            b_salta.setAutoDefault(False)
+            b_salta.clicked.connect(self._salta)
+            riga.addWidget(b_salta)
+        b_chiudi = QPushButton("Chiudi")
+        set_variant(b_chiudi, "muted")
+        b_chiudi.setToolTip("Chiude la ricerca senza importare niente")
+        b_chiudi.setAutoDefault(False)
+        b_chiudi.clicked.connect(self.reject)
+        riga.addWidget(b_chiudi)
+        sinistra.addLayout(riga)
 
         self.copertina = QLabel("Nessuna copertina")
         self.copertina.setFixedSize(180, 230)
@@ -290,6 +325,10 @@ class SearchDialog(QDialog):
     def fonte(self):
         return FONTI_RICERCA[self.combo_fonte.currentText()]
 
+    def _salta(self):
+        self.saltato = True
+        self.accept()
+
     def _cambio_fonte(self):
         _settings().setValue("ricerca/fonte", self.combo_fonte.currentText())
         self._prepara_fonte()
@@ -301,9 +340,9 @@ class SearchDialog(QDialog):
         self.chiave.setEnabled(bool(f["chiave_config"]))
         self.chiave.setText(_settings().value(f"ricerca/{f['chiave_config']}", "") if f["chiave_config"] else "")
         if f.get("memoria") is not None and not self.serie:
-            self.query.setText(titolo_da_nome(self.nome_file))
+            self.query.setText(senza_zeri(titolo_da_nome(self.nome_file)))
         else:
-            self.query.setText(f["query_iniziale"](self.serie_iniziale, self.numero))
+            self.query.setText(senza_zeri(f["query_iniziale"](self.serie_iniziale, self.numero)))
         self.id_ricerca += 1                          # una ricerca ancora in corso non conta più
         self.timer.stop()
         self.b_cerca.setEnabled(True)
@@ -519,9 +558,10 @@ class MetadataDialog(QDialog):
     Dopo la chiusura, `conversioni` = {percorso: (info, CBZ)} dei file da convertire per scrivere le info.
     """
 
-    def __init__(self, paths, parent=None, on_rename=None):
+    def __init__(self, paths, parent=None, on_rename=None, chiudi="Chiudi"):
         super().__init__(parent)
         self.setWindowTitle("Info e rinomina")
+        self.testo_chiudi = chiudi                    # "Avanti ▸ …" quando si apre dopo un'importazione
         fit_dialog_to_screen(self, 1560, 860, min_w=1200, min_h=500)
         self.on_rename = on_rename
         self.paths = sorted(paths, key=lambda p: get_natural_sort_key(os.path.basename(p)))
@@ -721,7 +761,15 @@ class MetadataDialog(QDialog):
         set_variant(self.b_rinomina, "primary")
         self.b_rinomina.setAutoDefault(False)
         self.b_rinomina.clicked.connect(self.rinomina)
-        v.addWidget(self.b_rinomina)
+        self.b_chiudi = QPushButton(self.testo_chiudi)
+        set_variant(self.b_chiudi, "accent")
+        self.b_chiudi.setAutoDefault(False)
+        self.b_chiudi.setToolTip("Chiude la finestra (se ci sono modifiche non salvate lo chiede)")
+        self.b_chiudi.clicked.connect(self.reject)
+        riga = QHBoxLayout()
+        riga.addWidget(self.b_rinomina, 3)
+        riga.addWidget(self.b_chiudi, 1)
+        v.addLayout(riga)
         l.addWidget(gruppo)
 
     # --- valori ---
@@ -852,7 +900,7 @@ class MetadataDialog(QDialog):
         else:
             self.manga.setChecked(bool(self.vista.get("Manga")))
         self.legenda.setVisible(bool(self.diversi))
-        self.b_cerca.setEnabled(len(self.selezione) == 1)
+        self.b_cerca.setEnabled(bool(self.selezione))
         self._caricamento = False
         self._mostra_copertina()
         self._aggiorna_anteprime()
@@ -983,12 +1031,19 @@ class MetadataDialog(QDialog):
     # --- ricerca ---
 
     def apri_ricerca(self):
-        if len(self.selezione) != 1:
-            return
-        percorso = self.selezione[0]
-        finestra = SearchDialog(split_name(percorso)[0], {c: self._leggi(c) for c in CAMPI_TESTO}, self)
-        if finestra.exec() and finestra.scelti:
-            for campo, valore in finestra.scelti.items():
+        """Ricerca online del fumetto selezionato. Con più fumetti selezionati, uno alla volta: "Applica"
+        passa al successivo (la lista e la copertina lo seguono), "Salta" lo lascia com'è, "Chiudi" smette."""
+        coda = list(self.selezione)
+        for n, percorso in enumerate(coda, 1):
+            if len(coda) > 1:
+                self.lista.setCurrentRow(self.paths.index(percorso))   # solo lui: campi e copertina sono i suoi
+            finestra = SearchDialog(split_name(percorso)[0], {c: self._leggi(c) for c in CAMPI_TESTO}, self,
+                                    f"{n} di {len(coda)}" if len(coda) > 1 else "")
+            if n > 1:
+                QTimer.singleShot(0, finestra.cerca)  # dal secondo in poi la ricerca parte da sola
+            if not finestra.exec():
+                break                                 # Chiudi
+            for campo, valore in (finestra.scelti or {}).items():
                 if campo in self.caselle:
                     self.svuota[campo].setChecked(False)
                     self._caricamento = True

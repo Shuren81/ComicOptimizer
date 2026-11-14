@@ -48,8 +48,10 @@ def test_vista(app, lib):
     assert win.views.currentWidget() is v and v.root == "", "si parte dalla Libreria (vuota)"
     v.set_root(lib)
     assert v.paths == [], "nella cartella principale non ci sono fumetti sciolti"
+    assert v.griglia.currentWidget() is v.vuota and "SCAFFALE VUOTO" in v.vuota.label.text()
     v.chk_sub.setChecked(True)
     assert v.paths == [a, b, c], v.paths
+    assert v.griglia.currentWidget() is v.list
     v.chk_sub.setChecked(False)
     v.show_folder(os.path.join(lib, "Batman"))
     assert v.paths == [a, b] and v.list.count() == 2
@@ -154,9 +156,12 @@ def test_vista(app, lib):
     v.list.clearSelection()
 
     # file trascinati: compare la lista di lavoro; svuotata, si torna alla Libreria
+    info_aperta = []
+    win.info_dopo_import = info_aperta.append          # la vera apre Info e rinomina (modale)
     win.import_paths([c])
     assert win.views.currentWidget() is win.work_tab
     assert attendi(app, lambda: c in win.cards)
+    assert attendi(app, lambda: info_aperta == [[c]]), "dopo l'importazione: Info e rinomina dei nuovi"
     assert win.views.currentWidget() is win.work_tab and "Torna alla lista di lavoro" in voci()
     # tasto destro su una card non selezionata: la seleziona e mostra il menu
     from PyQt6.QtCore import QPoint

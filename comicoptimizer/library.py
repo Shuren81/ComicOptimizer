@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -32,7 +33,7 @@ from PyQt6.QtGui import QFileSystemModel
 
 from .logsetup import log
 from .comicinfo import nome_da_schema
-from .config import IS_WIN, opzione
+from .config import IS_WIN, RES_DIR, opzione
 from .metadata_dialog import SETTINGS, ConfermaRinomina, leggi_dati
 from .style import set_variant
 from .utils import _ARCHIVE_EXTS, _trash_file_cross_platform, get_natural_sort_key
@@ -430,7 +431,18 @@ class LibraryView(QWidget):
 
         split = QSplitter()
         split.addWidget(self.tree)
-        split.addWidget(self.list)
+        from .main_window import _EmptyArea           # qui: main_window importa questo file
+        self.vuota = _EmptyArea(
+            "<div style='font-size: 24px; font-weight: 800;'>SCAFFALE VUOTO (PER ORA)</div>"
+            "<div style='font-size: 14px; margin-top: 10px;'>Scegli una cartella a sinistra per sfogliare "
+            "la libreria,<br>oppure trascina qui i fumetti nuovi: li sistemiamo, li rinominiamo<br>"
+            "e li mettiamo al loro posto. Tu pensa solo a leggerli.</div>",
+            os.path.join(RES_DIR, "comicoptimizer_drop.png"))
+        self.vuota.label.setStyleSheet("color: #bbb;")
+        self.griglia = QStackedWidget()
+        self.griglia.addWidget(self.list)
+        self.griglia.addWidget(self.vuota)
+        split.addWidget(self.griglia)
         split.setStretchFactor(1, 1)
         split.setSizes([220, 700])
         l.addWidget(split, 1)
@@ -561,6 +573,8 @@ class LibraryView(QWidget):
                 item.setForeground(QBrush(QColor(colore)))
             item.setIcon(QIcon(self._cached_thumb(p) or self._placeholder))
             self.list.addItem(item)
+        # niente da mostrare (non per un filtro o una ricerca): il disegno e due righe su cosa fare
+        self.griglia.setCurrentWidget(self.vuota if not (paths or stati or parole) else self.list)
         self._next_thumbs()
 
     def _cached_thumb(self, p):

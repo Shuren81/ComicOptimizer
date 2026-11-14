@@ -327,6 +327,37 @@ def test_ricerca(app, work, md):
     assert d.caselle["Series"].text() == "Robin" and d.pending == {} and "Series" in d.toccati
     d.toccati.clear()
     d.reject()
+
+    # zeri davanti al numero: via dalla ricerca ("Green Lantern 040" troverebbe prima il 4, il 5…)
+    assert md.senza_zeri("Green Lantern 040 (2026) (digital)") == "Green Lantern 40 (2026) (digital)"
+    assert md.senza_zeri("Batman 0 - 007 #00") == "Batman 0 - 7 #0"
+    assert md.SearchDialog("Green Lantern 040 (2026) (digital) (Pyrate-DCP)", {}, d).query.text() \
+        .startswith("Green Lantern 40 (2026)")
+
+    # più fumetti selezionati: uno alla volta. Applica → il prossimo, Salta lo lascia, Chiudi smette
+    fs = [cbz(os.path.join(work, f"seq {i}.cbz"), "<ComicInfo></ComicInfo>") for i in (1, 2, 3)]
+    d = md.MetadataDialog(fs)
+    assert d.b_cerca.isEnabled() and d.b_chiudi.text() == "Chiudi"
+    viste = []
+
+    def una_scelta(self):
+        viste.append((self.windowTitle(), d.selezione))
+        n = len(viste)
+        if n == 1:
+            self.scelti = {"Series": "Uno"}
+        elif n == 2:
+            self._salta()
+            return 1
+        return 0 if n == 3 else 1                      # al terzo: Chiudi
+    md.SearchDialog.exec, md.SearchDialog.cerca = una_scelta, lambda self: None
+    d.apri_ricerca()
+    assert [v[1] for v in viste] == [[fs[0]], [fs[1]], [fs[2]]], viste
+    assert viste[0][0] == "Ricerca online — 1 di 3: seq 1", viste[0][0]
+    d._conserva()
+    assert d.pending == {fs[0]: {"Series": "Uno"}}, d.pending
+    d.pending.clear()
+    d.reject()
+    assert md.MetadataDialog(fs[:1], chiudi="Avanti ▸ Lista di lavoro").b_chiudi.text() == "Avanti ▸ Lista di lavoro"
     del md.FONTI_RICERCA["Finta"]
 
 
