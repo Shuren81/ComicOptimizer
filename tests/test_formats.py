@@ -32,7 +32,7 @@ def import_paths(paths):
 
 
 def convert(paths, trash):
-    """Sistema → Solo Ripara con i worker veri; restituisce il riepilogo."""
+    """AZIONI → Ripara/Converti CBZ con i worker veri; restituisce il riepilogo."""
     from comicoptimizer import workers
     workers._trash_file_cross_platform = lambda p: (shutil.move(p, os.path.join(trash, os.path.basename(p))),
                                                     True)[1]

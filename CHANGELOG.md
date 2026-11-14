@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.5] — 2026-11-14
+
+- **Corretto:** mentre si spostano dei fumetti (Sposta in libreria, Ordina in cartelle, Sistema tutti in libreria, spostamento automatico, annullamento dalla Cronologia) il programma risulta occupato: non si può far partire un altro lavoro, una conversione o il cestino, sugli stessi file.
+- **Tolto:** il pulsante PULISCI DUPLICATI della lista di lavoro: fa la stessa cosa di AZIONI → Cestina doppioni.
+- **Cambiato:** nella finestra del pulsante «Fix» di una card, «Solo Ripara» si chiama **Ripara/Converti CBZ**, come in AZIONI.
+
 ## [3.11.4] — 2026-11-14
 
 - **Nuovo:** nella colonna delle cartelle della Libreria, passando col mouse su una cartella compare il suo nome intero (nella colonna i nomi lunghi sono tagliati).

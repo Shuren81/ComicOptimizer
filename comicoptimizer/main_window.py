@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
         self._closing        = False
         self._tray           = None    # icona di sistema, creata alla prima notifica
         self._loose_last     = set()   # cartelle con le immagini sciolte dopo le sottocartelle
+        self._spostando      = False   # _do_renames al lavoro (lascia girare la finestra fra un file e l'altro)
         self._undo_batch     = None    # ultima rinomina ancora annullabile (dalla cronologia su disco)
         self._thumb_queue    = deque() # miniature in attesa: ne girano poche alla volta
         self._thumbs_running = 0
@@ -255,7 +256,7 @@ class MainWindow(QMainWindow):
 
     def _busy(self):
         """True se c'è un lavoro sui file in corso (preparazione, elaborazione, apertura editor)."""
-        if self.current_worker:
+        if self.current_worker or self._spostando:
             return True
         with self._threads_lock:
             return any(isinstance(t, (BatchPrepWorker, LoadingWorker)) for t in self._active_threads)
@@ -625,11 +626,6 @@ class MainWindow(QMainWindow):
         self.btn_move.setVisible(False)
         self.btn_move.clicked.connect(lambda: self.library.reorder(self._selected()))
 
-        self.btn_trash_dupes = QPushButton("PULISCI DUPLICATI")
-        self.btn_trash_dupes.setMinimumHeight(42)
-        set_variant(self.btn_trash_dupes, "muted")
-        self.btn_trash_dupes.setVisible(False)
-        self.btn_trash_dupes.clicked.connect(self.trash_all_duplicates)
 
         top_bar.setSpacing(8)
         self.btn_lib = QPushButton("← LIBRERIA")
@@ -645,7 +641,6 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_move)
         top_bar.addWidget(self.btn_undo_rename)
         top_bar.addWidget(self.btn_trash_sel)
-        top_bar.addWidget(self.btn_trash_dupes)
         top_bar.addStretch()
 
         self.status_stack = QStackedWidget()
@@ -688,7 +683,7 @@ class MainWindow(QMainWindow):
 
         self._vis_watcher = _VisibilityWatcher(self._refit_width, self)
         for _b in (self.btn_sel_all, self.btn_merge, self.btn_rename, self.btn_move, self.btn_undo_rename,
-                   self.btn_trash_sel, self.btn_trash_dupes):
+                   self.btn_trash_sel):
             _b.installEventFilter(self._vis_watcher)
         self.top_bar_w = QWidget()
         self.top_bar_w.setLayout(top_bar)
@@ -866,7 +861,6 @@ class MainWindow(QMainWindow):
 
     def run_analysis(self, auto=True):
         if not self.cards:
-            self.btn_trash_dupes.setVisible(False)
             return
         self.set_working(True, "Analisi...")
         aw = AnalysisWorker(list(self.cards.keys()))
@@ -886,7 +880,6 @@ class MainWindow(QMainWindow):
                     log.debug(f"  [{status_names[s]}] {os.path.basename(p)}")
                 if p in self.cards:
                     self.cards[p].set_status(s)
-            self.btn_trash_dupes.setVisible(d > 0)
             if not auto and d == 0 and not any(s == 5 for s in res.values()):
                 QMessageBox.information(self, "Analisi", "Tutto in ordine!")
             self.refresh_grid()
@@ -1039,8 +1032,6 @@ class MainWindow(QMainWindow):
             self.cards[p].selected = False
             self.cards[p].update_style()
         self._update_sel_buttons()
-        has_dupes = any(c.status_code == 4 for c in self.cards.values())
-        self.btn_trash_dupes.setVisible(has_dupes)
         self.last_clicked = None
         self.set_working(False)
         self.library.refresh()                        # file convertiti, rinominati o cestinati
@@ -1340,7 +1331,7 @@ class MainWindow(QMainWindow):
 
     def rename_cards(self, paths, chiudi="Chiudi"):
         """Finestra Info e rinomina. I CBZ si salvano da lì; gli altri formati si convertono dopo la
-        chiusura, con la catena di "Solo Ripara", per scrivere le info."""
+        chiusura, con la catena di "Ripara/Converti CBZ", per scrivere le info."""
         if not self._free():
             return
         batch = history.new_batch()          # tutti i passaggi della finestra sono un'operazione
@@ -1409,32 +1400,36 @@ class MainWindow(QMainWindow):
         errors, done = [], []
         sposta = any(os.path.dirname(o) != os.path.dirname(n) for o, n in pairs)
         verbo = "Spostamento" if sposta else "Rinomina"
-        for i, (old, new) in enumerate(pairs, 1):
-            if len(pairs) > 1:                        # fra due dischi è una copia: si vede che lavora
-                self.set_working(True, f"{verbo}: {i}/{len(pairs)} — {os.path.basename(old)}", i - 1, len(pairs))
-                QApplication.processEvents()
-            try:
-                # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
-                if os.path.exists(new) and not os.path.samefile(old, new):
-                    raise FileExistsError("esiste già un file con questo nome")
-                os.makedirs(os.path.dirname(new), exist_ok=True)   # spostamento nella libreria
-                shutil.move(old, new)                 # come os.rename, ma anche verso un altro disco
-            except OSError as e:
-                log.error(f"Rinomina fallita: '{os.path.basename(old)}': {e}")
-                errors.append(f"{os.path.basename(old)}: {e}")
-                continue
-            log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
-            if batch:
-                history.record(batch, old, new)
-            done.append((old, new))
-            if old in self.cards:
-                c = self.cards.pop(old)
-                c.file_path = new
-                c.name.setText(os.path.basename(new))
-                self.cards[new] = c
-            if old in self._loose_last:
-                self._loose_last.discard(old)
-                self._loose_last.add(new)
+        self._spostando = True                        # intanto nessun altro lavoro sugli stessi file
+        try:
+            for i, (old, new) in enumerate(pairs, 1):
+                if len(pairs) > 1:                        # fra due dischi è una copia: si vede che lavora
+                    self.set_working(True, f"{verbo}: {i}/{len(pairs)} — {os.path.basename(old)}", i - 1, len(pairs))
+                    QApplication.processEvents()
+                try:
+                    # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
+                    if os.path.exists(new) and not os.path.samefile(old, new):
+                        raise FileExistsError("esiste già un file con questo nome")
+                    os.makedirs(os.path.dirname(new), exist_ok=True)   # spostamento nella libreria
+                    shutil.move(old, new)                 # come os.rename, ma anche verso un altro disco
+                except OSError as e:
+                    log.error(f"Rinomina fallita: '{os.path.basename(old)}': {e}")
+                    errors.append(f"{os.path.basename(old)}: {e}")
+                    continue
+                log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
+                if batch:
+                    history.record(batch, old, new)
+                done.append((old, new))
+                if old in self.cards:
+                    c = self.cards.pop(old)
+                    c.file_path = new
+                    c.name.setText(os.path.basename(new))
+                    self.cards[new] = c
+                if old in self._loose_last:
+                    self._loose_last.discard(old)
+                    self._loose_last.add(new)
+        finally:
+            self._spostando = False
         self.reset_ui()
         self.refresh_grid()
         if errors:
@@ -1476,15 +1471,6 @@ class MainWindow(QMainWindow):
         ) == QMessageBox.StandardButton.Yes:
             self.trash_files(sel)
 
-    def trash_all_duplicates(self):
-        if not self._free():
-            return
-        dupes = [p for p, c in self.cards.items() if c.status_code == 4]
-        if dupes and QMessageBox.question(
-            self, "Cestina", "Spostare i duplicati nel cestino?"
-        ) == QMessageBox.StandardButton.Yes:
-            self.trash_files(dupes)
-
     def _riempi_azioni(self, menu):
         """Voci di AZIONI (come nella Libreria): sui selezionati, o su tutti i fumetti idonei della lista."""
         sel = self._selected()
@@ -1510,7 +1496,7 @@ class MainWindow(QMainWindow):
         msg.setWindowTitle("Ottimizzazione")
         msg.setText("Scegli la modalità:")
         b_c = msg.addButton("Converti WebP", QMessageBox.ButtonRole.AcceptRole)
-        b_r = msg.addButton("Solo Ripara",   QMessageBox.ButtonRole.ActionRole)
+        b_r = msg.addButton("Ripara/Converti CBZ", QMessageBox.ButtonRole.ActionRole)
         msg.addButton("Annulla",             QMessageBox.ButtonRole.RejectRole)
         msg.exec()
         if msg.clickedButton() == b_c:
@@ -1645,7 +1631,6 @@ class MainWindow(QMainWindow):
         self.cards.clear()
         self.refresh_grid()
         self.reset_ui()
-        self.btn_trash_dupes.setVisible(False)
 
     def refresh_grid(self):
         # Svuota la griglia

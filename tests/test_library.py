@@ -507,6 +507,17 @@ def test_sposta(app, work):
     win.btn_move.click()
     spostato = os.path.join(lib, "DC Comics", "Batman", "Batman 01_1.cbz")
     assert os.path.exists(spostato) and spostato in win.cards and a not in win.cards
+    # durante uno spostamento il programma è occupato: niente altri lavori sugli stessi file
+    occupato = []
+    import shutil as _shutil
+    vero_move = _shutil.move
+    _shutil.move = lambda *x: (occupato.append(win._busy()), vero_move(*x))[1]
+    da_spostare = os.path.join(work, "giro.cbz")
+    vero_move(spostato, da_spostare)
+    win._do_renames([(da_spostare, spostato)])
+    _shutil.move = vero_move
+    assert occupato == [True] and not win._busy(), occupato
+
     # AZIONI → Sistema tutti in libreria: tutti i fumetti della lista, nelle cartelle dello schema
     win.cards[spostato].selected = False
     from PyQt6.QtWidgets import QMenu

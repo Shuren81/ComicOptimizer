@@ -351,9 +351,9 @@ def window_checks(app, work):
     w.current_worker = object()
     for call in (lambda: w.individual_repair("x"),
                  w.merge_selected, lambda: w.open_editor("x"), lambda: w.rename_cards(["x"]),
-                 w.trash_selected, w.trash_all_duplicates, lambda: w.confirm_and_trash("x")):
+                 w.trash_selected, lambda: w.confirm_and_trash("x")):
         call()
-    assert started == [] and len(infos) == 7
+    assert started == [] and len(infos) == 6
     w.current_worker = None
     fake_prep = BatchPrepWorker([], False)
     w._add_thread(fake_prep)                          # estrazione in corso (prima dell'elaborazione)
