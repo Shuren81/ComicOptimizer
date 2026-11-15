@@ -354,6 +354,7 @@ class SearchDialog(QDialog):
                     r["dettagli_stato"] = None        # scheda rimasta a metà: si riprova
             self.risultati.extend(ordina_per_parole(f["memoria"].values(), self.testo_file))
             self._filtra()
+            self._primo()
             self.stato.setText(f"{len(self.risultati)} risultati già trovati, i più simili in cima. "
                                "Se manca, premi Cerca.")
 
@@ -371,6 +372,11 @@ class SearchDialog(QDialog):
         self.lista.clear()
         self.lista.addItems(r["etichetta"] for r in self.visibili)
         self.lista.blockSignals(False)
+
+    def _primo(self):
+        """Il risultato più simile è già selezionato: se è giusto basta "Applica"."""
+        if self.visibili:
+            self.lista.setCurrentRow(0)
 
     def _selezionato(self):
         riga = self.lista.currentRow()
@@ -495,6 +501,7 @@ class SearchDialog(QDialog):
                 esito = ordina_per_parole(esito, query)
             self.risultati.extend(esito)
             self._filtra()
+            self._primo()
 
         in_background(self, lambda: f["cerca"](chiave, query), fine)
 

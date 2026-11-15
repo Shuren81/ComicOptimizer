@@ -295,6 +295,7 @@ def test_ricerca(app, work, md):
     assert attendi(app, lambda: s.lista.count() == 2)
     assert chiamate == [("segreta", "batman")] and s.b_cerca.isEnabled()
     assert [r["etichetta"] for r in s.visibili] == ["BATMAN 1", "ROBIN 2"], "prima chi somiglia alla ricerca"
+    assert s.lista.currentRow() == 0 and s._selezionato()["etichetta"] == "BATMAN 1", "il primo già selezionato"
     assert QSettings(*md.SETTINGS).value("ricerca/chiave_finta") == "segreta", "la chiave valida si ricorda"
     if os.name == "posix":
         assert os.stat(QSettings(*md.SETTINGS).fileName()).st_mode & 0o077 == 0, "chiavi leggibili solo da te"

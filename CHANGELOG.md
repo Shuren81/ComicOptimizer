@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.7] — 2026-11-15
+
+- **Cambiato:** nella ricerca online il primo risultato (il più simile) è già selezionato, con dettagli e copertina: se è quello giusto basta premere *Applica*.
+
 ## [3.11.6] — 2026-11-15
 
 - **Cambiato:** se il programma si chiude per un errore interno (di Qt, non di Python), il log registra il punto del codice in cui è successo: serve a trovare la chiusura improvvisa dopo «Controlla ora» nelle Opzioni.
