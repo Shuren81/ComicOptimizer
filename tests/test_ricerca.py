@@ -170,6 +170,40 @@ class TestRicercaPerTitolo(unittest.TestCase):
                          ["Absolute Superman #25", "Absolute Superman #24", "Absolute Batman #25"])
 
 
+class TestComicVine(unittest.TestCase):
+    """Con numero e anno: gli albi di quell'anno con quel numero, delle sole serie con le parole cercate."""
+
+    def _albo(self, serie, numero="7", data="2026-03-01"):
+        return {"volume": {"name": serie}, "issue_number": numero, "name": "", "cover_date": data, "image": {}}
+
+    def test_numero_e_anno(self):
+        self.assertEqual(ricerca.numero_e_anno("Batman 7 (2026)"), ("Batman", "7", "2026"))
+        self.assertEqual(ricerca.numero_e_anno("Supergirl 010 (2026) (Digital)"), ("Supergirl", "10", "2026"))
+        self.assertEqual(ricerca.numero_e_anno("Spider-Man 2099 3 (2020)"), ("Spider-Man 2099", "3", "2020"))
+        self.assertIsNone(ricerca.numero_e_anno("Absolute Superman 25"))
+
+    def test_albi_di_quell_anno(self):
+        chiesti = []
+        risposta = {"status_code": 1, "number_of_total_results": 3, "results": [
+            self._albo("Afternoon", "7"), self._albo("Batman"), self._albo("Absolute Batman")]}
+        with mock.patch.object(ricerca, "richiesta_json", side_effect=lambda url, **k: (chiesti.append(url), risposta)[1]):
+            risultati = ricerca.cv_cerca("k", "Batman 7 (2026)")
+        self.assertEqual(len(chiesti), 1)
+        self.assertIn("/issues/", chiesti[0])
+        self.assertIn("filter=issue_number:7,cover_date:2026-01-01|2026-12-31", chiesti[0])
+        self.assertEqual([r["etichetta"] for r in risultati], ["Batman #7 (2026)", "Absolute Batman #7 (2026)"])
+
+    def test_niente_per_numero_ricerca_libera(self):
+        chiesti = []
+        vuota = {"status_code": 1, "number_of_total_results": 0, "results": []}
+        libera = {"status_code": 1, "results": [self._albo("Batman", "7", "2017-01-01")]}
+        with mock.patch.object(ricerca, "richiesta_json",
+                               side_effect=lambda url, **k: (chiesti.append(url), vuota if "/issues/" in url else libera)[1]):
+            risultati = ricerca.cv_cerca("k", "Batman 7 (2026)")
+        self.assertEqual(["/issues/" in u for u in chiesti], [True, False])
+        self.assertEqual(risultati[0]["etichetta"], "Batman #7 (2017)")
+
+
 class TestNumero(unittest.TestCase):
 
     def test_separa_numero(self):

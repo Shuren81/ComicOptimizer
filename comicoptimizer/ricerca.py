@@ -183,18 +183,16 @@ def _numero_ordinabile(testo):
         return 1e9
 
 
-def cv_cerca(chiave, query):
-    testo, numero_cercato = separa_numero(query)
+def numero_e_anno(query):
+    """("Batman", "7", "2026") da "Batman 7 (2026)", "Batman #007 2026" o "Supergirl 010 (2026) (Digital)";
+    None senza numero e anno. Quello che c'è dopo l'anno non conta."""
+    m = re.match(r"^\s*(.+?)\s+#?0*(\d+)\b[\s\-–]*\(?((?:19|20)\d\d)\b", query)
+    return (m.group(1).strip(), m.group(2), m.group(3)) if m else None
 
-    url = (
-            f"{CV_API}/search/?api_key={urllib.parse.quote(chiave)}&format=json&resources=issue&limit=50"
-            f"&field_list={CV_CAMPI_RICERCA}&query={urllib.parse.quote(query)}"
-    )
-    dati = richiesta_json(url, timeout=45)
-    controlla_stato_cv(dati)
 
+def _cv_risultati(items, testo, numero_cercato):
     risultati = []
-    for item in dati.get("results") or []:
+    for item in items:
         volume = (item.get("volume") or {}).get("name") or "Senza Serie"
         numero = str(item.get("issue_number") or "")
         nome = item.get("name") or ""
@@ -217,6 +215,38 @@ def cv_cerca(chiave, query):
         })
     risultati.sort(key=lambda r: r["ordine"])
     return risultati
+
+
+def _cv_per_numero(chiave, serie, numero, anno):
+    """Gli albi con quel numero usciti quell'anno, delle sole serie che contengono le parole cercate.
+    La ricerca libera di ComicVine con "Batman 7 (2026)" tira fuori riviste giapponesi "No. 7, 2026"."""
+    cercate, items = set(parole(serie)), []
+    for offset in (0, 100, 200):                       # numeri molto comuni: fino a 300 albi di quell'anno
+        url = (f"{CV_API}/issues/?api_key={urllib.parse.quote(chiave)}&format=json&limit=100&offset={offset}"
+               f"&field_list={CV_CAMPI_RICERCA}&filter=issue_number:{numero},cover_date:{anno}-01-01|{anno}-12-31")
+        dati = richiesta_json(url, timeout=45)
+        controlla_stato_cv(dati)
+        pagina = dati.get("results") or []
+        items += [i for i in pagina if cercate <= set(parole((i.get("volume") or {}).get("name") or ""))]
+        if offset + len(pagina) >= (dati.get("number_of_total_results") or 0):
+            break
+    return _cv_risultati(items, serie.lower(), numero)
+
+
+def cv_cerca(chiave, query):
+    precisa = numero_e_anno(query)
+    if precisa:
+        risultati = _cv_per_numero(chiave, *precisa)
+        if risultati:
+            return risultati
+    testo, numero_cercato = separa_numero(query)
+    url = (
+            f"{CV_API}/search/?api_key={urllib.parse.quote(chiave)}&format=json&resources=issue&limit=50"
+            f"&field_list={CV_CAMPI_RICERCA}&query={urllib.parse.quote(query)}"
+    )
+    dati = richiesta_json(url, timeout=45)
+    controlla_stato_cv(dati)
+    return _cv_risultati(dati.get("results") or [], testo, numero_cercato)
 
 
 def pulisci_descrizione_cv(testo):
