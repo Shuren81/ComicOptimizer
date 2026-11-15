@@ -94,6 +94,7 @@ class TestTesti(unittest.TestCase):
         casi = {
                 "DYLAN DOG": "Dylan Dog", "ROCKY II": "Rocky II", "CAPITOLO (IV)": "Capitolo (IV)",
                 "X-MEN": "X-Men", "Già Corretto": "Già Corretto", "MIX VIVI": "Mix Vivi",
+                "DC K.O.": "DC K.O.", "JSA": "JSA", "AGENTS OF S.H.I.E.L.D.": "Agents Of S.H.I.E.L.D.",
         }
         for da, a in casi.items():
             self.assertEqual(comicinfo.togli_maiuscole("Series", da), a)

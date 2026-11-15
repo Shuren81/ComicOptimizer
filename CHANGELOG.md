@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.9] — 2026-11-15
+
+- **Corretto:** le sigle nei titoli tutti maiuscoli non vengono più rovinate: «DC K.O.» e «JSA» restano così (prima diventavano «Dc K.o.» e «Jsa»), e le sigle coi punti (S.H.I.E.L.D.) restano maiuscole anche in un titolo lungo. I titoli «urlati» come «BATMAN AND ROBIN» diventano ancora «Batman And Robin».
+
 ## [3.11.8] — 2026-11-15
 
 - **Corretto:** su ComicVine le serie dal nome comune (Batman, Superman, Supergirl…) non si trovavano: la ricerca libera con «Batman 7 (2026)» restituiva decine di riviste «No. 7, 2026». Ora, se la ricerca contiene numero e anno, il programma chiede a ComicVine gli albi con quel numero usciti quell'anno e tiene solo le serie con le parole cercate (Batman #7, Absolute Batman #7…). Se non ne trova, fa la ricerca libera di prima.

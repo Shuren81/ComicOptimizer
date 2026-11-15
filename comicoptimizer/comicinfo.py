@@ -65,8 +65,11 @@ def formatta_parte(parte):
 
 
 def formatta_testo_intelligente(testo, normalizza_maiuscole=False):
-    if normalizza_maiuscole and testo.isupper():
-        testo = testo.lower()
+    # tutto maiuscolo: si normalizza un titolo "urlato" (una parola di 4+ lettere: BATMAN AND ROBIN, X-MEN);
+    # le sigle restano come sono: "DC K.O.", "JSA", e quelle coi punti (S.H.I.E.L.D.) anche in un titolo lungo
+    if normalizza_maiuscole and testo.isupper() and any(
+            len(re.sub(r"\W", "", p)) > 3 for p in testo.split() if "." not in p.strip(".")):
+        testo = " ".join(p if "." in p.strip(".") else p.lower() for p in testo.split())
     return " ".join(formatta_parola(p) for p in testo.split())
 
 
