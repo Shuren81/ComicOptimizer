@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.6] — 2026-11-15
+
+- **Cambiato:** se il programma si chiude per un errore interno (di Qt, non di Python), il log registra il punto del codice in cui è successo: serve a trovare la chiusura improvvisa dopo «Controlla ora» nelle Opzioni.
+
 ## [3.11.5] — 2026-11-14
 
 - **Corretto:** mentre si spostano dei fumetti (Sposta in libreria, Ordina in cartelle, Sistema tutti in libreria, spostamento automatico, annullamento dalla Cronologia) il programma risulta occupato: non si può far partire un altro lavoro, una conversione o il cestino, sugli stessi file.

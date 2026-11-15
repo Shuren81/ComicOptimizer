@@ -4,7 +4,7 @@ import os
 import sys
 
 # --- VERSIONE (unica fonte: usata da titolo, popup e log) ---
-APP_VERSION = "3.11.5"
+APP_VERSION = "3.11.6"
 
 # --- COSTANTI ELABORAZIONE ---
 WEBP_QUALITY  = 85       # qualità WebP (0-100), il livello Medio
@@ -18,6 +18,7 @@ WEBP_LATI     = (("Nessuna riduzione (pagine originali)", 0),
                  ("1920 px — telefono, monitor Full HD", 1920))
 MINIATURE     = (("Piccole", 110), ("Medie", 140), ("Grandi", 180))   # larghezza nella Libreria
 SETTINGS      = ("Shuren", "ComicOptimizer")   # QSettings dell'app
+CRASH_LOG     = None                           # file aperto per faulthandler (vedi app.py)
 
 
 def opzione(chiave, predefinito):

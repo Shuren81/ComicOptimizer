@@ -1,5 +1,6 @@
 """Finestra principale."""
 
+import faulthandler
 import logging
 import os
 import random
@@ -299,6 +300,9 @@ class MainWindow(QMainWindow):
 
         # Cancella il file di log se l'utente non vuole mantenerlo
         if not self.chk_keep_log.isChecked():
+            if config.CRASH_LOG:                      # su Windows un file aperto non si cancella
+                faulthandler.disable()
+                config.CRASH_LOG.close()
             try:
                 # Chiudi prima il FileHandler per rilasciare il file
                 for h in logging.getLogger().handlers[:] + log.handlers[:]:

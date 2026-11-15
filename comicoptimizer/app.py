@@ -1,5 +1,6 @@
 """Avvio dell'applicazione."""
 
+import faulthandler
 import os
 import sys
 
@@ -41,6 +42,10 @@ def _on_unexpected_error(etype, value, tb):
 
 def main():
     sys.excepthook = _on_unexpected_error
+    # crash dentro Qt (non un errore Python): il punto del codice finisce comunque nel log
+    # (il file resta aperto fino alla chiusura, dove MainWindow lo chiude per poter cancellare il log)
+    config.CRASH_LOG = open(LOG_PATH, "a", encoding="utf-8")
+    faulthandler.enable(config.CRASH_LOG)
     app = QApplication(sys.argv)
     app.setApplicationName("ComicOptimizer")
     app.setApplicationVersion(APP_VERSION)
