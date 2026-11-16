@@ -14,14 +14,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def main(work):
-    # una pagina che in WebP pesa di più si converte lo stesso (capita con le cover già molto compresse)
+    # una pagina che in WebP peserebbe di più resta com'era: il fumetto convertito non deve crescere
     from PIL import Image
     from comicoptimizer.config import WEBP_QUALITY
     from comicoptimizer.images import _prepare_page
     leggera = os.path.join(work, "leggera.jpg")
     Image.effect_noise((400, 600), 100).convert("RGB").save(leggera, quality=1)
     scritto, nota = _prepare_page((leggera, os.path.join(work, "leggera_out"), True, WEBP_QUALITY))
-    assert scritto.endswith(".webp") and nota is None and os.path.getsize(scritto) > os.path.getsize(leggera)
+    assert scritto.endswith(".jpg") and nota == "più leggera nel formato originale", (scritto, nota)
+    assert open(scritto, "rb").read() == open(leggera, "rb").read()
+    scritto, nota = _prepare_page((leggera, os.path.join(work, "leggera_rid"), True, WEBP_QUALITY, 300, False))
+    assert scritto.endswith(".webp") and nota is None, "rimpicciolita apposta (Leggi su): resta convertita"
 
     # Opzioni: lato massimo (anche per i WebP già fatti) e ricompressione dei WebP
     grande = os.path.join(work, "grande.webp")

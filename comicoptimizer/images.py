@@ -68,9 +68,16 @@ def _prepare_page(job):
                 return keep, "troppo grande per WebP"
             img.load()
             rgb = _to_saveable_rgb(img)
-            if max_side and max(rgb.size) > max_side:
+            ridotta = bool(max_side and max(rgb.size) > max_side)
+            if ridotta:
                 rgb.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
             rgb.save(dst, "WEBP", quality=quality, method=4)
+        # convertita pesa di più (pagina già molto compressa): resta com'era, il fumetto non deve crescere.
+        # Non se è stata rimpicciolita apposta ("Leggi su"). Il CBZ risulta comunque convertito (commento)
+        if not ridotta and os.path.getsize(dst) > os.path.getsize(src):
+            os.remove(dst)
+            shutil.copy2(src, keep)
+            return keep, "più leggera nel formato originale"
         return dst, None
     except Exception as e:
         if os.path.exists(dst):

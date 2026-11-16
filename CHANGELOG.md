@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.15] — 2026-11-16
+
+- **Corretto:** convertendo in WebP una pagina già molto compressa (o già WebP, con «Ricomprimi»), la pagina convertita poteva pesare più dell'originale: un fumetto è passato da 45 a 127 MB. Ora quella pagina resta com'era, e il fumetto non cresce più. Fanno eccezione le pagine rimpicciolite apposta con «Leggi su». Il fumetto risulta comunque convertito.
+
 ## [3.11.14] — 2026-11-16
 
 - **Corretto:** a volte, alla fine di un controllo della libreria (dopo «Controlla ora», o dopo una rinomina con *Info e rinomina* aperta), il programma si chiudeva di colpo: «QThread: Destroyed while thread is still running». Il programma eliminava il thread del controllo mentre stava ancora finendo. Ora i thread restano in vita finché non hanno finito davvero (anche quelli delle miniature e dei lavori).
