@@ -271,6 +271,18 @@ class MainWindow(QMainWindow):
 
     # FIX #14: closeEvent per terminare i thread prima di chiudere
     def closeEvent(self, event):
+        # la Libreria è il programma: chiuderla chiude anche Info e rinomina, la ricerca, le Opzioni…
+        # (ognuna chiede delle sue modifiche non salvate; se resta aperta, il programma non si chiude)
+        while (aperta := QApplication.activeModalWidget()) not in (None, self):
+            aperta.reject()
+            if aperta.isVisible():
+                event.ignore()
+                return
+        if self._busy() and QMessageBox.question(
+                self, "Chiudere?", "C'è un lavoro in corso: interromperlo e chiudere?\n"
+                "(gli originali non vengono toccati)") != QMessageBox.StandardButton.Yes:
+            event.ignore()
+            return
         self._closing = True
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.abort_now()
@@ -1180,10 +1192,9 @@ class MainWindow(QMainWindow):
             self.load_t(n)
 
     def import_files(self, paths):
-        """Aggiunge le card; restituisce i percorsi davvero aggiunti."""
         self.set_working(False)
         self.views.setCurrentWidget(self.work_tab)       # lista vuota alla fine: refresh_grid torna alla Libreria
-        added = []
+        added = 0
         for p, count in paths:
             if p not in self.cards:
                 if os.path.isdir(p) and not self._confirm_folder(p):
@@ -1200,10 +1211,9 @@ class MainWindow(QMainWindow):
                 self.cards[p] = c
                 self.load_t(p)
                 c.set_status(file_status(p))
-                added.append(p)
-        log.info(f"Importati {len(added)} file ({len(paths)} totali scansionati).")
+                added += 1
+        log.info(f"Importati {added} file ({len(paths)} totali scansionati).")
         self.refresh_grid()
-        return added
 
     def _show_skipped(self, skipped):
         """Un solo messaggio con i file non importati e il motivo."""
@@ -1341,6 +1351,8 @@ class MainWindow(QMainWindow):
         batch = history.new_batch()          # tutti i passaggi della finestra sono un'operazione
         dlg = MetadataDialog(paths, self, on_rename=lambda pairs: self._do_renames(pairs, batch), chiudi=chiudi)
         dlg.exec()   # resta aperta per più passaggi: ogni "Rinomina" chiama _do_renames
+        if self._closing:                             # chiusa insieme al programma: niente conversioni
+            return
         self._refresh_undo()
         jobs = dlg.conversioni
         if jobs:
@@ -1646,6 +1658,8 @@ class MainWindow(QMainWindow):
         n    = len(self.cards)
         if not n:
             self.views.setCurrentWidget(self.library)   # lista vuota: si torna alla Libreria
+        self.library.b_lavoro.setText(f"LAVORO ({n}) ▸")
+        self.library.b_lavoro.setVisible(bool(n))
         cols = self._view_cols()
         self._grid_cols = cols
         self._apply_window_width(cols)
@@ -1706,8 +1720,9 @@ class MainWindow(QMainWindow):
         self.set_working(True, "Scansione...")
         iw = ImportWorker(urls)
         iw.progress.connect(lambda v, t: self.set_working(True, f"Importazione: {v}/{t}", v, t))
-        iw.finished.connect(lambda p, s: (self._discard_thread(iw), self._show_skipped(s),
-                                          self.info_dopo_import(self.import_files(p))))
+        iw.finished.connect(lambda p, s: (self._discard_thread(iw), self._show_skipped(s), self.import_files(p),
+                                          # anche quelli già nella lista: reimportarli riapre Info e rinomina
+                                          self.info_dopo_import([q for q, _n in p if q in self.cards])))
         self._watch_stop(iw)
         iw.start()
         self._add_thread(iw)

@@ -172,6 +172,13 @@ def test_vista(app, lib):
     assert win.views.currentWidget() is win.work_tab
     assert attendi(app, lambda: c in win.cards)
     assert attendi(app, lambda: info_aperta == [[c]]), "dopo l'importazione: Info e rinomina dei nuovi"
+    win.show_view(v)                                   # ← LIBRERIA: la lista resta, e si vede
+    assert v.b_lavoro.isVisibleTo(v) and v.b_lavoro.text() == "LAVORO (1) ▸"
+    win.import_paths([c])                              # reimportato: già nella lista, ma Info e rinomina si riapre
+    assert attendi(app, lambda: info_aperta == [[c], [c]]), info_aperta
+    win.show_view(v)
+    v.b_lavoro.click()
+    assert win.views.currentWidget() is win.work_tab
     assert win.views.currentWidget() is win.work_tab and "Torna alla lista di lavoro" in voci()
     # tasto destro su una card non selezionata: la seleziona e mostra il menu
     from PyQt6.QtCore import QPoint
@@ -209,8 +216,25 @@ def test_vista(app, lib):
     v.list.item(0).setSelected(True)
     urls = v.list.mimeData(v.list.selectedItems()).urls()
     assert [u.toLocalFile() for u in urls] == [a]
+
+    # la X della finestra principale chiude anche Info e rinomina; con modifiche non salvate chiede
+    from PyQt6.QtWidgets import QMessageBox
+    from comicoptimizer.metadata_dialog import MetadataDialog
+    d = MetadataDialog([a], win)
+    d.setModal(True)
+    d.show()
+    d.pending = {a: {"Series": "x"}}                   # una modifica non salvata
+    risposte, vera_domanda = ["No"], QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *x, **k: getattr(QMessageBox.StandardButton, risposte[0]))
+    win.show()
+    assert attendi(app, lambda: app.activeModalWidget() is d)
+    win.close()
+    assert d.isVisible() and win.isVisible() and not win._closing, "No: resta tutto aperto"
+    risposte[0] = "Yes"
     v.stop()
     win.close()
+    QMessageBox.question = vera_domanda
+    assert not d.isVisible() and not win.isVisible() and win._closing, "Sì: si chiude tutto"
 
 
 def test_controllo(app, lib):

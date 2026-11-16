@@ -395,6 +395,13 @@ class LibraryView(QWidget):
                 b.clicked.connect(slot)
             actions.addWidget(b)
             self.pulsanti[text] = b
+        self.b_lavoro = QPushButton("LAVORO ▸")
+        self.b_lavoro.setMinimumHeight(36)
+        self.b_lavoro.setToolTip("Torna alla lista di lavoro: i fumetti importati e non ancora finiti")
+        set_variant(self.b_lavoro, "accent")
+        self.b_lavoro.hide()                          # solo se la lista di lavoro ha fumetti (vedi refresh_grid)
+        self.b_lavoro.clicked.connect(lambda: self.win.show_view(self.win.work_tab))
+        actions.addWidget(self.b_lavoro)
         azioni = QMenu(self)
         azioni.aboutToShow.connect(lambda: (azioni.clear(), self._riempi_azioni(azioni)))
         self.pulsanti["AZIONI"].setMenu(azioni)

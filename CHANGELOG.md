@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.10] — 2026-11-16
+
+- **Corretto:** chiudendo la finestra principale con la X mentre era aperta *Info e rinomina* (o la ricerca, o le Opzioni), il programma restava aperto. Ora la X chiude tutto: prima chiede delle modifiche non salvate (rispondendo No resta tutto aperto) e, se c'è un lavoro in corso, se interromperlo.
+- **Corretto:** reimportando fumetti già presenti nella lista di lavoro si apriva il Lavoro invece di *Info e rinomina*: ora si riapre *Info e rinomina* con i fumetti trascinati, nuovi o già in lista.
+- **Nuovo:** tornando alla Libreria la lista di lavoro non sparisce più nel nulla: il pulsante **LAVORO (N) ▸** dice quanti fumetti ci sono e riporta alla lista.
+
 ## [3.11.9] — 2026-11-15
 
 - **Corretto:** le sigle nei titoli tutti maiuscoli non vengono più rovinate: «DC K.O.» e «JSA» restano così (prima diventavano «Dc K.o.» e «Jsa»), e le sigle coi punti (S.H.I.E.L.D.) restano maiuscole anche in un titolo lungo. I titoli «urlati» come «BATMAN AND ROBIN» diventano ancora «Batman And Robin».
