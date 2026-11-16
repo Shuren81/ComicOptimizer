@@ -246,6 +246,14 @@ def test_altri_formati(app, work, md):
     assert info["titolo"] == "Serie Rar" and info["autore"] == "Autore" and info["manga"] is False
     assert open(rar, "rb").read().startswith(b"Rar!")
 
+    # "Non salvarli": le modifiche del file non CBZ si scartano e la finestra resta aperta
+    d = md.MetadataDialog([rar])
+    scrivi(d, "Series", "Da scartare")
+    rispondi(app, si=False)
+    d.salva()
+    assert not d.conversioni and not d.pending and d.caselle["Series"].text() != "Da scartare"
+    assert "scartate" in d.stato.text()
+
 
 def test_cartella(app, work, md):
     """Rinominando una cartella non si aggiunge un'estensione."""

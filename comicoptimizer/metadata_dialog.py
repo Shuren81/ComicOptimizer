@@ -1133,14 +1133,35 @@ class MetadataDialog(QDialog):
             self.stato.setText("Nessuna modifica da salvare.")
             return
         totale = len(cbz) + len(conversioni)
-        if totale > 1 or conversioni:
-            testo = (f"Scrivere le modifiche su {totale} file?\n\nCampi coinvolti: "
-                     + ", ".join(sorted(coinvolti, key=CAMPI.index)))
-            if conversioni:
-                testo += (f"\n\n{len(conversioni)} non sono CBZ: per scrivere le info verranno convertiti in "
-                          "CBZ e gli originali andranno nel cestino. Questa finestra si chiuderà.")
-            if QMessageBox.question(self, "Salva metadati", testo) != QMessageBox.StandardButton.Yes:
+        campi = "Campi coinvolti: " + ", ".join(sorted(coinvolti, key=CAMPI.index))
+        if conversioni:
+            # le info si scrivono solo in un CBZ: si converte (e la finestra si chiude) o si rinuncia
+            P = QMessageBox.StandardButton
+            box = QMessageBox(QMessageBox.Icon.Question, "Salva metadati",
+                              f"{len(conversioni)} file non sono CBZ (CBR, PDF, cartelle…): le info si possono "
+                              "scrivere solo convertendoli in CBZ (gli originali vanno nel cestino). La "
+                              "conversione parte subito e questa finestra si chiude."
+                              + (f"\n\nGli altri {len(cbz)} CBZ si salvano comunque." if cbz else "")
+                              + f"\n\n{campi}", P.Yes | P.No | P.Cancel, self)
+            box.button(P.Yes).setText("Converti in CBZ e salva")
+            box.button(P.No).setText("Non salvarli (perdi le modifiche)")
+            box.button(P.Cancel).setText("Annulla")
+            scelta = box.exec()
+            if scelta == P.No:
+                for p in conversioni:
+                    self.pending.pop(p, None)
+                conversioni = {}
+                self.toccati.clear()
+                if not cbz:
+                    self._carica()
+                    self.stato.setText("Modifiche dei file non CBZ scartate.")
+                    return
+            elif scelta != P.Yes:
                 return
+        elif totale > 1 and QMessageBox.question(
+                self, "Salva metadati", f"Scrivere le modifiche su {totale} file?\n\n{campi}"
+        ) != QMessageBox.StandardButton.Yes:
+            return
         self._occupato(True)
         self.stato.setText(f"Salvataggio di {len(cbz)} file...")
 
