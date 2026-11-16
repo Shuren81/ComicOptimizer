@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 
 from .comicinfo import pulisci_numero, togli_maiuscole
+from .logsetup import log
 
 try:
     from bs4 import BeautifulSoup
@@ -505,35 +506,35 @@ def cb_analizza_etichetta(testo):
     return campi
 
 
-def cb_analizza_pagina(pagina, query):
-    testo, numero = separa_numero(query)
-    risultati = []
-    visti = set()
+def cb_analizza_pagina(pagina, query, solo=None):
+    """I collegamenti a serie e albi di una pagina (`solo`: quelli che contengono questo pezzo di indirizzo).
+    Di ogni indirizzo il testo più lungo: in una serie l'albo ha "2" e "Absolute Batman # 2"."""
+    titoli = {}
     for a in BeautifulSoup(pagina, "html.parser").find_all("a", href=True):
         href = a["href"]
-        if not any(k in href for k in ("/serie/", "/albo/", "serie.php", "albo.php")):
-            continue
-        titolo = a.get_text(strip=True)
-        if len(titolo) < 2:
+        if not any(k in href for k in ("/serie/", "/albo/", "serie.php", "albo.php")) or (solo and solo not in href):
             continue
         url = href if href.startswith("http") else CB_SITO + href.lstrip("/")
-        if url in visti:
-            continue
-        visti.add(url)
-        risultati.append({
-                "etichetta": titolo,
-                "copertina": None,
-                "campi": cb_analizza_etichetta(titolo),
-                "note": [f"Scheda ComicsBox: {url}"],
-                "grezzo": {"url": url},
-        })
+        titolo = a.get_text(strip=True)
+        if len(titolo) > len(titoli.get(url, "")):
+            titoli[url] = titolo
+    risultati = [{
+            "etichetta": titolo,
+            "copertina": None,
+            "campi": cb_analizza_etichetta(titolo),
+            "note": [f"Scheda ComicsBox: {url}"],
+            "grezzo": {"url": url},
+    } for url, titolo in titoli.items() if len(titolo) >= 2]
+    return cb_ordina(risultati, query)
+
+
+def cb_ordina(risultati, query):
+    testo, numero = separa_numero(query)
 
     def ordine(r):
         fuori_numero = 0 if numero and r["campi"].get("Number") == pulisci_numero(numero) else 1
         return (punti_pertinenza(r["campi"]["Series"].lower(), testo), fuori_numero)
-
-    risultati.sort(key=ordine)
-    return risultati
+    return sorted(risultati, key=ordine)
 
 
 def cb_cerca(_chiave, query):
@@ -546,9 +547,28 @@ def cb_cerca(_chiave, query):
     for testo in dict.fromkeys(t.strip() for t in prove if t.strip()):   # senza doppioni, in ordine
         risultati = cb_analizza_pagina(
             cb_scarica(f"{CB_SITO}search.php?stringa={urllib.parse.quote(testo)}&criterio=ita"), testo)
-        if risultati:
-            return risultati
+        if risultati:   # in ordine col numero cercato, anche se l'ha trovata la ricerca della sola serie
+            return cb_con_albi(risultati, numero.group(1) if numero else query)
     return []
+
+
+def cb_con_albi(risultati, query):
+    """Il sito trova soprattutto le serie: delle prime due si aggiungono tutti gli albi (Absolute Batman #1, #2…).
+    Solo due pagine in più, per non far scattare il limite di richieste di ComicsBox."""
+    visti = {r["grezzo"]["url"] for r in risultati}
+    for serie in [r for r in risultati if "/serie/" in r["grezzo"]["url"]][:2]:
+        codice = serie["grezzo"]["url"].rstrip("/").rsplit("/", 1)[-1]
+        try:
+            pagina = cb_scarica(serie["grezzo"]["url"])
+        except ErroreRicerca as e:                    # troppe richieste: intanto i risultati già trovati
+            log.warning(f"ComicsBox: albi di '{serie['etichetta']}' non letti: {e}")
+            break
+        for albo in cb_analizza_pagina(pagina, query, solo=f"/albo/{codice}_"):
+            if albo["grezzo"]["url"] not in visti:
+                visti.add(albo["grezzo"]["url"])
+                albo["campi"].setdefault("Publisher", serie["campi"].get("Publisher", ""))
+                risultati.append(albo)
+    return cb_ordina(risultati, query)
 
 
 def cb_testo(zuppa, selettore):

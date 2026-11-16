@@ -115,6 +115,37 @@ class TestComicsBoxRiprova(unittest.TestCase):
         self.assertEqual(len(chiesti), 3, "intera, fino al numero, sola serie: poi basta")
 
 
+class TestComicsBoxSerie(unittest.TestCase):
+    """Il sito trova la serie: si aggiungono tutti i suoi albi, quello col numero cercato in cima."""
+
+    def test_albi_della_serie(self):
+        ricerca_html = ('<a href="/serie/ABSBATITA">ABSOLUTE BATMAN (Panini Comics)</a>'
+                        '<a href="/albo/DCABSCOLL_006">ABSOLUTE DC COLLECTION # 6 - Absolute Batman 2 (Panini Comics)</a>')
+        serie_html = "".join(f'<a href="/albo/ABSBATITA_{n:03d}">{n}</a>'
+                             f'<a href="/albo/ABSBATITA_{n:03d}">Absolute Batman # {n}</a>' for n in range(1, 12))
+        serie_html += '<a href="/albo/ALTRA_001">Altra serie # 1</a>'
+        # come il sito vero: "Absolute Batman 2" non trova niente, "Absolute Batman" trova la serie
+        pagine = {"stringa=Absolute%20Batman%202": "", "search.php": ricerca_html, "serie/ABSBATITA": serie_html}
+        with mock.patch.object(ricerca, "cb_scarica",
+                               side_effect=lambda url: next(v for k, v in pagine.items() if k in url)):
+            risultati = ricerca.cb_cerca("", "Absolute Batman 2")
+        etichette = [r["etichetta"] for r in risultati]
+        self.assertEqual(etichette[0], "Absolute Batman # 2", etichette)
+        self.assertIn("Absolute Batman # 10", etichette)            # il testo lungo, non "10"
+        self.assertEqual(sum(e.startswith("Absolute Batman #") for e in etichette), 11)
+        self.assertNotIn("Altra serie # 1", etichette)
+        self.assertEqual(risultati[0]["campi"]["Publisher"], "Panini Comics")
+
+    def test_serie_bloccata_restano_i_risultati(self):
+        def sito(url):
+            if "serie/" in url:
+                raise ricerca.ErroreRicerca("ComicsBox limita le richieste", 429)
+            return '<a href="/serie/ABSBATITA">ABSOLUTE BATMAN (Panini Comics)</a>'
+        with mock.patch.object(ricerca, "cb_scarica", side_effect=sito):
+            risultati = ricerca.cb_cerca("", "Absolute Batman")
+        self.assertEqual([r["etichetta"] for r in risultati], ["ABSOLUTE BATMAN (Panini Comics)"])
+
+
 class TestAniList(unittest.TestCase):
 
     VOCE = {

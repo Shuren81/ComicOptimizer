@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.12] — 2026-11-16
+
+- **Corretto:** su ComicsBox «Absolute Batman 2» (e in genere ogni albo dopo il primo) non si trovava, e cercando solo la serie comparivano 3-4 risultati: il sito restituisce soprattutto la scheda della **serie**, non i suoi albi. Ora il programma apre le prime due serie trovate e ne elenca **tutti gli albi**, con quello del numero cercato in cima. Se ComicsBox blocca le richieste troppo ravvicinate, si vedono comunque i risultati già trovati.
+
 ## [3.11.11] — 2026-11-16
 
 - **Cambiato:** la X della finestra, nella lista di lavoro, torna alla Libreria (la lista resta, con *LAVORO (N)*); nella Libreria chiude il programma.
