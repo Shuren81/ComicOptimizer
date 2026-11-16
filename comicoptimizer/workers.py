@@ -58,6 +58,15 @@ def _task_tmps(task):
     return [t for t in [task.get('tmp')] + task.get('extra_tmps', []) if t]
 
 
+_IN_CHIUSURA = []   # thread che hanno dato l'ultimo segnale ma non sono ancora usciti da run()
+
+
+def tieni_fino_alla_fine(t):
+    """Tiene in vita un QThread finché non è davvero finito: se Python lo eliminasse mentre esce da run(),
+    Qt chiuderebbe il programma ("QThread: Destroyed while thread is still running", visto nel log)."""
+    _IN_CHIUSURA[:] = [x for x in _IN_CHIUSURA if not x.isFinished()] + [t]
+
+
 class _Stoppable(QThread):
     """Lavoro che si può fermare con Stop: abort() alza il flag e ferma i 7z/unrar del thread;
     il lavoro esce al primo controllo, pulisce i suoi file temporanei e manda "cancelled"."""

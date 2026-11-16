@@ -391,6 +391,29 @@ def test_doppioni_e_indice(app, work):
     assert disco_meccanico(work) in (True, False)
 
 
+def test_thread_finito(app, work):
+    """Un thread che ha dato l'ultimo segnale ma sta ancora uscendo da run() non va eliminato: Qt chiuderebbe
+    il programma ("QThread: Destroyed while thread is still running", visto alla fine di un controllo)."""
+    from PyQt6.QtCore import QThread, pyqtSignal
+    from comicoptimizer import workers
+
+    class Lento(QThread):
+        finished = pyqtSignal(list)
+
+        def run(self):
+            self.finished.emit([])
+            time.sleep(0.5)                            # dopo l'ultimo segnale lavora ancora un po'
+
+    t = Lento()
+    t.finished.connect(lambda _x: workers.tieni_fino_alla_fine(t))
+    t.start()
+    assert attendi(app, lambda: t in workers._IN_CHIUSURA)
+    assert not t.isFinished(), "ancora in run(): resta nella lista"
+    assert t.wait(3000)
+    workers.tieni_fino_alla_fine(QThread())            # al giro dopo i thread finiti escono dalla lista
+    assert t not in workers._IN_CHIUSURA
+
+
 def test_sposta(app, work):
     from PyQt6.QtWidgets import QDialog, QMessageBox
     from comicoptimizer import history, library, metadata_dialog
@@ -486,6 +509,7 @@ def test_sposta(app, work):
     assert domande == [] and v.scanner is not None
     v.scanner.wait()
     attendi(app, lambda: v.scanner is None)
+    assert workers._IN_CHIUSURA, "il controllo finito resta in vita finché non esce da run()"
     assert letture == [], "il rapido non legge le pagine"
     assert workers._ANALYSIS_CACHE[m][4] is False and workers._ANALYSIS_CACHE[m][5] is False
     v.scan(completo=True)
@@ -589,7 +613,7 @@ def main():
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         from comicoptimizer import history
         history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")
-        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_sposta):
+        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_thread_finito, test_sposta):
             cartella = os.path.join(work, prova.__name__)
             os.makedirs(cartella)
             prova(app, cartella)

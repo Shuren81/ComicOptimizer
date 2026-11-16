@@ -612,7 +612,8 @@ class LibraryView(QWidget):
             p = self._queue.popleft()
             w = ThumbWorker(p)
             w.done.connect(self._thumb_done)
-            w.finished.connect(lambda w=w: (self._running.discard(w), self._next_thumbs()))
+            w.finished.connect(lambda w=w: (self._running.discard(w), workers.tieni_fino_alla_fine(w),
+                                            self._next_thumbs()))
             self._running.add(w)
             w.start()
 
@@ -655,6 +656,8 @@ class LibraryView(QWidget):
         self.scanner.abort()
 
     def _scan_ended(self):
+        if self.scanner:
+            workers.tieni_fino_alla_fine(self.scanner)   # sta ancora uscendo da run(): non va eliminato
         self.scanner = None
         self.lbl_scan.setText("")
         self.b_stop.hide()

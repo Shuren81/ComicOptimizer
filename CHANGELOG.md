@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.14] — 2026-11-16
+
+- **Corretto:** a volte, alla fine di un controllo della libreria (dopo «Controlla ora», o dopo una rinomina con *Info e rinomina* aperta), il programma si chiudeva di colpo: «QThread: Destroyed while thread is still running». Il programma eliminava il thread del controllo mentre stava ancora finendo. Ora i thread restano in vita finché non hanno finito davvero (anche quelli delle miniature e dei lavori).
+
 ## [3.11.13] — 2026-11-16
 
 - **Cambiato:** salvando le info di file non CBZ (CBR, PDF, cartelle) l'avviso spiega che le info si scrivono solo convertendoli in CBZ e che la finestra si chiude, e propone **Converti in CBZ e salva**, **Non salvarli (perdi le modifiche)** (la finestra resta aperta, i CBZ si salvano comunque) o **Annulla**.

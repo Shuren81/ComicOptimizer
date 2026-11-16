@@ -66,6 +66,7 @@ from .workers import (
     LoadingWorker,
     ProcessingWorker,
     ThumbWorker,
+    tieni_fino_alla_fine,
 )
 
 # --- SELEZIONE CON IL MOUSE ---
@@ -254,6 +255,7 @@ class MainWindow(QMainWindow):
     def _discard_thread(self, t):
         with self._threads_lock:
             self._active_threads.discard(t)
+        tieni_fino_alla_fine(t)                       # l'ultimo segnale arriva prima della fine di run()
 
     def _busy(self):
         """True se c'è un lavoro sui file in corso (preparazione, elaborazione, apertura editor)."""
