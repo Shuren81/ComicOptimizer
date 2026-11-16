@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+import urllib.parse
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -92,6 +93,26 @@ class TestComicsBox(unittest.TestCase):
             self.assertEqual(ricerca.cb_scarica("http://x/2"), "ok")
             self.assertEqual(ricerca.cb_scarica("http://x/2"), "ok")
         self.assertEqual(richiesta.call_count, 1)
+
+
+class TestComicsBoxRiprova(unittest.TestCase):
+    """Il sito cerca solo serie e numero: senza risultati si riprova con meno parole."""
+
+    def test_taglia_dopo_il_numero(self):
+        chiesti = []
+        albo = '<a href="/albo/123">ABSOLUTE BATMAN # 1 - Un nuovo inizio! (Panini Comics)</a>'
+
+        def sito(url):
+            chiesti.append(urllib.parse.unquote(url.split("stringa=")[1].split("&")[0]))
+            return albo if chiesti[-1] == "Absolute Batman 1" else "<html></html>"
+        with mock.patch.object(ricerca, "cb_scarica", side_effect=sito):
+            risultati = ricerca.cb_cerca("", "Absolute Batman 1 Un Nuovo Inizio")
+        self.assertEqual(chiesti, ["Absolute Batman 1 Un Nuovo Inizio", "Absolute Batman 1"])
+        self.assertEqual(risultati[0]["campi"]["Series"], "ABSOLUTE BATMAN")
+        chiesti.clear()
+        with mock.patch.object(ricerca, "cb_scarica", side_effect=lambda url: chiesti.append(url) or ""):
+            self.assertEqual(ricerca.cb_cerca("", "Absolute Batman 1 Un Nuovo Inizio"), [])
+        self.assertEqual(len(chiesti), 3, "intera, fino al numero, sola serie: poi basta")
 
 
 class TestAniList(unittest.TestCase):

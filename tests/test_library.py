@@ -179,6 +179,14 @@ def test_vista(app, lib):
     win.show_view(v)
     v.b_lavoro.click()
     assert win.views.currentWidget() is win.work_tab
+    class XdelSistema:                                 # la X vera: chiusura chiesta dal sistema
+        accettata = True
+        spontaneous = staticmethod(lambda: True)
+        def ignore(self): self.accettata = False
+    x = XdelSistema()
+    win.closeEvent(x)
+    assert not x.accettata and win.views.currentWidget() is v and not win._closing, "X nel Lavoro → Libreria"
+    win.show_view(win.work_tab)
     assert win.views.currentWidget() is win.work_tab and "Torna alla lista di lavoro" in voci()
     # tasto destro su una card non selezionata: la seleziona e mostra il menu
     from PyQt6.QtCore import QPoint

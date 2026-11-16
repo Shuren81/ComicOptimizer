@@ -278,6 +278,10 @@ class MainWindow(QMainWindow):
             if aperta.isVisible():
                 event.ignore()
                 return
+        if event.spontaneous() and self.views.currentWidget() is self.work_tab:
+            self.show_view(self.library)              # la X nel Lavoro torna alla Libreria (la lista resta)
+            event.ignore()
+            return
         if self._busy() and QMessageBox.question(
                 self, "Chiudere?", "C'è un lavoro in corso: interromperlo e chiudere?\n"
                 "(gli originali non vengono toccati)") != QMessageBox.StandardButton.Yes:
@@ -1380,14 +1384,20 @@ class MainWindow(QMainWindow):
                 missing.append(os.path.basename(new))
         if pairs:
             # con più passaggi (C→B, B→A) si mostra solo il risultato: C→A
-            piano, inizio = {}, {}
+            piano, inizio, catena = {}, {}, {}
             for da, a in pairs:
                 primo = inizio.pop(da, da)
                 piano[primo] = a
                 inizio[a] = primo
-            if not ConfermaRinomina(list(piano.items()), self, "Annulla rinomina",
-                                    f"Ripristinare i nomi di {len(piano)} file?", "Ripristina").exec():
+                catena[(da, a)] = primo
+            conferma = ConfermaRinomina(list(piano.items()), self, "Annulla rinomina",
+                                        f"Ripristinare i nomi di {len(piano)} file?\n"
+                                        "(spunta quelli da ripristinare; senza spunte, tutti)", "Ripristina",
+                                        scegli=True)
+            if not conferma.exec():
                 return 0
+            scelti = {primo for primo, _a in conferma.scelti()}
+            pairs = [p for p in pairs if catena[p] in scelti]   # solo i passaggi dei file spuntati
         log.info(f"Annulla rinomina: {len(pairs)} file" + (f", {len(missing)} non più presenti" if missing else ""))
         done = self._do_renames(pairs)
         for _new, old in done:

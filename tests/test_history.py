@@ -69,7 +69,8 @@ def test_after_restart(work):
     mw.QMessageBox.warning = lambda *x: warns.append(x[-1])
     # la conferma elenca i nomi; dicendo no non cambia niente
     viste = []
-    mw.ConfermaRinomina.exec = lambda self: viste.append(self.elenco.toPlainText()) or 0
+    testo = lambda d: "\n".join(d.elenco.item(i).text() for i in range(d.elenco.count()))
+    mw.ConfermaRinomina.exec = lambda self: viste.append(testo(self)) or 0
     assert w2.undo_rename() is None and os.path.exists(AA) and not os.path.exists(a) and not warns
     assert "Naruto - 001.cbz" in viste[0] and "→ " + os.path.basename(a) in viste[0]
     assert "Naruto 1.cbz" not in viste[0], "con più passaggi si vede solo il risultato"
@@ -104,6 +105,24 @@ def test_dialog(work):
     assert d.table.item(0, 3).text() == "già annullata" and not d.table.cellWidget(0, 4).isEnabled()
     assert d.table.item(1, 3).text() == "già annullata"           # l'operazione del test precedente
     d.reject()
+    # Annulla rinomina: con le caselle si ripristinano solo i file scelti (senza spunte, tutti)
+    x, y = touch(work, "x.cbz"), touch(work, "y.cbz")
+    X, Y = os.path.join(work, "X 1.cbz"), os.path.join(work, "Y 1.cbz")
+    due = history.new_batch()
+    w._do_renames([(x, X), (y, Y)], due)
+    from PyQt6.QtCore import Qt
+
+    def spunta_y(self):
+        assert self.b_si.text() == "Ripristina tutti"
+        riga = next(i for i in range(self.elenco.count()) if "Y 1.cbz" in self.elenco.item(i).text())
+        self.elenco.item(riga).setCheckState(Qt.CheckState.Checked)
+        assert self.b_si.text() == "Ripristina 1"
+        return 1
+    mw.ConfermaRinomina.exec = spunta_y
+    assert w.undo_batch(next(op for op in history.batches() if op["id"] == due)) == 1
+    assert os.path.exists(y) and os.path.exists(X) and not os.path.exists(x), "solo Y ripristinato"
+    mw.ConfermaRinomina.exec = lambda self: 1          # senza spunte: tutti i rimasti
+    assert w.undo_batch(next(op for op in history.batches() if op["id"] == due)) == 1 and os.path.exists(x)
     w._closing = True
 
 

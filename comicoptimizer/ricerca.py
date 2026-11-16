@@ -539,8 +539,16 @@ def cb_analizza_pagina(pagina, query):
 def cb_cerca(_chiave, query):
     if BeautifulSoup is None:
         raise ErroreRicerca("Libreria 'beautifulsoup4' non installata. Esegui: pip install beautifulsoup4")
-    url = f"{CB_SITO}search.php?stringa={urllib.parse.quote(query)}&criterio=ita"
-    return cb_analizza_pagina(cb_scarica(url), query)
+    # il sito cerca solo nome della serie e numero: "Absolute Batman 1 Un nuovo inizio" non trova niente,
+    # "Absolute Batman 1" sì. Senza risultati si riprova tagliando dopo il numero, poi con la sola serie
+    numero = re.match(r"^(.*?\d+)\b", query)
+    prove = [query] + ([numero.group(1)] if numero else []) + [re.sub(r"\s*#?\d+.*$", "", query)]
+    for testo in dict.fromkeys(t.strip() for t in prove if t.strip()):   # senza doppioni, in ordine
+        risultati = cb_analizza_pagina(
+            cb_scarica(f"{CB_SITO}search.php?stringa={urllib.parse.quote(testo)}&criterio=ita"), testo)
+        if risultati:
+            return risultati
+    return []
 
 
 def cb_testo(zuppa, selettore):

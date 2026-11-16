@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.11] — 2026-11-16
+
+- **Cambiato:** la X della finestra, nella lista di lavoro, torna alla Libreria (la lista resta, con *LAVORO (N)*); nella Libreria chiude il programma.
+- **Nuovo:** in *Annulla rinomina* ogni file ha una casella: si ripristinano solo quelli spuntati, o tutti se non ne è spuntato nessuno (il pulsante dice «Ripristina N» o «Ripristina tutti»).
+- **Corretto:** su ComicsBox «Absolute Batman 1 Un Nuovo Inizio» non trovava niente, perché il sito cerca solo serie e numero. Senza risultati il programma riprova da solo con il testo fino al numero («Absolute Batman 1»), poi con la sola serie.
+
 ## [3.11.10] — 2026-11-16
 
 - **Corretto:** chiudendo la finestra principale con la X mentre era aperta *Info e rinomina* (o la ricerca, o le Opzioni), il programma restava aperto. Ora la X chiude tutto: prima chiede delle modifiche non salvate (rispondendo No resta tutto aperto) e, se c'è un lavoro in corso, se interromperlo.

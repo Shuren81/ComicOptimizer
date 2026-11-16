@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -524,9 +525,11 @@ class SearchDialog(QDialog):
 
 
 class ConfermaRinomina(QDialog):
-    """Elenco completo: nome attuale in grigio, nome nuovo in grassetto."""
+    """Elenco completo: nome attuale in grigio, nome nuovo in grassetto. Con `scegli` ogni riga ha una
+    casella: `scelti()` dà le righe spuntate, o tutte se non ne è spuntata nessuna."""
 
-    def __init__(self, piano, parent=None, finestra="Conferma rinomina", domanda=None, azione="Rinomina"):
+    def __init__(self, piano, parent=None, finestra="Conferma rinomina", domanda=None, azione="Rinomina",
+                 scegli=False):
         super().__init__(parent)
         self.setWindowTitle(finestra)
         fit_dialog_to_screen(self, 760, min(240 + 58 * len(piano), 620), min_w=460, min_h=240)
@@ -534,13 +537,23 @@ class ConfermaRinomina(QDialog):
         titolo = QLabel(domanda or f"Rinominare {len(piano)} file?")
         titolo.setStyleSheet("font-size: 15px; font-weight: bold;")
         l.addWidget(titolo)
-        self.elenco = QTextEdit()
-        self.elenco.setReadOnly(True)
+        self.piano, self.azione = piano, azione
         # spostamenti (stesso nome, cartella diversa): si mostra il percorso intero
         nome = lambda v, n, p: p if os.path.dirname(v) != os.path.dirname(n) else os.path.basename(p)
-        self.elenco.setHtml("".join(
-            f'<p style="margin-bottom:10px"><span style="color:#9e9e9e">{html.escape(nome(v, n, v))}</span><br>'
-            f'<b>→ {html.escape(nome(v, n, n))}</b></p>' for v, n in piano))
+        if scegli:
+            self.elenco = QListWidget()
+            for v, n in piano:
+                riga = QListWidgetItem(f"{nome(v, n, v)}\n   → {nome(v, n, n)}")
+                riga.setFlags(riga.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                riga.setCheckState(Qt.CheckState.Unchecked)
+                self.elenco.addItem(riga)
+            self.elenco.itemChanged.connect(self._conta)
+        else:
+            self.elenco = QTextEdit()
+            self.elenco.setReadOnly(True)
+            self.elenco.setHtml("".join(
+                f'<p style="margin-bottom:10px"><span style="color:#9e9e9e">{html.escape(nome(v, n, v))}</span><br>'
+                f'<b>→ {html.escape(nome(v, n, n))}</b></p>' for v, n in piano))
         l.addWidget(self.elenco, 1)
         pulsanti = QHBoxLayout()
         pulsanti.addStretch()
@@ -555,6 +568,19 @@ class ConfermaRinomina(QDialog):
         pulsanti.addWidget(self.b_no)
         pulsanti.addStretch()
         l.addLayout(pulsanti)
+        if scegli:
+            self._conta()
+
+    def _spuntati(self):
+        return [p for i, p in enumerate(self.piano)
+                if self.elenco.item(i).checkState() == Qt.CheckState.Checked]
+
+    def _conta(self):
+        n = len(self._spuntati())
+        self.b_si.setText(f"{self.azione} {n}" if n else f"{self.azione} tutti")
+
+    def scelti(self):
+        return self._spuntati() or list(self.piano)
 
 
 class MetadataDialog(QDialog):
