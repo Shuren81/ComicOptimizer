@@ -2,6 +2,7 @@
 
 ## [3.11.17] — 2026-11-17
 
+- **Nuovo:** **Ripara/Converti CBZ** recupera i fumetti rovinati invece di saltarli: da un archivio troncato (download interrotto) o con una pagina rovinata tiene le pagine che si leggono, anche l'ultima troncata a metà. Nel log e nel riepilogo il fumetto compare come **RECUPERATO** con il numero di pagine; l'originale va nel cestino come sempre. Con *Converti WebP* un fumetto rovinato si salta ancora.
 - **Nuovo:** dopo aver spostato dei fumetti (nella libreria o fra le sue cartelle), la cartella di partenza rimasta vuota va nel cestino. Dentro la libreria si cestinano anche le cartelle sopra rimaste vuote (es. «DC Comics» dopo «Batman»), mai la cartella della libreria; fuori dalla libreria solo la cartella del fumetto, mai quelle sopra (es. Download). Una cartella con dentro qualcos'altro, anche un file nascosto, resta.
 
 ## [3.11.16] — 2026-11-17

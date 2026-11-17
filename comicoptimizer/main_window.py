@@ -974,6 +974,10 @@ class MainWindow(QMainWindow):
             lines.append(f"Pagine lasciate nel formato originale: {s['pages_kept']} "
                          f"(dettagli nel log)")
         lines.append(f"Tempo: {fmt_duration(s['elapsed'])}")
+        if s.get('recuperati'):
+            lines.append("<br><b>Recuperati da file rovinati</b> (pagine mancanti o troncate, "
+                         "l'originale è nel cestino):")
+            lines += [f"• {n}: {quante}".replace("<", "&lt;") for n, quante in s['recuperati'][:8]]
         if n_err:
             lines.append("<br><b>Errori</b> (gli originali non sono stati toccati):")
             for name, err in s['errors'][:8]:

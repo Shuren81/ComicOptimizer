@@ -326,10 +326,32 @@ def _extract_epub(path, dest, progress_cb=None):
     log.info(f"  EPUB: {len(pages)} pagine estratte nell'ordine di lettura")
     return bool(pages)
 
-def extract_archive(path, dest, progress_cb=None):
+def _recupera(path, dest):
+    """Archivio rovinato: le pagine che si leggono. ZIP una per una (salta le rovinate),
+    RAR con unrar -kb (tiene anche la pagina troncata). "recuperato" se è uscito qualcosa."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            for info in z.infolist():
+                try:
+                    z.extract(info, dest)
+                except Exception as e:
+                    log.warning(f"  recupero: '{info.filename}' rovinata, saltata ({e})")
+                    rotta = os.path.join(dest, info.filename)
+                    if os.path.isfile(rotta):
+                        os.remove(rotta)
+    except zipfile.BadZipFile:
+        try:
+            run_tool(['unrar', 'x', '-kb', '-y', path, dest + os.sep], capture_output=True, timeout=600)
+        except Exception as e:
+            log.warning(f"  recupero con unrar non riuscito: {e}")
+    return "recuperato" if any(files for _r, _d, files in os.walk(dest)) else False
+
+
+def extract_archive(path, dest, progress_cb=None, recupera=False):
     """
     Estrae l'intero archivio (pagine + ComicInfo.xml) in `dest`, usando il
     formato REALE del file. Per i PDF estrae/renderizza le pagine.
+    `recupera`: se l'archivio è rovinato, estrae le pagine che si leggono (Ripara).
     """
     real_fmt = detect_real_format(path)
     ext = os.path.splitext(path)[1].lower()
@@ -353,4 +375,9 @@ def extract_archive(path, dest, progress_cb=None):
             log.warning(f"  ZIP fallito — il file è {real_fmt or 'sconosciuto'}, provo unrar/7z")
         except Exception as e:
             log.error(f"  ZIP extractall errore: {e}")
-    return _extract_with_tools(path, dest)
+    if _extract_with_tools(path, dest):
+        return True
+    if recupera:
+        log.warning("  Archivio rovinato: recupero le pagine che si leggono")
+        return _recupera(path, dest)
+    return False

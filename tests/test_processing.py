@@ -267,6 +267,29 @@ def main(work):
     with zipfile.ZipFile(os.path.join(d, "M.cbz")) as z:
         assert not chiesto and z.namelist() == ["0001.webp", "0002.webp"], (chiesto, z.namelist())
 
+    # --- archivio con una pagina rovinata: WebP lo salta, Ripara recupera le altre e lo segnala
+    rd = os.path.join(work, "rovinato")
+    os.makedirs(rd)
+    rotto = os.path.join(rd, "Rotto.cbz")
+    with zipfile.ZipFile(rotto, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in range(3):
+            pagina = os.path.join(rd, f"{n}.png")
+            Image.effect_noise((200, 300), 80).convert("RGB").save(pagina)
+            z.write(pagina, f"{n + 1:03d}.png")
+            os.remove(pagina)
+    with zipfile.ZipFile(rotto) as z:
+        seconda = z.infolist()[1]
+    with open(rotto, "r+b") as f:                     # dati della seconda pagina azzerati a metà
+        f.seek(seconda.header_offset + 30 + len(seconda.filename) + seconda.compress_size // 2)
+        f.write(b"\0" * 64)
+    assert workers.prepare_comic(rotto) == [], "senza recupero il fumetto rovinato si salta"
+    task = workers.prepare_comic(rotto, recupera=True)
+    assert task and task[0]["recuperato"] == "2/3 pagine", task
+    pw = workers.ProcessingWorker(task, to_webp=False)
+    pw.run()
+    with zipfile.ZipFile(rotto) as z:
+        assert z.namelist() == ["0001.png", "0002.png"], z.namelist()
+
     # --- audit: errori che prima bloccavano l'app o rovinavano un fumetto
     au = os.path.join(work, "audit")
     os.makedirs(au)

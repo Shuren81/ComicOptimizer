@@ -394,7 +394,7 @@ class ProcessingWorker(QThread):
             'mode': 'webp' if self.to_webp else (
                 'info' if self.tasks and all(t.get('info_job') for t in self.tasks) else 'repair'),
             'total': len(self.tasks), 'done': 0, 'skipped': 0,
-            'errors': [], 'pages_kept': 0,
+            'errors': [], 'pages_kept': 0, 'recuperati': [],
             'size_before': 0, 'size_after': 0,
             'page_size': None,                 # (prima, dopo) della pagina più grande, per il riepilogo
             'aborted': False, 'start': time.time(),
@@ -441,7 +441,7 @@ class ProcessingWorker(QThread):
                 raise Aborted()
         loose = [task['src']] if task.get('loose_last') else ()
         try:
-            ready = prepare_comic(task['src'], loose, stop)
+            ready = prepare_comic(task['src'], loose, stop, recupera=not self.to_webp)
         except Exception as e:
             if self._is_running:
                 log.error(f"  ✗ '{os.path.basename(task['src'])}': estrazione non riuscita: {e}")
@@ -570,6 +570,9 @@ class ProcessingWorker(QThread):
                 summary['size_before'] += size_before
                 summary['size_after']  += size_after
                 result_label = "CONVERTITO (WebP)" if self.to_webp else "RIPARATO"
+                if task.get('recuperato'):
+                    result_label = f"RECUPERATO ({task['recuperato']})"
+                    summary['recuperati'].append((os.path.basename(orig_p), task['recuperato']))
                 log.info(f"  ✓ {result_label}: '{os.path.basename(final_p)}' — "
                          f"{fmt_size(size_before)} → {fmt_size(size_after)}")
                 for s in srcs:
@@ -865,27 +868,29 @@ class BatchPrepWorker(_Stoppable):
     def _prepare(self, p, total):
         name = os.path.basename(p)
         return prepare_comic(p, self.loose_last,
-                             lambda v, t: (self._stop_point(), self.page_progress.emit(name, v, t, total)))
+                             lambda v, t: (self._stop_point(), self.page_progress.emit(name, v, t, total)),
+                             recupera=not self.to_webp)
 
 
-def prepare_comic(p, loose_last=(), on_page=None):
+def prepare_comic(p, loose_last=(), on_page=None, recupera=False):
     """[task] di un fumetto pronto per ProcessingWorker (pagine estratte in una cartella temporanea),
-    [] se non si può elaborare. on_page(pagina, totale) durante l'estrazione: può fermarla (Aborted)."""
+    [] se non si può elaborare. on_page(pagina, totale) durante l'estrazione: può fermarla (Aborted).
+    `recupera` (Ripara): da un archivio rovinato si tengono le pagine che si leggono."""
     if os.path.isdir(p):
         return _folder_task(p, loose_last)
     tmp = make_temp_dir()
     try:
-        return _archive_task(p, tmp, on_page)
+        return _archive_task(p, tmp, on_page, recupera)
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
 
 
-def _archive_task(p, tmp, on_page):
+def _archive_task(p, tmp, on_page, recupera=False):
     log.info(f"Estrazione: '{os.path.basename(p)}' → '{tmp}'")
     ok = False
     try:
-        ok = extract_archive(p, tmp, on_page)
+        ok = extract_archive(p, tmp, on_page, recupera)
     except Exception as e:
         log.error(f"Estrazione: eccezione su '{p}': {e}")
 
@@ -898,7 +903,7 @@ def _archive_task(p, tmp, on_page):
     if not ok or not extracted:
         log.error(f"  ✗ Nessuna immagine estratta da '{os.path.basename(p)}' — file saltato")
         shutil.rmtree(tmp, ignore_errors=True)
-    elif len(extracted) < expected:
+    elif len(extracted) < expected and not recupera:
         log.error(f"  ✗ Estratte solo {len(extracted)} pagine su {expected} da "
                   f"'{os.path.basename(p)}' — file saltato, originale intatto")
         shutil.rmtree(tmp, ignore_errors=True)
@@ -917,6 +922,10 @@ def _archive_task(p, tmp, on_page):
         log.info(f"  ✓ {len(extracted)} immagini estratte correttamente"
                  f"{' + ComicInfo.xml' if comicinfo else ''}")
         task = {'src': p, 'images': extracted, 'tmp': tmp, 'comicinfo': comicinfo, 'edited': False}
+        if ok == "recuperato":
+            # un RAR troncato spesso non dà l'elenco delle pagine (expected 0): solo quante ne sono uscite
+            task['recuperato'] = f"{len(extracted)}" + (f"/{expected}" if expected >= len(extracted) else "") + " pagine"
+            log.warning(f"  ⚠ Recuperato da un archivio rovinato: {task['recuperato']}")
         if p.lower().endswith('.epub') and not comicinfo:
             info = {k: v for k, v in epub_meta(p).items() if v}
             if info:
