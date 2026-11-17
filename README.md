@@ -1,6 +1,6 @@
 ![ComicOptimizer](comicoptimizer_banner.png)
 
-### 📚 ComicOptimizer v3.11.15
+### 📚 ComicOptimizer v3.11.16
 
 La soluzione definitiva per la gestione, riparazione e ottimizzazione della tua libreria di fumetti digitali.
 
@@ -189,7 +189,7 @@ Lo script per Windows usa le stesse opzioni della compilazione automatica su Git
 
 ### 🛡️ Privacy e Sicurezza
 
-**100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC. Unica eccezione, solo se la usi tu: la *Ricerca online* (finestra Info e rinomina) invia alla fonte scelta (ComicVine, MyAnimeList, AniList o ComicsBox) **il testo che vedi e confermi**, con la tua chiave API se la fonte ne chiede una, e ne scarica schede e copertine. Mai i file né il percorso. Senza aprirla l'app non usa Internet.
+**100% Locale:** Nessun dato o immagine viene caricato su server esterni. Tutto avviene sul tuo PC. Unica eccezione, solo se la usi tu: la *Ricerca online* (finestra Info e rinomina) invia alla fonte scelta (ComicVine, MyAnimeList, AniList o ComicsBox) **il testo che vedi e confermi**, con la tua chiave API se la fonte ne chiede una, e ne scarica schede e copertine (le pagine di ComicsBox restano in una cache locale, `comicsbox.sqlite` accanto al log, per 14 giorni). Mai i file né il percorso. Senza aprirla l'app non usa Internet.
 
 **Resilienza:** Se interrompi un'operazione, i tuoi file originali rimangono intatti: vengono spostati nel cestino solo dopo che il nuovo archivio è stato creato e verificato. Se il cestino non è disponibile (per esempio su un disco di rete) l'originale resta al suo posto: nulla viene cancellato definitivamente, a meno che tu non lo scelga nelle Opzioni (e anche allora solo dopo la verifica del nuovo CBZ). Le cartelle temporanee vengono sempre ripulite.
 

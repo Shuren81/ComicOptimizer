@@ -1,8 +1,10 @@
 """Fonti di ricerca online: ComicVine, MyAnimeList e ComicsBox. Nessuna dipendenza dall'interfaccia."""
 import html
 import json
+import os
 import re
 import socket
+import sqlite3
 import ssl
 import threading
 import time
@@ -10,9 +12,10 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 
 from .comicinfo import pulisci_numero, togli_maiuscole
-from .logsetup import log
+from .logsetup import LOG_PATH, log
 
 try:
     from bs4 import BeautifulSoup
@@ -471,10 +474,32 @@ cb_pagine = {}
 cb_memoria = {}  # tutti i risultati trovati finché il programma è aperto, per riusarli sui file dopo
 
 
+CB_CACHE = os.path.join(os.path.dirname(os.path.abspath(LOG_PATH)), "comicsbox.sqlite")
+CB_SCADENZA = 14 * 24 * 3600   # poi si riscarica: le serie in corso hanno numeri nuovi
+
+
+def _cb_cache(url, pagina=None):
+    """Legge (o salva) una pagina dalla cache su disco; se il file non si apre si va avanti senza."""
+    try:
+        with sqlite3.connect(CB_CACHE) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS pagine (url TEXT PRIMARY KEY, quando REAL, html BLOB)")
+            if pagina is not None:
+                db.execute("REPLACE INTO pagine VALUES (?, ?, ?)", (url, time.time(), zlib.compress(pagina.encode())))
+                return pagina
+            riga = db.execute("SELECT html FROM pagine WHERE url = ? AND quando > ?",
+                              (url, time.time() - CB_SCADENZA)).fetchone()
+            return zlib.decompress(riga[0]).decode() if riga else None
+    except (sqlite3.Error, zlib.error) as e:
+        log.warning(f"ComicsBox: cache non disponibile ({e})")
+        return None
+
+
 def cb_scarica(url):
     # ComicsBox risponde 429 già dopo poche ricerche ravvicinate: una richiesta alla volta,
-    # mai due volte la stessa pagina e attesa automatica prima di arrendersi
+    # mai due volte la stessa pagina (anche fra un avvio e l'altro) e attesa prima di arrendersi
     with cb_blocco:
+        if url not in cb_pagine and (salvata := _cb_cache(url)) is not None:
+            cb_pagine[url] = salvata
         if url not in cb_pagine:
             for attesa in (15, 30, None):
                 try:
@@ -486,6 +511,7 @@ def cb_scarica(url):
                     if attesa is None:
                         raise ErroreRicerca("ComicsBox limita le richieste troppo ravvicinate. Riprova tra un minuto.", 429)
                     time.sleep(attesa)
+            _cb_cache(url, cb_pagine[url])
         return cb_pagine[url]
 
 
@@ -548,15 +574,44 @@ def cb_cerca(_chiave, query):
         risultati = cb_analizza_pagina(
             cb_scarica(f"{CB_SITO}search.php?stringa={urllib.parse.quote(testo)}&criterio=ita"), testo)
         if risultati:   # in ordine col numero cercato, anche se l'ha trovata la ricerca della sola serie
-            return cb_con_albi(risultati, numero.group(1) if numero else query)
+            return cb_con_albi(risultati, numero.group(1) if numero else query, query)
     return []
 
 
-def cb_con_albi(risultati, query):
+def cb_albo_diretto(serie, nome):
+    """Il numero si apre direttamente: /serie/UR_SM -> /albo/UR_SM_831. Si prova nelle 3 serie
+    con più parole del nome del file ("Amazing Spider Man" sceglie L'Uomo Ragno/Spider-Man)."""
+    fino_al_numero = re.match(r"^(.*?\d+)\b", nome)
+    numero = fino_al_numero and separa_numero(fino_al_numero.group(1))[1]
+    if not numero:   # "31A", "1/2": indirizzo non prevedibile
+        return None
+    cercate = set(parole(nome))
+    serie = sorted(serie, key=lambda r: -len(cercate & set(parole(r["etichetta"]))))
+    for s in serie[:3]:
+        url = s["grezzo"]["url"].replace("/serie/", "/albo/").rstrip("/") + "_" + numero.zfill(3)
+        try:
+            titolo = BeautifulSoup(cb_scarica(url), "html.parser").title
+        except ErroreRicerca as e:
+            if e.codice == 404:   # questa serie non ha quel numero
+                continue
+            log.warning(f"ComicsBox: {url} non letto: {e}")
+            break
+        if titolo:
+            etichetta = titolo.get_text(strip=True).split(" :: ")[0]
+            campi = cb_analizza_etichetta(etichetta)
+            campi.setdefault("Publisher", s["campi"].get("Publisher", ""))
+            return {"etichetta": etichetta, "copertina": None, "campi": campi,
+                    "note": [f"Scheda ComicsBox: {url}"], "grezzo": {"url": url}}
+    return None
+
+
+def cb_con_albi(risultati, query, nome=""):
     """Il sito trova soprattutto le serie: delle prime due si aggiungono tutti gli albi (Absolute Batman #1, #2…).
     Solo due pagine in più, per non far scattare il limite di richieste di ComicsBox."""
-    visti = {r["grezzo"]["url"] for r in risultati}
-    for serie in [r for r in risultati if "/serie/" in r["grezzo"]["url"]][:2]:
+    serie_trovate = [r for r in risultati if "/serie/" in r["grezzo"]["url"]]
+    diretto = cb_albo_diretto(serie_trovate, nome) if serie_trovate else None
+    visti = {r["grezzo"]["url"] for r in risultati + ([diretto] if diretto else [])}
+    for serie in serie_trovate[:2]:
         codice = serie["grezzo"]["url"].rstrip("/").rsplit("/", 1)[-1]
         try:
             pagina = cb_scarica(serie["grezzo"]["url"])
@@ -568,7 +623,9 @@ def cb_con_albi(risultati, query):
                 visti.add(albo["grezzo"]["url"])
                 albo["campi"].setdefault("Publisher", serie["campi"].get("Publisher", ""))
                 risultati.append(albo)
-    return cb_ordina(risultati, query)
+    if not diretto:
+        return cb_ordina(risultati, query)
+    return [diretto] + cb_ordina([r for r in risultati if r["grezzo"]["url"] != diretto["grezzo"]["url"]], query)
 
 
 def cb_testo(zuppa, selettore):

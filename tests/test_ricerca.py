@@ -1,6 +1,7 @@
 """Controlli sulle fonti di ricerca, senza rete e senza aprire finestre: python3 -m unittest"""
 import os
 import sys
+import tempfile
 import unittest
 import urllib.parse
 from unittest import mock
@@ -9,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from comicoptimizer import ricerca
 from bs4 import BeautifulSoup
+
+ricerca.CB_CACHE = os.path.join(tempfile.mkdtemp(), "comicsbox.sqlite")   # mai la cache vera
 
 RISULTATI = """
 <a href="/serie/ALTRA">ALTRA DYLAN DOG (X)</a>
@@ -94,6 +97,17 @@ class TestComicsBox(unittest.TestCase):
             self.assertEqual(ricerca.cb_scarica("http://x/2"), "ok")
         self.assertEqual(richiesta.call_count, 1)
 
+    def test_cache_su_disco(self):
+        with mock.patch.object(ricerca, "richiesta_bytes", return_value=b"salvata") as richiesta:
+            ricerca.cb_scarica("http://x/3")
+            ricerca.cb_pagine.clear()                     # come riaprire il programma
+            self.assertEqual(ricerca.cb_scarica("http://x/3"), "salvata")
+            self.assertEqual(richiesta.call_count, 1)
+            ricerca.cb_pagine.clear()
+            with mock.patch.object(ricerca.time, "time", return_value=ricerca.time.time() + ricerca.CB_SCADENZA + 1):
+                ricerca.cb_scarica("http://x/3")          # scaduta: si riscarica
+            self.assertEqual(richiesta.call_count, 2)
+
 
 class TestComicsBoxRiprova(unittest.TestCase):
     """Il sito cerca solo serie e numero: senza risultati si riprova con meno parole."""
@@ -125,7 +139,8 @@ class TestComicsBoxSerie(unittest.TestCase):
                              f'<a href="/albo/ABSBATITA_{n:03d}">Absolute Batman # {n}</a>' for n in range(1, 12))
         serie_html += '<a href="/albo/ALTRA_001">Altra serie # 1</a>'
         # come il sito vero: "Absolute Batman 2" non trova niente, "Absolute Batman" trova la serie
-        pagine = {"stringa=Absolute%20Batman%202": "", "search.php": ricerca_html, "serie/ABSBATITA": serie_html}
+        pagine = {"stringa=Absolute%20Batman%202": "", "search.php": ricerca_html, "serie/ABSBATITA": serie_html,
+                  "albo/ABSBATITA_002": "<title>Absolute Batman # 2 :: ComicsBox</title>"}
         with mock.patch.object(ricerca, "cb_scarica",
                                side_effect=lambda url: next(v for k, v in pagine.items() if k in url)):
             risultati = ricerca.cb_cerca("", "Absolute Batman 2")
@@ -135,6 +150,27 @@ class TestComicsBoxSerie(unittest.TestCase):
         self.assertEqual(sum(e.startswith("Absolute Batman #") for e in etichette), 11)
         self.assertNotIn("Altra serie # 1", etichette)
         self.assertEqual(risultati[0]["campi"]["Publisher"], "Panini Comics")
+
+    def test_numero_diretto_nella_serie_giusta(self):
+        """L'Uomo Ragno/Spider-Man # 831: la serie ha più parole del nome, l'albo si apre da /albo/UR_SM_831."""
+        ricerca_html = ('<a href="/serie/UR_C1">L&#039;UOMO RAGNO (Editoriale Corno)</a>'
+                        '<a href="/serie/UR_SM">L&#039;UOMO RAGNO/SPIDER-MAN (Panini Comics)</a>')
+        chiesti = []
+
+        def sito(url):
+            chiesti.append(url)
+            if "albo/UR_C1_831" in url:
+                raise ricerca.ErroreRicerca("HTTP 404", 404)
+            if "albo/UR_SM_831" in url:
+                return "<title>L&#039;Uomo Ragno/Spider-Man # 831 - Amazing Spider-Man 31 :: ComicsBox</title>"
+            return "" if "831" in url else ricerca_html
+        with mock.patch.object(ricerca, "cb_scarica", side_effect=sito):
+            risultati = ricerca.cb_cerca("", "L'Uomo Ragno 831 Amazing Spider Man 31 webp")
+        self.assertEqual(risultati[0]["grezzo"]["url"], "https://www.comicsbox.it/albo/UR_SM_831")
+        self.assertEqual(risultati[0]["campi"]["Number"], "831")
+        self.assertEqual(risultati[0]["campi"]["Publisher"], "Panini Comics")
+        self.assertFalse(any("UR_C1_831" in u for u in chiesti), "Spider-Man ha più parole: provata per prima")
+        self.assertEqual(ricerca.cb_albo_diretto([], "Batman 31A"), None)
 
     def test_serie_bloccata_restano_i_risultati(self):
         def sito(url):

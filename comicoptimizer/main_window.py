@@ -1444,7 +1444,10 @@ class MainWindow(QMainWindow):
                     log.error(f"Rinomina fallita: '{os.path.basename(old)}': {e}")
                     errors.append(f"{os.path.basename(old)}: {e}")
                     continue
-                log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
+                if os.path.basename(old) == os.path.basename(new):
+                    log.info(f"Spostato in '{os.path.dirname(new)}': '{os.path.basename(new)}'")
+                else:
+                    log.info(f"Rinominato: '{os.path.basename(old)}' → '{os.path.basename(new)}'")
                 if batch:
                     history.record(batch, old, new)
                 done.append((old, new))

@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.16] — 2026-11-17
+
+- **Corretto:** ComicsBox non trovava i numeri oltre il 50 delle serie lunghe e sceglieva la serie sbagliata: cercando «L'Uomo Ragno 831 Amazing Spider Man 31» apriva le serie della Corno. Ora il numero si apre direttamente dalla serie (`/serie/UR_SM` → `/albo/UR_SM_831`), provando le 3 serie con più parole in comune col nome del file, e va in cima ai risultati.
+- **Log:** un fumetto spostato nella libreria senza cambiare nome compare come «Spostato in <cartella>», non più come «Rinominato» con due nomi uguali.
+- **Più veloce:** le pagine di ComicsBox restano sul disco per 14 giorni (`comicsbox.sqlite`, accanto al log): cercare di nuovo una serie già vista non contatta il sito e non fa scattare il suo limite di richieste.
+
 ## [3.11.15] — 2026-11-16
 
 - **Corretto:** convertendo in WebP una pagina già molto compressa (o già WebP, con «Ricomprimi»), la pagina convertita poteva pesare più dell'originale: un fumetto è passato da 45 a 127 MB. Ora quella pagina resta com'era, e il fumetto non cresce più. Fanno eccezione le pagine rimpicciolite apposta con «Leggi su». Il fumetto risulta comunque convertito.
