@@ -44,7 +44,7 @@ from . import aggiorna, history
 from .dialogs import HistoryDialog, LogWindow, MergeDialog, StopDialog
 from .metadata_dialog import ConfermaRinomina, MetadataDialog, in_background
 from .editor import AdvancedEditor
-from .library import LibraryView
+from .library import LibraryView, cartelle_vuote, librerie
 from .logsetup import LOG_PATH, _qt_log_handler, log
 from .pdf import HAS_PDF
 from .style import _VisibilityWatcher, set_variant
@@ -1461,6 +1461,12 @@ class MainWindow(QMainWindow):
                     self._loose_last.add(new)
         finally:
             self._spostando = False
+        # la cartella di partenza rimasta vuota va nel cestino (mai la libreria né le cartelle sopra)
+        for vuota in cartelle_vuote([os.path.dirname(o) for o, n in done if os.path.dirname(o) != os.path.dirname(n)],
+                                    librerie() + [self.library.root]):
+            log.info(f"Cartella vuota nel cestino: '{vuota}'")
+            if not _trash_file_cross_platform(vuota):
+                log.warning(f"  → non spostata nel cestino: '{vuota}'")
         self.reset_ui()
         self.refresh_grid()
         if errors:

@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.11.17] — 2026-11-17
+
+- **Nuovo:** dopo aver spostato dei fumetti (nella libreria o fra le sue cartelle), la cartella di partenza rimasta vuota va nel cestino. Dentro la libreria si cestinano anche le cartelle sopra rimaste vuote (es. «DC Comics» dopo «Batman»), mai la cartella della libreria; fuori dalla libreria solo la cartella del fumetto, mai quelle sopra (es. Download). Una cartella con dentro qualcos'altro, anche un file nascosto, resta.
+
 ## [3.11.16] — 2026-11-17
 
 - **Corretto:** ComicsBox non trovava i numeri oltre il 50 delle serie lunghe e sceglieva la serie sbagliata: cercando «L'Uomo Ragno 831 Amazing Spider Man 31» apriva le serie della Corno. Ora il numero si apre direttamente dalla serie (`/serie/UR_SM` → `/albo/UR_SM_831`), provando le 3 serie con più parole in comune col nome del file, e va in cima ai risultati.

@@ -99,6 +99,23 @@ def cartella_da_schema(schema, valori):
     return os.path.join(*[p for p in pezzi if p]) if any(pezzi) else ""
 
 
+def cartelle_vuote(cartelle, radici):
+    """Le cartelle rimaste vuote dopo uno spostamento, da cestinare. Dentro una libreria si sale
+    finché il genitore è vuoto (DC Comics/Batman → DC Comics), mai la libreria stessa; fuori solo
+    la cartella del fumetto, mai i genitori (Download)."""
+    radici = [os.path.normpath(r) for r in radici if r]
+    vuote = []
+    for c in dict.fromkeys(os.path.normpath(c) for c in cartelle):
+        while (c not in radici and c not in vuote and os.path.isdir(c)
+               and all(os.path.join(c, f) in vuote for f in os.listdir(c))):
+            vuote.append(c)
+            if not any(c.startswith(r + os.sep) for r in radici):
+                break
+            c = os.path.dirname(c)
+    # "DC Comics" si cestina con dentro "Batman": basta la più esterna
+    return [c for c in vuote if not any(c.startswith(v + os.sep) for v in vuote)]
+
+
 def piano_spostamenti(root, schema, paths):
     """([(vecchio, nuovo)], [senza info]). Un nome già usato prende un suffisso: mai sovrascrivere."""
     piano, senza_info, riservati = [], [], set()

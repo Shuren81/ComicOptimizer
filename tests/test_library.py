@@ -414,6 +414,21 @@ def test_thread_finito(app, work):
     assert t not in workers._IN_CHIUSURA
 
 
+def test_cartelle_vuote(app, work):
+    from comicoptimizer.library import cartelle_vuote
+    lib = os.path.join(work, "vuote", "lib")
+    batman, dc = os.path.join(lib, "DC", "Batman"), os.path.join(lib, "DC")
+    fuori = os.path.join(work, "vuote", "Download", "Fumetto")
+    piena = os.path.join(lib, "Marvel", "Thor")
+    for c in (batman, fuori, piena):
+        os.makedirs(c)
+    open(os.path.join(piena, "Thor 1.cbz"), "w").close()
+    assert cartelle_vuote([batman, fuori, piena, lib], [lib]) == [dc, fuori], \
+        "in libreria sale fino a DC (mai la libreria), fuori solo la cartella del fumetto, mai una piena"
+    os.makedirs(os.path.join(dc, "Superman"))
+    assert cartelle_vuote([batman], [lib]) == [batman], "in DC c'è altro (Superman): DC resta"
+
+
 def test_sposta(app, work):
     from PyQt6.QtWidgets import QDialog, QMessageBox
     from comicoptimizer import history, library, metadata_dialog
@@ -613,7 +628,10 @@ def main():
         QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         from comicoptimizer import history
         history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")
-        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_thread_finito, test_sposta):
+        from comicoptimizer import main_window   # niente nel cestino vero: si cancella e basta
+        main_window._trash_file_cross_platform = lambda p: (shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)) or True
+        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_thread_finito, test_cartelle_vuote,
+                      test_sposta):
             cartella = os.path.join(work, prova.__name__)
             os.makedirs(cartella)
             prova(app, cartella)
