@@ -1,5 +1,6 @@
-"""Finestra Opzioni: librerie, conversione in WebP, Info e rinomina."""
+"""Finestra Opzioni: librerie, conversione in WebP, Info e rinomina, programmi esterni."""
 import os
+import subprocess
 
 from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtWidgets import (
@@ -25,7 +26,9 @@ from .comicinfo import togli_tag_schema
 from .config import MINIATURE, WEBP_LATI, WEBP_LIVELLI, WEBP_QUALITY, opzione
 from .library import (CAMPI_CARTELLE, MAX_LIBRERIE, SCHEMA_PREDEFINITO, info_libreria, librerie,
                       salva_info)
-from .metadata_dialog import CAMPI_TESTO, SETTINGS
+from . import utils
+from .logsetup import log
+from .metadata_dialog import CAMPI_TESTO, SETTINGS, in_background
 from .style import set_variant
 
 
@@ -128,10 +131,66 @@ class Opzioni(QDialog):
         f.addRow("Schema:", self.rinomina)
         f.addRow("", self._tasti(lambda: self.rinomina, [c for c in CAMPI_TESTO if c != "Summary"]))
 
+        f = self._gruppo(l, "Programmi esterni")
+        riga = QHBoxLayout()
+        self.dipendenze = QLabel()
+        self.installa = QPushButton("Installa mancanti")
+        self.installa.setAutoDefault(False)
+        self.installa.clicked.connect(self._installa)
+        riga.addWidget(self.dipendenze)
+        riga.addStretch()
+        riga.addWidget(self.installa)
+        f.addRow(riga)
+        self._mostra_dipendenze()
+
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         l.addWidget(bb)
+
+    def _mostra_dipendenze(self):
+        programmi, librerie = utils.dipendenze_mancanti()
+        voci = [f"{p} {'✗' if p in programmi else '✓'}" for p in (("7z",) if utils.IS_WIN or utils.IS_MAC
+                                                                   else ("7z", "unrar"))]
+        voci.append("librerie " + ("✗ " + ", ".join(librerie) if librerie else "✓"))
+        self.dipendenze.setText(" · ".join(voci))
+        self.installa.setVisible(bool(programmi or librerie))
+
+    def _installa(self):
+        comandi = utils.comandi_installazione(*utils.dipendenze_mancanti())
+        if comandi is None:
+            QMessageBox.information(self, "Programmi esterni", (
+                "Installa 7-Zip da https://www.7-zip.org" + (" (oppure: brew install sevenzip)"
+                                                            if utils.IS_MAC else "")
+                if utils.IS_WIN or utils.IS_MAC else
+                "Non trovo apt, dnf o pacman: installa 7z (p7zip) e unrar con il gestore pacchetti "
+                "della tua distribuzione."))
+            return
+        self.installa.setEnabled(False)
+        self.installa.setText("Installo…")
+
+        def lavoro():
+            falliti = []
+            for c in comandi:
+                log.info(f"Installazione: {' '.join(c)}")
+                r = subprocess.run(c, capture_output=True, timeout=900)
+                if r.returncode:
+                    log.error(f"  rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
+                    falliti.append(" ".join(c))
+            return falliti
+
+        def fine(falliti, errore):
+            utils._TOOL_CACHE.clear()                 # 7z/unrar appena installati: ricercarli
+            self.installa.setEnabled(True)
+            self.installa.setText("Installa mancanti")
+            self._mostra_dipendenze()
+            if errore or falliti:
+                QMessageBox.warning(self, "Programmi esterni", "Installazione non riuscita (dettagli nel log):\n"
+                                    + (str(errore) if errore else "\n".join(falliti)))
+            elif any(c[1:3] == ["-m", "pip"] for c in comandi):
+                QMessageBox.information(self, "Programmi esterni",
+                                        "Installato. Riavvia il programma per usare le librerie nuove.")
+        in_background(self, lavoro, fine)
 
     def _gruppo(self, l, titolo):
         g = QGroupBox(titolo)

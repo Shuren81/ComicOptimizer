@@ -570,7 +570,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, "Dipendenze mancanti",
                 "Mancano: " + ", ".join(m) +
-                "\n\nsudo apt install p7zip-full unrar\npip install pymupdf send2trash"
+                "\n\nSi installano da Opzioni → Programmi esterni → Installa mancanti,"
+                "\noppure: sudo apt install p7zip-full unrar"
             )
 
     def init_ui(self):

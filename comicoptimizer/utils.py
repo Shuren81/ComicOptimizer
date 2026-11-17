@@ -363,3 +363,36 @@ def fmt_duration(sec):
 
 _ARCHIVE_EXTS = ('.cbz', '.cbr', '.zip', '.rar', '.pdf', '.cb7', '.7z', '.epub')
 
+
+
+# --- DIPENDENZE MANCANTI (Opzioni → Installa mancanti) ---
+
+# nomi dei pacchetti per gestore; l'ordine conta: il primo gestore presente vince
+PACCHETTI = {"apt": {"7z": "p7zip-full", "unrar": "unrar"},
+             "dnf": {"7z": "p7zip-plugins", "unrar": "unrar"},
+             "pacman": {"7z": "7zip", "unrar": "unrar"}}
+LIBRERIE = {"pymupdf": "pymupdf", "send2trash": "send2trash", "bs4": "beautifulsoup4"}
+
+
+def dipendenze_mancanti():
+    """(programmi, librerie) che mancano. Su Windows e Mac basta 7z (legge anche i RAR); nell'app
+    impacchettata le librerie Python sono incluse."""
+    import importlib.util
+    programmi = ["7z"] if IS_WIN or IS_MAC else ["7z", "unrar"]
+    librerie = [] if getattr(sys, "frozen", False) else \
+        [pip for modulo, pip in LIBRERIE.items() if importlib.util.find_spec(modulo) is None]
+    return [p for p in programmi if not find_tool(p)], librerie
+
+
+def comandi_installazione(programmi, librerie, trova=shutil.which):
+    """I comandi per installare ciò che manca. None se servono programmi ma non c'è un gestore noto
+    (Windows, Mac, Linux senza apt/dnf/pacman): allora si installano a mano."""
+    comandi = [[sys.executable, "-m", "pip", "install", *librerie]] if librerie else []
+    if not programmi:
+        return comandi
+    gestore = None if IS_WIN or IS_MAC else next((g for g in PACCHETTI if trova(g)), None)
+    if not gestore:
+        return None
+    nomi = [PACCHETTI[gestore][p] for p in programmi]
+    installa = ["-S", "--noconfirm"] if gestore == "pacman" else ["install", "-y"]
+    return comandi + [["pkexec", gestore, *installa, *nomi]]   # pkexec: il sistema chiede la password

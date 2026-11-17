@@ -58,10 +58,37 @@ def test_check_deps():
     w._closing = True
 
 
+def test_installa_mancanti():
+    from comicoptimizer import utils
+    from comicoptimizer import main_window as mw
+    from comicoptimizer.opzioni import Opzioni
+    utils.IS_MAC = utils.IS_WIN = False
+    c = lambda *gestori: (lambda n: n in gestori)
+    assert utils.comandi_installazione(["7z", "unrar"], [], c("apt", "dnf")) == \
+        [["pkexec", "apt", "install", "-y", "p7zip-full", "unrar"]], "il primo gestore presente"
+    assert utils.comandi_installazione(["unrar"], [], c("pacman")) == [["pkexec", "pacman", "-S", "--noconfirm", "unrar"]]
+    assert utils.comandi_installazione(["7z"], [], c()) is None, "gestore sconosciuto: a mano"
+    assert utils.comandi_installazione([], ["send2trash"], c()) == [[sys.executable, "-m", "pip", "install", "send2trash"]]
+    utils.IS_MAC = True
+    assert utils.comandi_installazione(["7z"], [], c("apt")) is None, "sul Mac niente apt"
+    utils.IS_MAC = False
+
+    mancano = [(["unrar"], [])]
+    utils.dipendenze_mancanti = lambda: mancano[0]
+    w = mw.MainWindow()
+    o = Opzioni(w.library)
+    assert o.dipendenze.text() == "7z ✓ · unrar ✗ · librerie ✓" and o.installa.isVisibleTo(o)
+    mancano[0] = ([], [])
+    o._mostra_dipendenze()
+    assert not o.installa.isVisibleTo(o), "niente da installare: niente pulsante"
+    w._closing = True
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
         test_find_tool(work)
         test_log_path(work)
         test_check_deps()
+        test_installa_mancanti()
     print("TUTTO OK")

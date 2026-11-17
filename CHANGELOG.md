@@ -2,6 +2,7 @@
 
 ## [3.11.17] — 2026-11-17
 
+- **Nuovo:** nelle **Opzioni**, la riga **Programmi esterni** mostra se ci sono 7z, unrar e le librerie del programma. Se manca qualcosa, **Installa mancanti** lo installa: su Linux con apt, dnf o pacman (il sistema chiede la password), dal codice sorgente con pip. Su Windows e Mac indica dove scaricare 7-Zip.
 - **Nuovo:** **Ripara/Converti CBZ** recupera i fumetti rovinati invece di saltarli: da un archivio troncato (download interrotto) o con una pagina rovinata tiene le pagine che si leggono, anche l'ultima troncata a metà. Nel log e nel riepilogo il fumetto compare come **RECUPERATO** con il numero di pagine; l'originale va nel cestino come sempre. Con *Converti WebP* un fumetto rovinato si salta ancora.
 - **Nuovo:** dopo aver spostato dei fumetti (nella libreria o fra le sue cartelle), la cartella di partenza rimasta vuota va nel cestino. Dentro la libreria si cestinano anche le cartelle sopra rimaste vuote (es. «DC Comics» dopo «Batman»), mai la cartella della libreria; fuori dalla libreria solo la cartella del fumetto, mai quelle sopra (es. Download). Una cartella con dentro qualcos'altro, anche un file nascosto, resta.
 
