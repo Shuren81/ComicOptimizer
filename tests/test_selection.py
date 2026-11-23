@@ -67,10 +67,15 @@ def main(work):
     mouse(b, QEvent.Type.MouseButtonPress, QPoint(10, 10), Qt.KeyboardModifier.ShiftModifier)
     mouse(b, QEvent.Type.MouseButtonRelease, QPoint(10, 10), Qt.KeyboardModifier.ShiftModifier)
     assert selected() == {card(0, i) for i in range(3)} and w.btn_merge.isVisible()
-    # click di nuovo: deseleziona
+    # Ctrl+click: toglie e rimette
+    ctrl = Qt.KeyboardModifier.ControlModifier
+    mouse(b, QEvent.Type.MouseButtonPress, QPoint(10, 10), ctrl)
+    mouse(b, QEvent.Type.MouseButtonRelease, QPoint(10, 10), ctrl)
+    assert selected() == {card(0, 0), card(0, 1)}
+    # click semplice: resta solo quella cliccata
     mouse(b, QEvent.Type.MouseButtonPress, QPoint(10, 10))
     mouse(b, QEvent.Type.MouseButtonRelease, QPoint(10, 10))
-    assert b not in selected()
+    assert selected() == {b}
 
     # Esc, Ctrl+A, pulsante seleziona/deseleziona tutto
     key = lambda k, m=NO: w.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, k, m))
@@ -98,12 +103,15 @@ def main(work):
     mouse(grid, QEvent.Type.MouseMove, center(card(1, 1)))
     mouse(grid, QEvent.Type.MouseButtonRelease, center(card(1, 1)))
     assert selected() == box and not sel.band.isVisible() and w.btn_merge.isVisible()
-    # Ctrl+trascinamento: toglie solo la riga 0
-    ctrl = Qt.KeyboardModifier.ControlModifier
+    # trascinamento semplice: sostituisce la selezione; con Ctrl aggiunge
+    mouse(grid, QEvent.Type.MouseButtonPress, center(card(2, 0)))
+    mouse(grid, QEvent.Type.MouseMove, center(card(2, 1)))
+    mouse(grid, QEvent.Type.MouseButtonRelease, center(card(2, 1)))
+    assert selected() == {card(2, 0), card(2, 1)}
     mouse(grid, QEvent.Type.MouseButtonPress, center(card(0, 0)), ctrl)
     mouse(grid, QEvent.Type.MouseMove, center(card(0, 1)), ctrl)
     mouse(grid, QEvent.Type.MouseButtonRelease, center(card(0, 1)), ctrl)
-    assert selected() == {card(1, 0), card(1, 1)}
+    assert selected() == {card(2, 0), card(2, 1), card(0, 0), card(0, 1)}
 
     # i pulsanti dentro la card non cambiano la selezione
     before = selected()

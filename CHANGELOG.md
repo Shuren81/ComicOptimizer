@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.12.5] — 2026-11-23
+
+- **Cambiato: selezione classica** nella Libreria, nella lista di lavoro e in Pagine: un click sceglie solo quello cliccato (sul vuoto toglie la selezione), **Ctrl+click** aggiunge o toglie, **Shift+click** seleziona un intervallo, trascinando si fa un riquadro (con Ctrl si aggiunge alla selezione).
+
 ## [3.12.4] — 2026-11-23
 
 - **Corretto:** nella Libreria le scritte sotto le copertine erano ad altezze diverse e a volte tagliate (copertine di proporzioni diverse): ora ogni copertina ha lo stesso spazio, appoggiata in basso.

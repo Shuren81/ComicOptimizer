@@ -73,9 +73,9 @@ from .workers import (
 
 class _DragSelector(QObject):
     """
-    Filtro sulla griglia delle card. Click su una card: la seleziona o deseleziona
-    (Shift: intervallo). Trascinamento: riquadro che aggiunge alla selezione le card
-    toccate (con Ctrl le toglie); vicino al bordo la griglia scorre da sola.
+    Filtro sulla griglia delle card, selezione classica. Click: solo quella card (sul vuoto: nessuna);
+    Ctrl+click: la aggiunge o la toglie; Shift+click: intervallo. Trascinamento: riquadro che seleziona
+    le card toccate (con Ctrl le aggiunge alla selezione); vicino al bordo la griglia scorre da sola.
     """
     EDGE = 30   # px dal bordo della griglia visibile in cui parte lo scorrimento
 
@@ -113,10 +113,18 @@ class _DragSelector(QObject):
                 self.timer.stop()
             else:
                 card = self._card_at(self.origin)
+                ctrl = bool(self.mods & Qt.KeyboardModifier.ControlModifier)
+                if not ctrl:                          # click semplice: resta solo quella cliccata
+                    for c in self.win.cards.values():
+                        if c.selected:
+                            c.selected = False
+                            c.update_style()
                 if card:
-                    card.selected = not card.selected
+                    card.selected = not card.selected if ctrl else True
                     card.update_style()
                     self.win.handle_selection(card, self.mods)
+                else:
+                    self.win._update_sel_buttons()
             self.origin = None
             return True
         return False
@@ -130,10 +138,10 @@ class _DragSelector(QObject):
     def _update(self, pos):
         rect = QRect(self.origin, pos).normalized()
         self.band.setGeometry(rect)
-        remove = bool(self.mods & Qt.KeyboardModifier.ControlModifier)
+        aggiungi = bool(self.mods & Qt.KeyboardModifier.ControlModifier)
         for c, was in self.initial.items():
             hit = c.parent() is self.win.grid_w and c.geometry().intersects(rect)
-            sel = (was and not hit) if remove else (was or hit)
+            sel = hit or (was and aggiungi)
             if sel != c.selected:
                 c.selected = sel
                 c.update_style()
@@ -154,8 +162,8 @@ class _DragSelector(QObject):
 # --- LISTA VUOTA ---
 
 _HINT_CARDS = "Clicca sulle card o trascina il mouse per selezionarle"
-_HINT_CARDS_TIP = ("Shift+click: seleziona un intervallo\n"
-                   "Ctrl+trascina: toglie dalla selezione\n"
+_HINT_CARDS_TIP = ("Ctrl+click: aggiunge o toglie · Shift+click: seleziona un intervallo\n"
+                   "Ctrl+trascina: aggiunge alla selezione\n"
                    "Ctrl+A: seleziona tutto · Esc: deseleziona")
 _EMPTY_HINTS = [
     "Nessun fumetto all'orizzonte: trascinali nella finestra e cominciamo.",

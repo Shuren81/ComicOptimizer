@@ -132,18 +132,20 @@ def test_vista(app, lib):
     assert not any(t.startswith("Cestina doppioni") for t in voci_azioni()), "niente doppioni qui"
     win.process_paths = vero_process
 
-    # click semplice: aggiunge o toglie quel fumetto (come Ctrl+click)
+    # selezione classica: il click sceglie solo quello, Ctrl+click aggiunge o toglie
     from PyQt6.QtTest import QTest
     from PyQt6.QtCore import Qt as _Qt2
     win.show()
     attendi(app, lambda: False, 0.2)
-    clicca = lambda i: QTest.mouseClick(v.list.viewport(), _Qt2.MouseButton.LeftButton, pos=v.list.visualItemRect(
-        v.list.item(i)).center())
+    clicca = lambda i, m=_Qt2.KeyboardModifier.NoModifier: QTest.mouseClick(
+        v.list.viewport(), _Qt2.MouseButton.LeftButton, m, v.list.visualItemRect(v.list.item(i)).center())
     assert v.selected() == [v.paths[0]]
     clicca(1)
-    assert sorted(v.selected()) == sorted(v.paths), "il secondo si aggiunge"
-    clicca(0)
-    assert v.selected() == [v.paths[1]], "cliccato di nuovo: si deseleziona"
+    assert v.selected() == [v.paths[1]], "il click sceglie solo il secondo"
+    clicca(0, _Qt2.KeyboardModifier.ControlModifier)
+    assert sorted(v.selected()) == sorted(v.paths), "Ctrl+click aggiunge"
+    clicca(1, _Qt2.KeyboardModifier.ControlModifier)
+    assert v.selected() == [v.paths[0]], "Ctrl+click di nuovo: lo toglie"
     win.hide()
 
     # apri cartella: pulsante e tasto destro aprono la cartella giusta nel gestore file

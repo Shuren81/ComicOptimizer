@@ -259,7 +259,7 @@ class AdvancedEditor(QDialog):
         l.addWidget(sp)
 
         w.mouseDoubleClickEvent = lambda e: self.preview(w)
-        w.mousePressEvent = lambda e: self.seleziona(w) if e.button() == Qt.MouseButton.LeftButton else None
+        w.mousePressEvent = lambda e: self.clic(w, e.modifiers()) if e.button() == Qt.MouseButton.LeftButton else None
         w.contextMenuEvent = lambda e: self.menu(w, e.globalPos())
 
         w.img     = img
@@ -268,6 +268,20 @@ class AdvancedEditor(QDialog):
         w.spin    = sp
         w.is_new  = is_new   # flag: aggiunta in questa sessione
         self.page_widgets.append(w)
+
+    def clic(self, w, mods):
+        """Selezione classica: click solo questa pagina, Ctrl+click aggiunge o toglie, Shift+click intervallo."""
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            self.seleziona(w)
+        elif mods & Qt.KeyboardModifier.ShiftModifier and getattr(self, "_ultima", None) in self.page_widgets:
+            a, b = sorted((self.page_widgets.index(self._ultima), self.page_widgets.index(w)))
+            for i, x in enumerate(self.page_widgets):
+                self.seleziona(x, a <= i <= b)
+            return                                    # l'inizio dell'intervallo resta lo stesso
+        else:
+            for x in self.page_widgets:
+                self.seleziona(x, x is w)
+        self._ultima = w
 
     def seleziona(self, w, scelta=None):
         """Un click seleziona o toglie la pagina (bordo azzurro): le selezionate si esportano."""

@@ -360,8 +360,16 @@ def main(work):
     # esporta: le pagine scelte col click, mai sovrascrivendo
     uscita = os.path.join(au, "esportate")
     os.makedirs(uscita)
-    dlg.seleziona(dlg.page_widgets[1])
-    dlg.seleziona(dlg.page_widgets[2])
+    from PyQt6.QtCore import Qt
+    ctrl, shift = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier
+    dlg.clic(dlg.page_widgets[0], Qt.KeyboardModifier.NoModifier)
+    dlg.clic(dlg.page_widgets[1], Qt.KeyboardModifier.NoModifier)
+    assert [x.scelta for x in dlg.page_widgets[:3]] == [False, True, False], "il click sceglie solo quella"
+    dlg.clic(dlg.page_widgets[2], ctrl)
+    assert [x.scelta for x in dlg.page_widgets[:3]] == [False, True, True], "Ctrl+click aggiunge"
+    dlg.clic(dlg.page_widgets[0], shift)
+    assert [x.scelta for x in dlg.page_widgets[:3]] == [True, True, True], "Shift+click: intervallo"
+    dlg.clic(dlg.page_widgets[0], ctrl)
     scelte = [w.path for w in dlg.page_widgets if w.scelta]
     assert len(scelte) == 2
     dlg.esporta(scelte, uscita)

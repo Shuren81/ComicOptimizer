@@ -8,7 +8,7 @@ from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from PyQt6.QtCore import QDir, QEvent, QMimeData, QModelIndex, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QImage, QMouseEvent, QPainter, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -322,20 +322,6 @@ class _ComicList(QListWidget):
         data = QMimeData()
         data.setUrls([QUrl.fromLocalFile(i.data(Qt.ItemDataRole.UserRole)) for i in items])
         return data
-
-    def _come_ctrl(self, e):
-        """Il click semplice aggiunge o toglie quel fumetto (come le card della lista di lavoro):
-        è un Ctrl+click. Shift+click (intervallo) resta com'è."""
-        if e.button() == Qt.MouseButton.LeftButton and not e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            e = QMouseEvent(e.type(), e.position(), e.globalPosition(), e.button(), e.buttons(),
-                            e.modifiers() | Qt.KeyboardModifier.ControlModifier)
-        return e
-
-    def mousePressEvent(self, e):
-        super().mousePressEvent(self._come_ctrl(e))
-
-    def mouseReleaseEvent(self, e):
-        super().mouseReleaseEvent(self._come_ctrl(e))
 
 
 class LibraryView(QWidget):
