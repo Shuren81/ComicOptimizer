@@ -2,7 +2,8 @@
 import os
 import subprocess
 
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import QSettings, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -18,6 +19,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -28,7 +30,8 @@ from .library import (CAMPI_CARTELLE, MAX_LIBRERIE, SCHEMA_PREDEFINITO, info_lib
                       salva_info)
 from . import utils
 from .logsetup import log
-from .metadata_dialog import CAMPI_TESTO, SETTINGS, in_background
+from .metadata_dialog import CAMPI_TESTO, SETTINGS, in_background, salva_chiave
+from .ricerca import FONTI_RICERCA
 from .style import set_variant
 
 
@@ -39,7 +42,12 @@ class Opzioni(QDialog):
         super().__init__(view)
         self.setWindowTitle("Opzioni")
         self.setMinimumWidth(680)
-        l = QVBoxLayout(self)
+        principale = QVBoxLayout(self)
+        self.schede = QTabWidget()
+        principale.addWidget(self.schede)
+        generali = QWidget()
+        self.schede.addTab(generali, "Generali")
+        l = QVBoxLayout(generali)
         self.bottoni = {}                             # (campo di schema) → tasto: verde se c'è
 
         f = self._gruppo(l, "Librerie")
@@ -146,7 +154,40 @@ class Opzioni(QDialog):
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
-        l.addWidget(bb)
+        self._scheda_ricerca()
+        principale.addWidget(bb)
+
+    def _scheda_ricerca(self):
+        """Scheda «Ricerca online»: per ogni fonte la chiave (se serve), cosa trova e il link al sito."""
+        scheda = QWidget()
+        self.schede.addTab(scheda, "Ricerca online")
+        g = QGridLayout(scheda)
+        self.chiavi = {}                              # chiave_config → campo
+        cfg = QSettings(*SETTINGS)
+        for riga, (nome, f) in enumerate(FONTI_RICERCA.items()):
+            titolo = QLabel(f"<b>{nome}</b>")
+            aiuto = QLabel(f["aiuto"])
+            aiuto.setWordWrap(True)
+            aiuto.setStyleSheet("color: #aaa; font-size: 11px")
+            colonna = QVBoxLayout()
+            colonna.addWidget(titolo)
+            colonna.addWidget(aiuto)
+            g.addLayout(colonna, riga, 0)
+            if f["chiave_config"]:
+                campo = QLineEdit(cfg.value(f"ricerca/{f['chiave_config']}", "") or "")
+                campo.setPlaceholderText(f["etichetta_chiave"].rstrip(":"))
+                campo.setMinimumWidth(260)
+                self.chiavi[f["chiave_config"]] = campo
+                g.addWidget(campo, riga, 1)
+            else:
+                g.addWidget(QLabel("Nessuna chiave da inserire"), riga, 1)
+            sito = QPushButton("Apri il sito")
+            sito.setAutoDefault(False)
+            sito.setToolTip(f["url_aiuto"])
+            sito.clicked.connect(lambda _on, u=f["url_aiuto"]: QDesktopServices.openUrl(QUrl(u)))
+            g.addWidget(sito, riga, 2)
+        g.setColumnStretch(0, 1)
+        g.setRowStretch(len(FONTI_RICERCA), 1)
 
     def _mostra_dipendenze(self):
         programmi, librerie = utils.dipendenze_mancanti()
@@ -296,4 +337,7 @@ class Opzioni(QDialog):
             cfg.setValue(c.property("chiave"), c.isChecked())
         for c in self.findChildren(QComboBox):
             cfg.setValue(c.property("chiave"), c.currentData())
+        for nome, campo in self.chiavi.items():
+            if campo.text().strip() != (cfg.value(f"ricerca/{nome}", "") or ""):
+                salva_chiave(nome, campo.text().strip())  # file leggibile solo da te
         super().accept()

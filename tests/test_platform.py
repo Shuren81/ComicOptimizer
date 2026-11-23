@@ -81,6 +81,17 @@ def test_installa_mancanti():
     mancano[0] = ([], [])
     o._mostra_dipendenze()
     assert not o.installa.isVisibleTo(o), "niente da installare: niente pulsante"
+
+    # scheda «Ricerca online»: le chiavi delle fonti, salvate dove le legge la finestra di ricerca
+    from PyQt6.QtCore import QSettings
+    from comicoptimizer.config import SETTINGS
+    from comicoptimizer.ricerca import FONTI_RICERCA
+    assert [o.schede.tabText(i) for i in range(o.schede.count())] == ["Generali", "Ricerca online"]
+    assert set(o.chiavi) == {f["chiave_config"] for f in FONTI_RICERCA.values() if f["chiave_config"]}
+    o.chiavi["metron_accesso"].setText("  io:segreta ")
+    o.accept()
+    assert QSettings(*SETTINGS).value("ricerca/metron_accesso") == "io:segreta"
+    assert Opzioni(w.library).chiavi["metron_accesso"].text() == "io:segreta"
     w._closing = True
 
 
@@ -109,6 +120,8 @@ def test_popup_evidenziati(app):
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
+        from PyQt6.QtCore import QSettings             # mai le impostazioni vere (librerie, chiavi)
+        QSettings.setPath(QSettings.Format.NativeFormat, QSettings.Scope.UserScope, os.path.join(work, "cfg"))
         test_find_tool(work)
         test_log_path(work)
         test_check_deps()
