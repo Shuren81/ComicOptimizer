@@ -249,12 +249,18 @@ class SearchDialog(QDialog):
         fonte = _settings().value("ricerca/fonte", FONTE_PREDEFINITA)
         self.combo_fonte.setCurrentText(fonte if fonte in FONTI_RICERCA else FONTE_PREDEFINITA)
         griglia.addWidget(QLabel("Fonte:"), 0, 0)
-        griglia.addWidget(self.combo_fonte, 0, 1)
-        self.etichetta_chiave = QLabel()
-        self.chiave = QLineEdit()
-        self.chiave.setEchoMode(QLineEdit.EchoMode.Password)
-        griglia.addWidget(self.etichetta_chiave, 1, 0)
-        griglia.addWidget(self.chiave, 1, 1)
+        # le chiavi stanno nelle Opzioni (scheda Ricerca online): qui solo se c'è (✔) o manca (✘)
+        self.icona_chiave = QLabel()
+        self.icona_chiave.setStyleSheet("font-size: 16px; font-weight: bold;")
+        riga_fonte = QHBoxLayout()
+        riga_fonte.addWidget(self.icona_chiave)
+        riga_fonte.addWidget(self.combo_fonte, 1)
+        griglia.addLayout(riga_fonte, 0, 1)
+        self.b_chiave = QPushButton("Inserisci la chiave…")
+        set_variant(self.b_chiave, "danger")
+        self.b_chiave.setAutoDefault(False)
+        self.b_chiave.clicked.connect(self._apri_opzioni)
+        griglia.addWidget(self.b_chiave, 0, 2)
         self.aiuto = QLabel()
         self.aiuto.setTextFormat(Qt.TextFormat.PlainText)
         self.b_aiuto = QPushButton("Apri il sito")
@@ -322,7 +328,6 @@ class SearchDialog(QDialog):
         self.lista.currentRowChanged.connect(self._seleziona)
         self.b_cerca.clicked.connect(self.cerca)
         self.query.returnPressed.connect(self.cerca)
-        self.chiave.returnPressed.connect(self.cerca)
         self.b_applica.clicked.connect(self.applica)
         self.lista.itemDoubleClicked.connect(lambda _item: self.applica())
         self._prepara_fonte()
@@ -341,10 +346,8 @@ class SearchDialog(QDialog):
 
     def _prepara_fonte(self):
         f = self.fonte()
-        self.etichetta_chiave.setText(f["etichetta_chiave"])
         self.aiuto.setText(f["aiuto"])
-        self.chiave.setEnabled(bool(f["chiave_config"]))
-        self.chiave.setText(_settings().value(f"ricerca/{f['chiave_config']}", "") if f["chiave_config"] else "")
+        self._stato_chiave()
         if f.get("memoria") is not None and not self.serie:
             self.query.setText(senza_zeri(titolo_da_nome(self.nome_file)))
         else:
@@ -363,6 +366,31 @@ class SearchDialog(QDialog):
             self._primo()
             self.stato.setText(f"{len(self.risultati)} risultati già trovati, i più simili in cima. "
                                "Se manca, premi Cerca.")
+
+    def _chiave(self):
+        f = self.fonte()
+        return (_settings().value(f"ricerca/{f['chiave_config']}", "") or "").strip() if f["chiave_config"] else ""
+
+    def _stato_chiave(self):
+        f = self.fonte()
+        pronta = not f["chiave_config"] or bool(self._chiave())
+        self.icona_chiave.setText("✔" if pronta else "✘")
+        self.icona_chiave.setStyleSheet("font-size: 16px; font-weight: bold; color: %s;"
+                                        % ("#4caf50" if pronta else "#f44336"))
+        self.icona_chiave.setToolTip("Chiave inserita nelle Opzioni" if f["chiave_config"] and pronta
+                                     else "Questa fonte non chiede una chiave" if pronta
+                                     else f"Manca la chiave ({f['etichetta_chiave'].rstrip(':')}): "
+                                          "si inserisce nelle Opzioni")
+        self.b_chiave.setVisible(not pronta)
+
+    def _apri_opzioni(self):
+        """Le Opzioni sulla scheda Ricerca online, poi si ricontrolla la chiave."""
+        finestra = self.parentWidget()
+        while finestra is not None and not hasattr(finestra, "library"):
+            finestra = finestra.parentWidget()
+        if finestra is not None:
+            finestra.library.options(scheda="Ricerca online")
+        self._stato_chiave()
 
     def _svuota(self):
         self.risultati.clear()
@@ -409,7 +437,7 @@ class SearchDialog(QDialog):
         if f["dettagli"] and not r.get("dettagli_stato"):
             r["dettagli_stato"] = "in corso"
             self.anteprima.setPlainText(self._testo_anteprima(r))
-            chiave = self.chiave.text().strip()
+            chiave = self._chiave()
 
             def fine(esito, errore):
                 if errore:
@@ -468,10 +496,12 @@ class SearchDialog(QDialog):
         if not self.b_cerca.isEnabled():
             return
         nome, f = self.combo_fonte.currentText(), self.fonte()
-        chiave, query = self.chiave.text().strip(), self.query.text().strip()
+        chiave, query = self._chiave(), self.query.text().strip()
         if f["chiave_config"] and not chiave:
-            QMessageBox.warning(self, "Ricerca", f"Inserisci la chiave: {f['etichetta_chiave'].rstrip(':')}.")
-            return
+            self._apri_opzioni()                      # la chiave si inserisce lì, poi si cerca
+            chiave = self._chiave()
+            if not chiave:
+                return
         if not query:
             QMessageBox.warning(self, "Ricerca", "Inserisci un termine di ricerca.")
             return
@@ -494,8 +524,6 @@ class SearchDialog(QDialog):
                 testo = str(errore) if isinstance(errore, ErroreRicerca) else f"Errore imprevisto: {errore}"
                 QMessageBox.warning(self, f"Errore {nome}", testo)
                 return
-            if f["chiave_config"]:
-                salva_chiave(f["chiave_config"], chiave)   # la chiave funziona: la ricordo
             if not esito:
                 QMessageBox.information(self, "Risultati", f"Nessun risultato su {nome} per questa ricerca.")
                 return

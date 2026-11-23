@@ -502,9 +502,11 @@ class LibraryView(QWidget):
     def schema(self):
         return info_libreria(self.root)["schema"] if self.root else SCHEMA_PREDEFINITO
 
-    def options(self):
+    def options(self, scheda=None):
         from .opzioni import Opzioni                  # qui: opzioni.py usa le funzioni di questo file
         dlg = Opzioni(self)
+        if scheda:                                    # es. "Ricerca online", dalla finestra di ricerca
+            dlg.schede.setCurrentIndex(next(i for i in range(dlg.schede.count()) if dlg.schede.tabText(i) == scheda))
         if dlg.exec():
             self.set_thumb_size()
             tutte = librerie()

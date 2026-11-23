@@ -293,18 +293,19 @@ def test_ricerca(app, work, md):
     s = md.SearchDialog("ricerca", {c: d._leggi(c) for c in md.CAMPI_TESTO}, d)
     assert s.combo_fonte.currentText() == "Finta" and s.query.text() == "batman"
 
-    # senza chiave non cerca, e il messaggio non lascia la finestra bloccata
-    QTimer.singleShot(20, lambda: app.activeModalWidget().accept())
+    # senza chiave: ✘ rossa e il pulsante per le Opzioni; Cerca non parte
+    assert s.icona_chiave.text() == "✘" and not s.b_chiave.isHidden()
     s.cerca()
     assert not chiamate
 
-    s.chiave.setText("segreta")
+    md.salva_chiave("chiave_finta", "segreta")        # come dalle Opzioni → Ricerca online
+    s._stato_chiave()
+    assert s.icona_chiave.text() == "✔" and s.b_chiave.isHidden()
     s.cerca()
     assert attendi(app, lambda: s.lista.count() == 2)
     assert chiamate == [("segreta", "batman")] and s.b_cerca.isEnabled()
     assert [r["etichetta"] for r in s.visibili] == ["BATMAN 1", "ROBIN 2"], "prima chi somiglia alla ricerca"
     assert s.lista.currentRow() == 0 and s._selezionato()["etichetta"] == "BATMAN 1", "il primo già selezionato"
-    assert QSettings(*md.SETTINGS).value("ricerca/chiave_finta") == "segreta", "la chiave valida si ricorda"
     if os.name == "posix":
         assert os.stat(QSettings(*md.SETTINGS).fileName()).st_mode & 0o077 == 0, "chiavi leggibili solo da te"
 

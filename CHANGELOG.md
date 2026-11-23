@@ -3,6 +3,7 @@
 ## [3.12.0] — 2026-11-23
 
 - **Nuovo:** le **Opzioni** sono divise in due schede. In **Ricerca online** ci sono tutte le fonti: cosa trova ognuna, la sua chiave (ComicVine, MyAnimeList, Metron) da inserire una volta sola e **Apri il sito** per registrarsi o consultarla. Le chiavi restano leggibili solo dal tuo utente.
+- **Cambiato:** nella finestra **Ricerca online** non c'è più il campo della chiave: accanto a «Fonte» una **✔ verde** dice che la fonte è pronta (chiave inserita nelle Opzioni, o non serve), una **✘ rossa** che manca. In quel caso **Inserisci la chiave…** (o Cerca) apre le Opzioni direttamente sulla scheda Ricerca online.
 - **Nuovo: due fonti per la Ricerca online.**
   - **Grand Comics Database** (comics.org): database internazionale, senza chiave. Con un numero trova l'albo in ogni serie con quel nome, le edizioni italiane per prime (es. «Dylan Dog 100»); selezionandolo arrivano autori, personaggi, editore e copertina.
   - **Metron** (metron.cloud): serve un account gratuito; nel campo della chiave si scrive `utente:password` (o un token).

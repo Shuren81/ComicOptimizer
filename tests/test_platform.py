@@ -92,6 +92,19 @@ def test_installa_mancanti():
     o.accept()
     assert QSettings(*SETTINGS).value("ricerca/metron_accesso") == "io:segreta"
     assert Opzioni(w.library).chiavi["metron_accesso"].text() == "io:segreta"
+
+    # dalla Ricerca online: ✘ e «Inserisci la chiave…» aprono le Opzioni sulla scheda giusta
+    from comicoptimizer import metadata_dialog as md
+    QSettings(*SETTINGS).setValue("ricerca/fonte", "ComicVine")
+    s = md.SearchDialog("Batman 1", {}, w)
+    assert s.icona_chiave.text() == "✘" and not s.b_chiave.isHidden()
+    aperte = []
+    Opzioni.exec = lambda self: aperte.append(self.schede.tabText(self.schede.currentIndex())) or \
+        md.salva_chiave("comicvine_api_key", "k") or 0
+    s.b_chiave.click()
+    assert aperte == ["Ricerca online"] and s.icona_chiave.text() == "✔" and s.b_chiave.isHidden()
+    s.combo_fonte.setCurrentText("ComicsBox")
+    assert s.icona_chiave.text() == "✔", "fonte senza chiave: pronta"
     w._closing = True
 
 
