@@ -357,6 +357,12 @@ def test_doppioni_e_indice(app, work):
     stesso = (True, "impronta", 3)
     res, n, dupe_of = workers.classify([grezzo, sistemato], {grezzo: stesso, sistemato: stesso})
     assert res[grezzo] == 4 and res[sistemato] == 3 and dupe_of == {grezzo: sistemato}, (res, dupe_of)
+    # «Nome_1.cbz» (copia creata spostando) con pagine diverse è il doppione di «Nome.cbz»
+    copia = os.path.join(work, "Batman (2025) - #01 - Titolo lungo_1.cbz")
+    solo = os.path.join(work, "Robin_2.cbz")                     # senza «Robin.cbz»: non è un doppione
+    res, n, dupe_of = workers.classify([sistemato, copia, solo], {sistemato: stesso, copia: (True, "altra", 3),
+                                                                  solo: (True, "terza", 3)})
+    assert dupe_of == {copia: sistemato} and res[solo] == 3, (res, dupe_of)
 
     staccato = os.path.join(work, "disco-staccato", "X.cbz")       # la cartella non c'è più
     cancellato = os.path.join(work, "cancellato.cbz")             # la cartella c'è, il file no

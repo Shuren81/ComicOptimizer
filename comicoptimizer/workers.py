@@ -4,6 +4,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -269,6 +270,15 @@ def classify(paths, checked, log_dupes=True):
     impronta, stato) di ogni file. 5 = danneggiato, 4 = doppione (stesso nome o stesse pagine),
     altrimenti lo stato del file."""
     results, groups, by_sig = {}, {}, {}   # stesso nome (fumetto.cbr + fumetto.cbz) / stesso contenuto
+    nomi = {cbz_target(p) for p in paths if not os.path.isdir(p)}
+
+    def stesso_nome(p):
+        # «Nome_1.cbz» è la copia che rinomina/spostamento crea se «Nome» c'è già: stesso fumetto
+        # shortcut: «Serie.cbz» + «Serie_2.cbz» voluti come numeri diversi finirebbero doppioni (raro)
+        t = cbz_target(p)
+        base = re.sub(r"_\d+(\.cbz)$", r"\1", t)
+        return base if base != t and base in nomi else t
+
     for p in paths:
         is_ok, sig, _status = checked[p]
         if not is_ok:
@@ -276,7 +286,7 @@ def classify(paths, checked, log_dupes=True):
         else:
             # una cartella di immagini non è il doppione di un CBZ con lo stesso nome
             if not os.path.isdir(p):
-                groups.setdefault(cbz_target(p), []).append(p)
+                groups.setdefault(stesso_nome(p), []).append(p)
             if sig:
                 by_sig.setdefault(sig, []).append(p)
 

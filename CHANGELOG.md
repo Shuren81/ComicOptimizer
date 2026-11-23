@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.12.3] — 2026-11-23
+
+- **Corretto:** le copie «Nome_1.cbz», che rinomina e spostamento creano quando «Nome.cbz» c'è già, ora sono riconosciute come **doppioni** anche se le pagine sono diverse (uscite diverse dello stesso numero). Si tiene quella senza «_1».
+
 ## [3.12.2] — 2026-11-23
 
 - **Nuovo:** in **Opzioni → Log** la casella **Log dettagliato** (spenta di serie): il log registra le finestre aperte e chiuse, i pulsanti e le voci di menu usati, così dopo un crash si vede cosa si stava facendo. Sempre nel log, anche senza la casella: sistema e versioni all'avvio, gli avvisi di Qt e gli errori nei processi in sottofondo.
