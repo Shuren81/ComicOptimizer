@@ -2,6 +2,7 @@
 
 ## [3.12.2] — 2026-11-23
 
+- **Corretto:** il crash dopo gli spostamenti, all'avviso «Spostati N fumetti», non era risolto nella 3.12.1: ora il lampeggio è una cornice sovrapposta e l'avviso non viene più ridisegnato.
 - **Cambiato:** il bordo colorato e il lampeggio sono solo sulle finestre di avviso (messaggi con OK), non più su Info e rinomina, Opzioni e le altre finestre.
 
 ## [3.12.1] — 2026-11-23

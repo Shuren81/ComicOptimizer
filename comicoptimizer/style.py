@@ -1,7 +1,7 @@
 """Foglio di stile (QSS) e piccoli aiuti grafici."""
 
-from PyQt6.QtCore import QEvent, QObject, QTimer
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
+from PyQt6.QtWidgets import QApplication, QFrame, QMessageBox
 
 # --- STILE ---
 # Un solo foglio di stile per tutta l'app. I pulsanti colorati usano la proprietà
@@ -70,8 +70,8 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QMessageBox, QDialog { background: #1e1e1e; }
-QMessageBox[attiva="true"] { border: 2px solid #00bcd4; }
-QMessageBox[lampo="true"] { border: 4px solid #ffeb3b; background: #2c2c1e; }
+QMessageBox { border: 2px solid #00bcd4; }
+QFrame#lampo { border: 4px solid #ffeb3b; background: transparent; }
 """
 
 def set_variant(widget, variant):
@@ -98,46 +98,37 @@ class _VisibilityWatcher(QObject):
         return False
 
 
-def _ristila(w, **proprieta):
-    for nome, valore in proprieta.items():
-        w.setProperty(nome, valore)
-    w.style().unpolish(w)
-    w.style().polish(w)
-    w.update()
-
-
 class EvidenziaFinestre(QObject):
-    """La finestra di avviso (QMessageBox) attiva ha il bordo colorato e, quando si attiva, lampeggia un attimo:
-    i popup non passano inosservati. La barra del titolo la disegna il sistema: il programma non la
-    può colorare, ma la barra delle applicazioni lampeggia (alert) se il popup arriva da dietro."""
+    """Le finestre di avviso (QMessageBox) hanno il bordo colorato (foglio di stile) e, quando compaiono,
+    una cornice gialla sovrapposta lampeggia un attimo: i popup non passano inosservati. La barra delle
+    applicazioni lampeggia (alert) se il popup arriva da dietro."""
     LAMPI, PASSO = 6, 110                             # 3 accensioni in circa 2/3 di secondo
 
     def eventFilter(self, obj, ev):
-        tipo = ev.type()
-        if tipo in (QEvent.Type.WindowActivate, QEvent.Type.WindowDeactivate, QEvent.Type.Show) \
-                and isinstance(obj, QMessageBox) and obj.isWindow():
-            if tipo == QEvent.Type.Show:
-                QApplication.alert(obj, 1500)
-            else:
-                # mai ristilare qui: l'evento arriva anche mentre la finestra si distrugge e il foglio
-                # di stile terrebbe un widget morto (crash). Lo fa un timer figlio, che muore con lei.
-                for vecchio in obj.findChildren(QTimer, "lampo"):
-                    vecchio.stop()
-                    vecchio.deleteLater()
-                if tipo == QEvent.Type.WindowActivate:
-                    passi = iter([(True, i % 2 == 1) for i in range(1, self.LAMPI + 1)])
-                else:
-                    passi = iter([(False, False)])
-                timer = QTimer(obj)
-                timer.setObjectName("lampo")
+        if ev.type() == QEvent.Type.Show and isinstance(obj, QMessageBox) and obj.isWindow():
+            QApplication.alert(obj, 1500)
+            # niente ridisegni dell'avviso (crash con Qt): lampeggia solo una cornice nostra, figlia
+            # dell'avviso, che muore con lui insieme al suo timer; il timer non tocca mai l'avviso.
+            for vecchia in obj.findChildren(QFrame, "lampo"):
+                vecchia.deleteLater()
+            cornice = QFrame(obj)
+            cornice.setObjectName("lampo")
+            cornice.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            cornice.hide()
+            timer = QTimer(cornice)
+            passi = iter(range(1, self.LAMPI + 1))
 
-                def lampeggia():
-                    passo = next(passi, None)
-                    if passo is None or not obj.isVisible():
-                        timer.stop()
-                        timer.deleteLater()
-                    else:
-                        _ristila(obj, attiva=passo[0], lampo=passo[1])
-                timer.timeout.connect(lampeggia)
-                timer.start(0 if tipo == QEvent.Type.WindowDeactivate else self.PASSO)
+            def lampeggia():
+                i = next(passi, None)
+                if i is None:
+                    timer.stop()
+                    cornice.deleteLater()
+                elif i % 2:
+                    cornice.setGeometry(cornice.parentWidget().rect())
+                    cornice.raise_()
+                    cornice.show()
+                else:
+                    cornice.hide()
+            timer.timeout.connect(lampeggia)
+            timer.start(self.PASSO)
         return False

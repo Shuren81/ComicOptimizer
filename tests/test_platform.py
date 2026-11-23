@@ -110,42 +110,37 @@ def test_installa_mancanti():
 
 def test_popup_evidenziati(app):
     import time
-    from PyQt6.QtCore import QCoreApplication, QEvent
-    from PyQt6.QtWidgets import QDialog, QMessageBox
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QDialog, QFrame, QMessageBox
     from comicoptimizer.style import EvidenziaFinestre
     filtro = EvidenziaFinestre(app)
     app.installEventFilter(filtro)
+
+    def gira(n):
+        for _ in range(n):
+            app.processEvents()
+            time.sleep(0.01)
     d = QMessageBox()
     d.show()
-    QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowActivate))
     lampi = []
     for _ in range(120):
         app.processEvents()
-        lampi.append(bool(d.property("lampo")))
+        lampi.append(any(c.isVisible() for c in d.findChildren(QFrame, "lampo")))
         time.sleep(0.01)
-    assert d.property("attiva") is True, "la finestra attiva ha il bordo colorato"
-    assert True in lampi and not d.property("lampo"), "lampeggia e poi si ferma"
-    QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowDeactivate))
-    for _ in range(5):
-        app.processEvents()
-    assert d.property("attiva") is False
-    # finestra distrutta subito dopo l'attivazione: il timer muore con lei, nessun crash
-    e = QMessageBox()
-    e.show()
-    QCoreApplication.sendEvent(e, QEvent(QEvent.Type.WindowActivate))
-    QCoreApplication.sendEvent(e, QEvent(QEvent.Type.WindowDeactivate))
-    e.deleteLater()
-    for _ in range(30):
-        app.processEvents()
-        time.sleep(0.01)
+    assert True in lampi, "la cornice lampeggia"
+    assert not d.findChildren(QFrame, "lampo"), "e poi sparisce"
+    # avviso statico (creato da Qt, come «Spostati N fumetti») chiuso mentre lampeggia: nessun crash
+    t = QTimer()
+    t.setSingleShot(True)
+    t.timeout.connect(lambda: app.activeModalWidget() and app.activeModalWidget().accept())
+    t.start(250)
+    QMessageBox.information(None, "Spostamento", "Spostati 3 fumetti.")
+    gira(60)
     # le altre finestre (Info e rinomina, Opzioni…) non lampeggiano
     f = QDialog()
     f.show()
-    QCoreApplication.sendEvent(f, QEvent(QEvent.Type.WindowActivate))
-    for _ in range(30):
-        app.processEvents()
-        time.sleep(0.01)
-    assert not f.property("attiva") and not f.property("lampo"), "solo gli avvisi lampeggiano"
+    gira(30)
+    assert not f.findChildren(QFrame, "lampo"), "solo gli avvisi lampeggiano"
     app.removeEventFilter(filtro)
 
 
