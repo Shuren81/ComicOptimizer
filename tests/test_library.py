@@ -346,6 +346,18 @@ def test_controllo(app, lib):
     win.close()
 
 
+def test_icona_fissa(app, _work):
+    """Copertine larghe, alte o strette: icona sempre della stessa misura, scritte allineate."""
+    from PyQt6.QtCore import QSize
+    from PyQt6.QtGui import QPixmap
+    from comicoptimizer.library import THUMB_H, THUMB_W, icona_fissa
+    for w, h in ((400, 300), (100, 400), (280, 420)):
+        pix = QPixmap(w, h)
+        pix.fill()
+        icona = icona_fissa(pix)
+        assert icona.availableSizes() == [QSize(THUMB_W * 2, THUMB_H * 2)], (w, h, icona.availableSizes())
+
+
 def test_doppioni_e_indice(app, work):
     """Doppioni: si tiene la copia con le info. Indice: un disco staccato non perde i suoi controlli."""
     from comicoptimizer import workers
@@ -636,7 +648,7 @@ def main():
         history.HISTORY_PATH = os.path.join(work, "rinomine.jsonl")
         from comicoptimizer import main_window   # niente nel cestino vero: si cancella e basta
         main_window._trash_file_cross_platform = lambda p: (shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)) or True
-        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_thread_finito, test_cartelle_vuote,
+        for prova in (test_vista, test_controllo, test_doppioni_e_indice, test_icona_fissa, test_thread_finito, test_cartelle_vuote,
                       test_sposta):
             cartella = os.path.join(work, prova.__name__)
             os.makedirs(cartella)

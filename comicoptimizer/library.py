@@ -8,7 +8,7 @@ from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from PyQt6.QtCore import QDir, QEvent, QMimeData, QModelIndex, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QImage, QMouseEvent, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QImage, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -66,6 +66,18 @@ def save_thumb(p, data):
     except OSError as e:
         log.debug(f"Miniatura non salvata in cache per '{p}': {e}")
     return QPixmap.fromImage(img)
+
+
+def icona_fissa(pix):
+    """Icona di misura fissa (copertina in basso al centro, il resto trasparente): con copertine di
+    proporzioni diverse le scritte sotto restavano a altezze diverse e venivano tagliate."""
+    tela = QPixmap(THUMB_W * 2, THUMB_H * 2)
+    tela.fill(Qt.GlobalColor.transparent)
+    pix = pix.scaled(tela.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    p = QPainter(tela)
+    p.drawPixmap((tela.width() - pix.width()) // 2, tela.height() - pix.height(), pix)
+    p.end()
+    return QIcon(tela)
 
 
 def list_comics(folder, recursive=False):
@@ -606,7 +618,7 @@ class LibraryView(QWidget):
             item.setToolTip(p + (f"\n{testo}" if testo else ""))
             if colore:
                 item.setForeground(QBrush(QColor(colore)))
-            item.setIcon(QIcon(self._cached_thumb(p) or self._placeholder))
+            item.setIcon(icona_fissa(self._cached_thumb(p) or self._placeholder))
             self.list.addItem(item)
         # niente da mostrare (non per un filtro o una ricerca): il disegno e due righe su cosa fare
         self.griglia.setCurrentWidget(self.vuota if not (paths or stati or parole) else self.list)
@@ -643,7 +655,7 @@ class LibraryView(QWidget):
         for i in range(self.list.count()):
             item = self.list.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == p:
-                item.setIcon(QIcon(pix))
+                item.setIcon(icona_fissa(pix))
                 break
 
     # --- controllo della libreria ---

@@ -2,6 +2,7 @@
 
 ## [3.12.4] — 2026-11-23
 
+- **Corretto:** nella Libreria le scritte sotto le copertine erano ad altezze diverse e a volte tagliate (copertine di proporzioni diverse): ora ogni copertina ha lo stesso spazio, appoggiata in basso.
 - **Corretto:** il crash dopo gli spostamenti, all'avviso «Spostati N fumetti», continuava: era il lampeggio degli avvisi, che è stato tolto.
 - **Cambiato:** le finestre di avviso hanno lo sfondo **blu notte** e il bordo azzurro, diverse dalle finestre del programma: non si confondono.
 
