@@ -2,6 +2,7 @@
 
 ## [3.12.2] — 2026-11-23
 
+- **Nuovo:** in **Opzioni → Log** la casella **Log dettagliato** (spenta di serie): il log registra le finestre aperte e chiuse, i pulsanti e le voci di menu usati, così dopo un crash si vede cosa si stava facendo. Sempre nel log, anche senza la casella: sistema e versioni all'avvio, gli avvisi di Qt e gli errori nei processi in sottofondo.
 - **Corretto:** il crash dopo gli spostamenti, all'avviso «Spostati N fumetti», non era risolto nella 3.12.1: ora il lampeggio è una cornice sovrapposta e l'avviso non viene più ridisegnato.
 - **Cambiato:** il bordo colorato e il lampeggio sono solo sulle finestre di avviso (messaggi con OK), non più su Info e rinomina, Opzioni e le altre finestre.
 

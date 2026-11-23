@@ -2,14 +2,16 @@
 
 import faulthandler
 import os
+import platform
 import sys
+import threading
 
-from PyQt6.QtCore import QThread, Qt
+from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR, QEvent, QObject, QThread, Qt, qInstallMessageHandler
 from PyQt6.QtGui import QColor, QIcon, QPalette
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QAbstractButton, QApplication, QMenu, QMessageBox
 
 from . import config
-from .config import APP_VERSION, RES_DIR
+from .config import APP_VERSION, RES_DIR, opzione
 from .logsetup import LOG_PATH, log
 from .main_window import MainWindow
 from .style import STYLESHEET, EvidenziaFinestre
@@ -40,8 +42,36 @@ def _on_unexpected_error(etype, value, tb):
         _showing_error = False
 
 
+def _messaggio_qt(tipo, _contesto, testo):
+    """Gli avvisi di Qt (oggetti distrutti, stili, finestre…) nel log: spesso precedono un crash."""
+    if "propagateSizeHints" not in testo:          # rumore innocuo di Wayland
+        log.warning(f"Qt: {testo}")
+
+
+class TracciaAzioni(QObject):
+    """Con «Log dettagliato» (Opzioni) scrive nel log finestre aperte/chiuse, pulsanti e voci di menu:
+    se il programma crasha, il log dice cosa si stava facendo."""
+
+    def eventFilter(self, obj, ev):
+        tipo = ev.type()
+        if tipo in (QEvent.Type.Show, QEvent.Type.Hide) and obj.isWidgetType() and obj.isWindow() \
+                and not isinstance(obj, QMenu) and opzione("log/dettagliato", False):
+            log.debug(f"Finestra {'aperta' if tipo == QEvent.Type.Show else 'chiusa'}: "
+                      f"{type(obj).__name__} «{obj.windowTitle()}»")
+        elif tipo == QEvent.Type.MouseButtonRelease and opzione("log/dettagliato", False):
+            if isinstance(obj, QMenu) and obj.activeAction():
+                log.debug(f"Menu: «{obj.activeAction().text()}»")
+            elif isinstance(obj, QAbstractButton) and obj.text():
+                log.debug(f"Pulsante: «{obj.text()}»")
+        return False
+
+
 def main():
     sys.excepthook = _on_unexpected_error
+    # errori nei thread (scansione della libreria, ricerche…): nel log invece che persi su stderr
+    threading.excepthook = lambda a: log.critical(f"Errore non previsto nel thread {a.thread.name}: {a.exc_value}",
+                                                  exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
+    qInstallMessageHandler(_messaggio_qt)
     # crash dentro Qt (non un errore Python): il punto del codice finisce comunque nel log
     # (il file resta aperto fino alla chiusura, dove MainWindow lo chiude per poter cancellare il log)
     config.CRASH_LOG = open(LOG_PATH, "a", encoding="utf-8")
@@ -79,6 +109,10 @@ def main():
     app.setStyleSheet(STYLESHEET)
     app._evidenzia = EvidenziaFinestre(app)          # tenuto in vita dall'app
     app.installEventFilter(app._evidenzia)
+    app._traccia = TracciaAzioni(app)
+    app.installEventFilter(app._traccia)
+    log.info(f"Sistema: {platform.platform()}, Python {platform.python_version()}, "
+             f"Qt {QT_VERSION_STR}, PyQt {PYQT_VERSION_STR}, {app.platformName()}")
     dark_palette = QPalette()
     dark_palette.setColor(QPalette.ColorRole.Window,          QColor(30, 30, 30))
     dark_palette.setColor(QPalette.ColorRole.WindowText,      Qt.GlobalColor.white)

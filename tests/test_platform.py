@@ -144,6 +144,39 @@ def test_popup_evidenziati(app):
     app.removeEventFilter(filtro)
 
 
+def test_log_dettagliato(app):
+    import logging
+    from PyQt6.QtCore import QSettings, Qt
+    from PyQt6.QtWidgets import QDialog, QPushButton, QVBoxLayout
+    from PyQt6.QtTest import QTest
+    from comicoptimizer.app import TracciaAzioni, _messaggio_qt
+    from comicoptimizer.logsetup import log
+    from comicoptimizer.metadata_dialog import SETTINGS
+    righe = []
+    h = logging.Handler()
+    h.emit = lambda r: righe.append(r.getMessage())
+    log.addHandler(h)
+    filtro = TracciaAzioni(app)
+    app.installEventFilter(filtro)
+    d = QDialog()
+    d.setWindowTitle("Prova")
+    b = QPushButton("Salva", d)
+    QVBoxLayout(d).addWidget(b)
+    d.show()
+    QTest.mouseClick(b, Qt.MouseButton.LeftButton)
+    assert not righe, "spento di serie: niente righe in più"
+    QSettings(*SETTINGS).setValue("log/dettagliato", True)
+    QTest.mouseClick(b, Qt.MouseButton.LeftButton)
+    d.hide()
+    _messaggio_qt(None, None, "QObject: oggetto distrutto")
+    assert "Pulsante: «Salva»" in righe, righe
+    assert "Finestra chiusa: QDialog «Prova»" in righe, righe
+    assert "Qt: QObject: oggetto distrutto" in righe, righe
+    QSettings(*SETTINGS).remove("log/dettagliato")
+    app.removeEventFilter(filtro)
+    log.removeHandler(h)
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
@@ -154,4 +187,5 @@ if __name__ == "__main__":
         test_check_deps()
         test_installa_mancanti()
         test_popup_evidenziati(app)
+        test_log_dettagliato(app)
     print("TUTTO OK")

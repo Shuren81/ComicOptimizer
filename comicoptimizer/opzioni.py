@@ -139,6 +139,9 @@ class Opzioni(QDialog):
         f.addRow("Schema:", self.rinomina)
         f.addRow("", self._tasti(lambda: self.rinomina, [c for c in CAMPI_TESTO if c != "Summary"]))
 
+        f = self._gruppo(l, "Log")
+        self.dettagliato = self._casella(f, "Log dettagliato: registra finestre, pulsanti e menu usati "
+                                            "(per capire cosa succedeva prima di un crash)", "log/dettagliato")
         f = self._gruppo(l, "Programmi esterni")
         riga = QHBoxLayout()
         self.dipendenze = QLabel()
