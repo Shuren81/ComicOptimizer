@@ -111,11 +111,11 @@ def test_installa_mancanti():
 def test_popup_evidenziati(app):
     import time
     from PyQt6.QtCore import QCoreApplication, QEvent
-    from PyQt6.QtWidgets import QDialog
+    from PyQt6.QtWidgets import QDialog, QMessageBox
     from comicoptimizer.style import EvidenziaFinestre
     filtro = EvidenziaFinestre(app)
     app.installEventFilter(filtro)
-    d = QDialog()
+    d = QMessageBox()
     d.show()
     QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowActivate))
     lampi = []
@@ -130,7 +130,7 @@ def test_popup_evidenziati(app):
         app.processEvents()
     assert d.property("attiva") is False
     # finestra distrutta subito dopo l'attivazione: il timer muore con lei, nessun crash
-    e = QDialog()
+    e = QMessageBox()
     e.show()
     QCoreApplication.sendEvent(e, QEvent(QEvent.Type.WindowActivate))
     QCoreApplication.sendEvent(e, QEvent(QEvent.Type.WindowDeactivate))
@@ -138,6 +138,14 @@ def test_popup_evidenziati(app):
     for _ in range(30):
         app.processEvents()
         time.sleep(0.01)
+    # le altre finestre (Info e rinomina, Opzioni…) non lampeggiano
+    f = QDialog()
+    f.show()
+    QCoreApplication.sendEvent(f, QEvent(QEvent.Type.WindowActivate))
+    for _ in range(30):
+        app.processEvents()
+        time.sleep(0.01)
+    assert not f.property("attiva") and not f.property("lampo"), "solo gli avvisi lampeggiano"
     app.removeEventFilter(filtro)
 
 

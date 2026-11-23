@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.12.2] — 2026-11-23
+
+- **Cambiato:** il bordo colorato e il lampeggio sono solo sulle finestre di avviso (messaggi con OK), non più su Info e rinomina, Opzioni e le altre finestre.
+
 ## [3.12.1] — 2026-11-23
 
 - **Corretto:** il programma poteva chiudersi di colpo (crash) subito dopo uno spostamento, alla chiusura di una finestra: l'evidenziazione dei popup ridisegnava la finestra mentre veniva distrutta.

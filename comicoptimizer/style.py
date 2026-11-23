@@ -1,7 +1,7 @@
 """Foglio di stile (QSS) e piccoli aiuti grafici."""
 
 from PyQt6.QtCore import QEvent, QObject, QTimer
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 # --- STILE ---
 # Un solo foglio di stile per tutta l'app. I pulsanti colorati usano la proprietà
@@ -70,8 +70,8 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QMessageBox, QDialog { background: #1e1e1e; }
-QMessageBox[attiva="true"], QDialog[attiva="true"] { border: 2px solid #00bcd4; }
-QMessageBox[lampo="true"], QDialog[lampo="true"] { border: 4px solid #ffeb3b; background: #2c2c1e; }
+QMessageBox[attiva="true"] { border: 2px solid #00bcd4; }
+QMessageBox[lampo="true"] { border: 4px solid #ffeb3b; background: #2c2c1e; }
 """
 
 def set_variant(widget, variant):
@@ -107,7 +107,7 @@ def _ristila(w, **proprieta):
 
 
 class EvidenziaFinestre(QObject):
-    """La finestra di dialogo attiva ha il bordo colorato e, quando si attiva, lampeggia un attimo:
+    """La finestra di avviso (QMessageBox) attiva ha il bordo colorato e, quando si attiva, lampeggia un attimo:
     i popup non passano inosservati. La barra del titolo la disegna il sistema: il programma non la
     può colorare, ma la barra delle applicazioni lampeggia (alert) se il popup arriva da dietro."""
     LAMPI, PASSO = 6, 110                             # 3 accensioni in circa 2/3 di secondo
@@ -115,7 +115,7 @@ class EvidenziaFinestre(QObject):
     def eventFilter(self, obj, ev):
         tipo = ev.type()
         if tipo in (QEvent.Type.WindowActivate, QEvent.Type.WindowDeactivate, QEvent.Type.Show) \
-                and isinstance(obj, QDialog) and obj.isWindow():
+                and isinstance(obj, QMessageBox) and obj.isWindow():
             if tipo == QEvent.Type.Show:
                 QApplication.alert(obj, 1500)
             else:
