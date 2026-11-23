@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.12.4] — 2026-11-23
+
+- **Corretto:** il crash dopo gli spostamenti, all'avviso «Spostati N fumetti», continuava: il lampeggio degli avvisi ora è una sfumatura gestita tutta da Qt, senza codice Python mentre lampeggia.
+
 ## [3.12.3] — 2026-11-23
 
 - **Corretto:** le copie «Nome_1.cbz», che rinomina e spostamento creano quando «Nome.cbz» c'è già, ora sono riconosciute come **doppioni** anche se le pagine sono diverse (uscite diverse dello stesso numero). Si tiene quella senza «_1».

@@ -109,9 +109,10 @@ def test_installa_mancanti():
 
 
 def test_popup_evidenziati(app):
+    import gc
     import time
-    from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QDialog, QFrame, QMessageBox
+    from PyQt6.QtCore import QPropertyAnimation, QTimer
+    from PyQt6.QtWidgets import QDialog, QMessageBox
     from comicoptimizer.style import EvidenziaFinestre
     filtro = EvidenziaFinestre(app)
     app.installEventFilter(filtro)
@@ -119,16 +120,13 @@ def test_popup_evidenziati(app):
     def gira(n):
         for _ in range(n):
             app.processEvents()
+            gc.collect()                              # la pulizia della memoria non deve rompere niente
             time.sleep(0.01)
     d = QMessageBox()
     d.show()
-    lampi = []
-    for _ in range(120):
-        app.processEvents()
-        lampi.append(any(c.isVisible() for c in d.findChildren(QFrame, "lampo")))
-        time.sleep(0.01)
-    assert True in lampi, "la cornice lampeggia"
-    assert not d.findChildren(QFrame, "lampo"), "e poi sparisce"
+    assert d.findChildren(QPropertyAnimation), "l'avviso sfuma"
+    gira(100)
+    assert not d.findChildren(QPropertyAnimation) and d.windowOpacity() == 1.0, "e poi torna normale"
     # avviso statico (creato da Qt, come «Spostati N fumetti») chiuso mentre lampeggia: nessun crash
     t = QTimer()
     t.setSingleShot(True)
@@ -139,8 +137,7 @@ def test_popup_evidenziati(app):
     # le altre finestre (Info e rinomina, Opzioni…) non lampeggiano
     f = QDialog()
     f.show()
-    gira(30)
-    assert not f.findChildren(QFrame, "lampo"), "solo gli avvisi lampeggiano"
+    assert not f.findChildren(QPropertyAnimation), "solo gli avvisi lampeggiano"
     app.removeEventFilter(filtro)
 
 

@@ -1,7 +1,7 @@
 """Foglio di stile (QSS) e piccoli aiuti grafici."""
 
-from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
-from PyQt6.QtWidgets import QApplication, QFrame, QMessageBox
+from PyQt6.QtCore import QEvent, QObject, QPropertyAnimation, QTimer
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 # --- STILE ---
 # Un solo foglio di stile per tutta l'app. I pulsanti colorati usano la proprietà
@@ -71,7 +71,6 @@ QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QMessageBox, QDialog { background: #1e1e1e; }
 QMessageBox { border: 2px solid #00bcd4; }
-QFrame#lampo { border: 4px solid #ffeb3b; background: transparent; }
 """
 
 def set_variant(widget, variant):
@@ -100,35 +99,19 @@ class _VisibilityWatcher(QObject):
 
 class EvidenziaFinestre(QObject):
     """Le finestre di avviso (QMessageBox) hanno il bordo colorato (foglio di stile) e, quando compaiono,
-    una cornice gialla sovrapposta lampeggia un attimo: i popup non passano inosservati. La barra delle
-    applicazioni lampeggia (alert) se il popup arriva da dietro."""
-    LAMPI, PASSO = 6, 110                             # 3 accensioni in circa 2/3 di secondo
+    sfumano tre volte: i popup non passano inosservati. La barra delle applicazioni lampeggia (alert)
+    se il popup arriva da dietro."""
+    DURATA = 700                                      # 3 sfumature in circa 2/3 di secondo
 
     def eventFilter(self, obj, ev):
         if ev.type() == QEvent.Type.Show and isinstance(obj, QMessageBox) and obj.isWindow():
             QApplication.alert(obj, 1500)
-            # niente ridisegni dell'avviso (crash con Qt): lampeggia solo una cornice nostra, figlia
-            # dell'avviso, che muore con lui insieme al suo timer; il timer non tocca mai l'avviso.
-            for vecchia in obj.findChildren(QFrame, "lampo"):
-                vecchia.deleteLater()
-            cornice = QFrame(obj)
-            cornice.setObjectName("lampo")
-            cornice.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            cornice.hide()
-            timer = QTimer(cornice)
-            passi = iter(range(1, self.LAMPI + 1))
-
-            def lampeggia():
-                i = next(passi, None)
-                if i is None:
-                    timer.stop()
-                    cornice.deleteLater()
-                elif i % 2:
-                    cornice.setGeometry(cornice.parentWidget().rect())
-                    cornice.raise_()
-                    cornice.show()
-                else:
-                    cornice.hide()
-            timer.timeout.connect(lampeggia)
-            timer.start(self.PASSO)
+            # tutto in Qt, nessun codice Python durante il lampeggio: con timer e funzioni Python il
+            # programma crashava (pulizia della memoria di Python mentre la libreria salvava l'indice).
+            # L'animazione è figlia dell'avviso e si cancella da sola alla fine.
+            anim = QPropertyAnimation(obj, b"windowOpacity", obj)
+            anim.setDuration(self.DURATA)
+            for i in range(7):
+                anim.setKeyValueAt(i / 6, 1.0 if i % 2 == 0 else 0.35)
+            anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
         return False
