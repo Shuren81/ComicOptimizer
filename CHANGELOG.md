@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.12.1] — 2026-11-23
+
+- **Corretto:** il programma poteva chiudersi di colpo (crash) subito dopo uno spostamento, alla chiusura di una finestra: l'evidenziazione dei popup ridisegnava la finestra mentre veniva distrutta.
+
 ## [3.12.0] — 2026-11-23
 
 - **Nuovo:** le **Opzioni** sono divise in due schede. In **Ricerca online** ci sono tutte le fonti: cosa trova ognuna, la sua chiave (ComicVine, MyAnimeList, Metron) da inserire una volta sola e **Apri il sito** per registrarsi o consultarla. Le chiavi restano leggibili solo dal tuo utente.

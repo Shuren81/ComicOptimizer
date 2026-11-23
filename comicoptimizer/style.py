@@ -118,20 +118,26 @@ class EvidenziaFinestre(QObject):
                 and isinstance(obj, QDialog) and obj.isWindow():
             if tipo == QEvent.Type.Show:
                 QApplication.alert(obj, 1500)
-            elif tipo == QEvent.Type.WindowDeactivate:
-                _ristila(obj, attiva=False, lampo=False)
             else:
-                _ristila(obj, attiva=True)
-                timer = QTimer(obj)                   # figlio della finestra: muore con lei
-                passi = iter(range(1, self.LAMPI + 1))
+                # mai ristilare qui: l'evento arriva anche mentre la finestra si distrugge e il foglio
+                # di stile terrebbe un widget morto (crash). Lo fa un timer figlio, che muore con lei.
+                for vecchio in obj.findChildren(QTimer, "lampo"):
+                    vecchio.stop()
+                    vecchio.deleteLater()
+                if tipo == QEvent.Type.WindowActivate:
+                    passi = iter([(True, i % 2 == 1) for i in range(1, self.LAMPI + 1)])
+                else:
+                    passi = iter([(False, False)])
+                timer = QTimer(obj)
+                timer.setObjectName("lampo")
 
                 def lampeggia():
-                    i = next(passi, None)
-                    if i is None:
+                    passo = next(passi, None)
+                    if passo is None or not obj.isVisible():
                         timer.stop()
                         timer.deleteLater()
                     else:
-                        _ristila(obj, lampo=i % 2 == 1)
+                        _ristila(obj, attiva=passo[0], lampo=passo[1])
                 timer.timeout.connect(lampeggia)
-                timer.start(self.PASSO)
+                timer.start(0 if tipo == QEvent.Type.WindowDeactivate else self.PASSO)
         return False

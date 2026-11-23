@@ -118,15 +118,26 @@ def test_popup_evidenziati(app):
     d = QDialog()
     d.show()
     QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowActivate))
-    assert d.property("attiva") is True, "la finestra attiva ha il bordo colorato"
     lampi = []
     for _ in range(120):
         app.processEvents()
         lampi.append(bool(d.property("lampo")))
         time.sleep(0.01)
+    assert d.property("attiva") is True, "la finestra attiva ha il bordo colorato"
     assert True in lampi and not d.property("lampo"), "lampeggia e poi si ferma"
     QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowDeactivate))
+    for _ in range(5):
+        app.processEvents()
     assert d.property("attiva") is False
+    # finestra distrutta subito dopo l'attivazione: il timer muore con lei, nessun crash
+    e = QDialog()
+    e.show()
+    QCoreApplication.sendEvent(e, QEvent(QEvent.Type.WindowActivate))
+    QCoreApplication.sendEvent(e, QEvent(QEvent.Type.WindowDeactivate))
+    e.deleteLater()
+    for _ in range(30):
+        app.processEvents()
+        time.sleep(0.01)
     app.removeEventFilter(filtro)
 
 
