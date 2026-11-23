@@ -223,6 +223,7 @@ class SearchDialog(QDialog):
         self.saltato = False
         fit_dialog_to_screen(self, 980, 720, min_w=640, min_h=460)
         self.scelti = None
+        self.copertina_scelta = None                  # byte della copertina, se "Prendi la copertina"
         self.nome_file = nome_file
         self.serie = valori.get("Series", "")
         self.numero = valori.get("Number", "")
@@ -298,6 +299,10 @@ class SearchDialog(QDialog):
         b_chiudi.clicked.connect(self.reject)
         riga.addWidget(b_chiudi)
         sinistra.addLayout(riga)
+        self.prendi_copertina = QCheckBox("Prendi anche la copertina (diventa la prima pagina)")
+        self.prendi_copertina.setToolTip("Solo per i CBZ. La copertina del fumetto resta, come seconda pagina:\n"
+                                         "se non la vuoi, la togli da Pagine.")
+        sinistra.addWidget(self.prendi_copertina)
 
         self.copertina = QLabel("Nessuna copertina")
         self.copertina.setFixedSize(180, 230)
@@ -514,6 +519,16 @@ class SearchDialog(QDialog):
         if r.get("dettagli_stato") == "in corso":
             QMessageBox.information(self, "Ricerca", "Sto ancora caricando i dettagli: attendi un istante e riprova.")
             return
+        if self.prendi_copertina.isChecked():
+            url = r.get("copertina")
+            if url and url in self.in_download:
+                QMessageBox.information(self, "Ricerca", "Sto ancora scaricando la copertina: attendi un istante.")
+                return
+            self.copertina_scelta = self.copertine.get(url) if url else None
+            if not self.copertina_scelta and QMessageBox.question(
+                    self, "Ricerca", "Questo risultato non ha una copertina. Applicare solo le info?"
+            ) != QMessageBox.StandardButton.Yes:
+                return
         self.scelti = {}
         for campo, valore in r["campi"].items():
             if valore:
@@ -601,6 +616,7 @@ class MetadataDialog(QDialog):
         self.disco = {}
         self.pending = {}
         self.conversioni = {}
+        self.copertine_nuove = {}    # percorso → byte della copertina presa dalla ricerca online
         self.toccati = set()         # campi cambiati da te nella selezione corrente
         self.automatici = set()      # riempiti dal programma: contano solo quando salvi
         self.diversi = set()
@@ -1076,6 +1092,13 @@ class MetadataDialog(QDialog):
                 QTimer.singleShot(0, finestra.cerca)  # dal secondo in poi la ricerca parte da sola
             if not finestra.exec():
                 break                                 # Chiudi
+            if finestra.copertina_scelta:
+                if file_status(percorso) in (1, 3):
+                    self.copertine_nuove[percorso] = finestra.copertina_scelta
+                    self.stato.setText("Copertina presa: si aggiunge salvando.")
+                else:
+                    QMessageBox.information(self, "Ricerca", "La copertina si aggiunge solo ai CBZ: "
+                                            f"«{os.path.basename(percorso)}» non lo è.")
             for campo, valore in (finestra.scelti or {}).items():
                 if campo in self.caselle:
                     self.svuota[campo].setChecked(False)
@@ -1116,6 +1139,10 @@ class MetadataDialog(QDialog):
                 cbz[p] = differenze
             else:
                 conversioni[p] = (info_per_conversione(completi), cbz_target(p))
+        for p in self.copertine_nuove:
+            cbz.setdefault(p, {})
+        if self.copertine_nuove:
+            coinvolti.add("copertina")
         return cbz, conversioni, coinvolti, errori
 
     def _occupato(self, occupato):
@@ -1133,7 +1160,7 @@ class MetadataDialog(QDialog):
             self.stato.setText("Nessuna modifica da salvare.")
             return
         totale = len(cbz) + len(conversioni)
-        campi = "Campi coinvolti: " + ", ".join(sorted(coinvolti, key=CAMPI.index))
+        campi = "Campi coinvolti: " + ", ".join(sorted(coinvolti, key=lambda c: CAMPI.index(c) if c in CAMPI else len(CAMPI)))
         if conversioni:
             # le info si scrivono solo in un CBZ: si converte (e la finestra si chiude) o si rinuncia
             P = QMessageBox.StandardButton
@@ -1168,7 +1195,8 @@ class MetadataDialog(QDialog):
         def lavoro():
             problemi = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as esecutore:
-                futuri = {esecutore.submit(scrivi_cbz, p, v): p for p, v in cbz.items()}
+                futuri = {esecutore.submit(scrivi_cbz, p, v, None, self.copertine_nuove.get(p)): p
+                          for p, v in cbz.items()}
                 for futuro in concurrent.futures.as_completed(futuri):
                     if futuro.exception():
                         problemi[futuri[futuro]] = str(futuro.exception())
@@ -1186,6 +1214,8 @@ class MetadataDialog(QDialog):
                 log.info(f"Info salvate: '{os.path.basename(p)}'")
                 self.disco.pop(p, None)
                 self.pending.pop(p, None)
+                if self.copertine_nuove.pop(p, None):
+                    self.percorso_copertina = None    # rileggere: ora la copertina è quella nuova
         if problemi:
             log.error(f"Info non salvate: {problemi}")
             QMessageBox.warning(self, "Salva metadati", f"Salvati {len(cbz) - len(problemi)} file.\n\n" + "\n".join(
@@ -1275,9 +1305,10 @@ class MetadataDialog(QDialog):
         if self.salvataggio_in_corso:
             return
         self._conserva()
-        if self.pending and QMessageBox.question(
+        da_salvare = set(self.pending) | set(self.copertine_nuove)
+        if da_salvare and QMessageBox.question(
                 self, "Info e rinomina",
-                f"Ci sono modifiche non salvate su {len(self.pending)} file.\nChiudere comunque?"
+                f"Ci sono modifiche non salvate su {len(da_salvare)} file.\nChiudere comunque?"
         ) != QMessageBox.StandardButton.Yes:
             return
         super().reject()

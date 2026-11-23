@@ -163,10 +163,27 @@ def leggi_radice(percorso):
         return ET.fromstring(z.read(nome_xml))
 
 
-def scrivi_cbz(percorso, valori, avanzamento=None):
+def estensione_immagine(dati):
+    if dati[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if dati[:4] == b"RIFF" and dati[8:12] == b"WEBP":
+        return ".webp"
+    return ".jpg"
+
+
+def scrivi_cbz(percorso, valori, avanzamento=None, copertina=None):
+    """Scrive le info nel ComicInfo.xml del CBZ. `copertina` (byte di un'immagine): diventa la prima
+    pagina, prima di tutte le altre; la vecchia copertina resta come seconda."""
     radice = leggi_radice(percorso)
     if radice is None:
         radice = ET.Element("ComicInfo")
+    if copertina:
+        conta = radice.find("PageCount")
+        if conta is not None and (conta.text or "").isdigit():
+            conta.text = str(int(conta.text) + 1)
+        pagine = radice.find("Pages")
+        if pagine is not None:                        # gli indici delle pagine ora sono spostati di uno
+            radice.remove(pagine)
     for campo, testo in valori.items():
         if campo == "Number" and testo:
             testo = pulisci_numero(testo)
@@ -194,6 +211,12 @@ def scrivi_cbz(percorso, valori, avanzamento=None):
             # shortcut: lo spazio del vecchio XML e indice non si recupera (circa 8 KB a salvataggio), ricomprimere se mai pesasse
             z.start_dir = dimensione_iniziale
             z.writestr(nome_xml or "ComicInfo.xml", xml_bytes, compress_type=zipfile.ZIP_DEFLATED)
+            if copertina:
+                # "0000_" viene prima dei nomi delle pagine (0001…, o lettere) nell'ordine dei lettori
+                nome, n = "0000_copertina" + estensione_immagine(copertina), 1
+                while nome in z.NameToInfo:
+                    nome, n = f"0000_copertina_{n}" + estensione_immagine(copertina), n + 1
+                z.writestr(nome, copertina)
     except Exception:
         os.truncate(percorso, dimensione_iniziale)
         raise

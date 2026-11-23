@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.12.0] — 2026-11-23
+
+- **Nuovo: due fonti per la Ricerca online.**
+  - **Grand Comics Database** (comics.org): database internazionale, senza chiave. Con un numero trova l'albo in ogni serie con quel nome, le edizioni italiane per prime (es. «Dylan Dog 100»); selezionandolo arrivano autori, personaggi, editore e copertina.
+  - **Metron** (metron.cloud): serve un account gratuito; nel campo della chiave si scrive `utente:password` (o un token).
+  - League of Comic Geeks non c'è: il sito blocca i programmi con un controllo anti-bot.
+- **Nuovo:** nella Ricerca online la casella **Prendi anche la copertina** (spenta di serie): salvando, la copertina della fonte diventa la prima pagina del CBZ; quella del fumetto resta come seconda.
+- **Nuovo:** in **Pagine** un click seleziona le pagine (bordo azzurro) e il tasto destro ha **Esporta immagini…**, che le copia in una cartella a scelta senza sovrascrivere niente.
+- **Più veloce:** **Pagine** si apre subito anche con fumetti enormi: le miniature si caricano poche alla volta, già rimpicciolite, mentre un fumetto animato sfoglia le pagine. Prima Linux poteva dire che il programma non rispondeva.
+- **Nuovo:** le finestre di dialogo attive hanno il **bordo colorato** e, quando compaiono, **lampeggiano** un attimo (e la barra delle applicazioni le segnala): i popup non passano più inosservati. La barra del titolo la disegna il sistema e non cambia colore.
+
 ## [3.11.17] — 2026-11-17
 
 - **Nuovo:** nelle **Opzioni**, la riga **Programmi esterni** mostra se ci sono 7z, unrar e le librerie del programma. Se manca qualcosa, **Installa mancanti** lo installa: su Linux con apt, dnf o pacman (il sistema chiede la password), dal codice sorgente con pip. Su Windows e Mac indica dove scaricare 7-Zip.

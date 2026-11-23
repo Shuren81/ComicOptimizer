@@ -367,6 +367,28 @@ def test_ricerca(app, work, md):
     d.pending.clear()
     d.reject()
     assert md.MetadataDialog(fs[:1], chiudi="Avanti ▸ Lista di lavoro").b_chiudi.text() == "Avanti ▸ Lista di lavoro"
+
+    # "Prendi anche la copertina": salvando diventa la prima pagina del CBZ
+    s3 = md.SearchDialog("ricerca", {}, d)
+    assert not s3.prendi_copertina.isChecked(), "spenta di serie"
+    s3.risultati = s3.visibili = [{"etichetta": "X", "copertina": "http://c/1.jpg", "campi": {"Series": "X"},
+                                   "note": [], "dettagli_stato": "ok"}]
+    s3.copertine["http://c/1.jpg"] = b"\xff\xd8nuova"     # già scaricata: niente rete
+    s3.lista.addItem("X")
+    s3.lista.setCurrentRow(0)
+    s3.prendi_copertina.setChecked(True)
+    s3.applica()
+    assert s3.copertina_scelta == b"\xff\xd8nuova" and s3.scelti == {"Series": "X"}
+    d = md.MetadataDialog(fs[:1])
+    md.SearchDialog.exec = lambda self: setattr(self, "scelti", {}) or setattr(
+        self, "copertina_scelta", b"\xff\xd8nuova") or 1
+    d.apri_ricerca()
+    assert d.copertine_nuove == {fs[0]: b"\xff\xd8nuova"}
+    d.salva()
+    assert attendi(app, lambda: not d.copertine_nuove)
+    with zipfile.ZipFile(fs[0]) as z:
+        assert z.read("0000_copertina.jpg") == b"\xff\xd8nuova"
+    d.reject()
     del md.FONTI_RICERCA["Finta"]
 
 

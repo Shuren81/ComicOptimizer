@@ -1,7 +1,7 @@
 """Foglio di stile (QSS) e piccoli aiuti grafici."""
 
 from PyQt6.QtCore import QEvent, QObject, QTimer
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog
 
 # --- STILE ---
 # Un solo foglio di stile per tutta l'app. I pulsanti colorati usano la proprietà
@@ -70,6 +70,8 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QMessageBox, QDialog { background: #1e1e1e; }
+QMessageBox[attiva="true"], QDialog[attiva="true"] { border: 2px solid #00bcd4; }
+QMessageBox[lampo="true"], QDialog[lampo="true"] { border: 4px solid #ffeb3b; background: #2c2c1e; }
 """
 
 def set_variant(widget, variant):
@@ -93,4 +95,43 @@ class _VisibilityWatcher(QObject):
     def eventFilter(self, obj, ev):
         if ev.type() in (QEvent.Type.Show, QEvent.Type.Hide):
             self._timer.start()
+        return False
+
+
+def _ristila(w, **proprieta):
+    for nome, valore in proprieta.items():
+        w.setProperty(nome, valore)
+    w.style().unpolish(w)
+    w.style().polish(w)
+    w.update()
+
+
+class EvidenziaFinestre(QObject):
+    """La finestra di dialogo attiva ha il bordo colorato e, quando si attiva, lampeggia un attimo:
+    i popup non passano inosservati. La barra del titolo la disegna il sistema: il programma non la
+    può colorare, ma la barra delle applicazioni lampeggia (alert) se il popup arriva da dietro."""
+    LAMPI, PASSO = 6, 110                             # 3 accensioni in circa 2/3 di secondo
+
+    def eventFilter(self, obj, ev):
+        tipo = ev.type()
+        if tipo in (QEvent.Type.WindowActivate, QEvent.Type.WindowDeactivate, QEvent.Type.Show) \
+                and isinstance(obj, QDialog) and obj.isWindow():
+            if tipo == QEvent.Type.Show:
+                QApplication.alert(obj, 1500)
+            elif tipo == QEvent.Type.WindowDeactivate:
+                _ristila(obj, attiva=False, lampo=False)
+            else:
+                _ristila(obj, attiva=True)
+                timer = QTimer(obj)                   # figlio della finestra: muore con lei
+                passi = iter(range(1, self.LAMPI + 1))
+
+                def lampeggia():
+                    i = next(passi, None)
+                    if i is None:
+                        timer.stop()
+                        timer.deleteLater()
+                    else:
+                        _ristila(obj, lampo=i % 2 == 1)
+                timer.timeout.connect(lampeggia)
+                timer.start(self.PASSO)
         return False

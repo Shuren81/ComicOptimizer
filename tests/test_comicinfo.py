@@ -25,6 +25,18 @@ class TestScrittura(unittest.TestCase):
             if xml is not None:
                 z.writestr("ComicInfo.xml", xml)
 
+    def test_copertina_prima_pagina(self):
+        self.crea("<ComicInfo><PageCount>1</PageCount><Pages><Page Image=\"0\"/></Pages></ComicInfo>")
+        png = b"\x89PNG\r\n\x1a\n" + b"x" * 10
+        comicinfo.scrivi_cbz(self.percorso, {}, copertina=png)
+        with zipfile.ZipFile(self.percorso) as z:
+            pagine = sorted(n for n in z.namelist() if n != "ComicInfo.xml")
+            self.assertEqual(pagine, ["0000_copertina.png", "001.webp"])
+            self.assertEqual(z.read("0000_copertina.png"), png)
+        radice = comicinfo.leggi_radice(self.percorso)
+        self.assertEqual(radice.findtext("PageCount"), "2")
+        self.assertIsNone(radice.find("Pages"), "indici delle pagine spostati: via")
+
     def test_conserva_immagini_e_tag_non_gestiti(self):
         self.crea("<ComicInfo><Series>Vecchia</Series><Notes>tienimi</Notes></ComicInfo>")
         comicinfo.scrivi_cbz(self.percorso, {"Series": "Nuova"})

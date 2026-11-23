@@ -1,11 +1,12 @@
 """Editor avanzato delle pagine di un fumetto."""
 
+import math
 import os
 import shutil
 
 from PIL import Image
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QRectF, QSize, Qt, QTimer
+from PyQt6.QtGui import QColor, QImageReader, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -90,6 +92,34 @@ class PagePreview(QDialog):
         else:
             super().keyPressEvent(e)   # Esc chiude
 
+class LibroAnimato(QWidget):
+    """Un fumetto aperto che sfoglia le pagine in loop, mentre le miniature si caricano."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(120, 70)
+        self._t = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._avanza)
+        self._timer.start(30)
+
+    def _avanza(self):
+        self._t = (self._t + 0.06) % 2
+        self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx, top, w, h = self.width() / 2, 8, 46, 54
+        p.setPen(QColor("#00bcd4"))
+        p.setBrush(QColor("#263238"))
+        p.drawRect(QRectF(cx - w, top, w, h))         # pagina di sinistra
+        p.drawRect(QRectF(cx, top, w, h))             # pagina di destra
+        # la pagina che gira: da destra a sinistra, larghezza che segue il coseno
+        x = w * math.cos(math.pi * min(self._t, 1))
+        p.setBrush(QColor("#ffeb3b") if x > 0 else QColor("#fff59d"))
+        p.drawRect(QRectF(cx + min(0, x), top, abs(x), h))
+
+
 class AdvancedEditor(QDialog):
     def __init__(self, file_path, temp_dir, image_list, parent=None):
         super().__init__(parent)
@@ -101,6 +131,14 @@ class AdvancedEditor(QDialog):
         fit_dialog_to_screen(self, 1100, 850, min_w=650, min_h=420)
 
         v = QVBoxLayout(self)
+        self.attesa = QWidget()                       # animazione finché le miniature non sono pronte
+        a = QHBoxLayout(self.attesa)
+        a.addStretch()
+        a.addWidget(LibroAnimato())
+        self.attesa_testo = QLabel("Carico le pagine…")
+        a.addWidget(self.attesa_testo)
+        a.addStretch()
+        v.addWidget(self.attesa)
         self.scroll  = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.grid_c  = QWidget()
@@ -131,6 +169,27 @@ class AdvancedEditor(QDialog):
         for i, p in enumerate(image_list):
             self.add_page(p, i + 1)
         self.refresh()
+        # miniature poche alla volta: con fumetti enormi la finestra resta viva (prima Linux
+        # diceva "non risponde" mentre le leggeva tutte insieme)
+        self._da_caricare = list(self.page_widgets)
+        self._mini = QTimer(self)                     # figlio dell'editor: chiuso l'editor, si ferma
+        self._mini.timeout.connect(self._carica_miniature)
+        self._mini.start(0)
+
+    def _carica_miniature(self):
+        for w in self._da_caricare[:4]:
+            reader = QImageReader(w.path)
+            reader.setAutoTransform(True)
+            size = reader.size()
+            if size.isValid():                        # decodifica già rimpicciolita: molto più veloce
+                reader.setScaledSize(size.scaled(QSize(140, 175), Qt.AspectRatioMode.KeepAspectRatio))
+            w.img.setPixmap(QPixmap.fromImage(reader.read()))
+        del self._da_caricare[:4]
+        totale = len(self.page_widgets)
+        self.attesa_testo.setText(f"Carico le pagine… {totale - len(self._da_caricare)}/{totale}")
+        if not self._da_caricare:
+            self._mini.stop()
+            self.attesa.hide()
 
     def _dominant_format(self):
         """
@@ -151,8 +210,9 @@ class AdvancedEditor(QDialog):
 
     def add_page(self, p, pos, is_new=False):
         w = QFrame()
+        w.setObjectName("pagina")
         w.setFixedSize(160, 310)
-        w.setStyleSheet("QFrame { background: #333; border-radius: 10px; }")
+        w.setStyleSheet("QFrame#pagina { background: #333; border-radius: 10px; }")
         l = QVBoxLayout(w)
         l.setContentsMargins(4, 4, 4, 4)
         l.setSpacing(3)
@@ -166,8 +226,9 @@ class AdvancedEditor(QDialog):
 
         img = QLabel()
         img.setFixedSize(140, 175)
-        pix = QPixmap(p)
-        img.setPixmap(pix.scaled(140, 175, Qt.AspectRatioMode.KeepAspectRatio))
+        img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if is_new:                                    # le pagine del fumetto arrivano da _carica_miniature
+            img.setPixmap(QPixmap(p).scaled(140, 175, Qt.AspectRatioMode.KeepAspectRatio))
         l.addWidget(img, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Banda colorata con il nome del file
@@ -198,11 +259,46 @@ class AdvancedEditor(QDialog):
         l.addWidget(sp)
 
         w.mouseDoubleClickEvent = lambda e: self.preview(w)
+        w.mousePressEvent = lambda e: self.seleziona(w) if e.button() == Qt.MouseButton.LeftButton else None
+        w.contextMenuEvent = lambda e: self.menu(w, e.globalPos())
 
+        w.img     = img
+        w.scelta  = False
         w.path    = p
         w.spin    = sp
         w.is_new  = is_new   # flag: aggiunta in questa sessione
         self.page_widgets.append(w)
+
+    def seleziona(self, w, scelta=None):
+        """Un click seleziona o toglie la pagina (bordo azzurro): le selezionate si esportano."""
+        w.scelta = not w.scelta if scelta is None else scelta
+        w.setStyleSheet("QFrame#pagina { background: #333; border-radius: 10px; %s }"
+                        % ("border: 3px solid #00bcd4;" if w.scelta else ""))
+
+    def menu(self, w, dove):
+        if not w.scelta:                              # tasto destro su una pagina non scelta: solo quella
+            for x in self.page_widgets:
+                self.seleziona(x, x is w)
+        scelte = [x.path for x in self.page_widgets if x.scelta]
+        m = QMenu(self)
+        m.addAction(f"Esporta immagini ({len(scelte)})…", lambda: self.esporta(scelte))
+        m.exec(dove)
+
+    def esporta(self, percorsi, cartella=None):
+        """Copia le pagine in una cartella scelta, mai sovrascrivendo. Restituisce i file scritti."""
+        cartella = cartella or QFileDialog.getExistingDirectory(self, "Esporta immagini in…")
+        if not cartella:
+            return []
+        scritti = []
+        for p in percorsi:
+            base, ext = os.path.splitext(os.path.basename(p))
+            dst, n = os.path.join(cartella, base + ext), 1
+            while os.path.exists(dst):
+                dst, n = os.path.join(cartella, f"{base} ({n}){ext}"), n + 1
+            shutil.copy2(p, dst)
+            scritti.append(dst)
+        log.info(f"Editor: esportate {len(scritti)} immagini in '{cartella}'")
+        return scritti
 
     def preview(self, w):
         """Doppio click: la pagina in grande, nell'ordine attuale dell'editor."""

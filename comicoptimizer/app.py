@@ -12,7 +12,7 @@ from . import config
 from .config import APP_VERSION, RES_DIR
 from .logsetup import LOG_PATH, log
 from .main_window import MainWindow
-from .style import STYLESHEET
+from .style import STYLESHEET, EvidenziaFinestre
 from .utils import cleanup_stale_temp
 
 
@@ -77,6 +77,8 @@ def main():
 
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
+    app._evidenzia = EvidenziaFinestre(app)          # tenuto in vita dall'app
+    app.installEventFilter(app._evidenzia)
     dark_palette = QPalette()
     dark_palette.setColor(QPalette.ColorRole.Window,          QColor(30, 30, 30))
     dark_palette.setColor(QPalette.ColorRole.WindowText,      Qt.GlobalColor.white)

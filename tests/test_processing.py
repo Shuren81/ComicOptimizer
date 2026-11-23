@@ -353,6 +353,21 @@ def main(work):
     assert len(paths) == 3 and len(set(paths)) == 3, paths
     colors = [Image.open(p).convert("RGB").getpixel((5, 5)) for p in paths[1:]]
     assert colors[0][1] > 200 and colors[1][2] > 200, colors
+    # miniature caricate poco alla volta, poi l'animazione sparisce
+    for _ in range(50):
+        app.processEvents()
+    assert dlg.attesa.isHidden() and all(not w.img.pixmap().isNull() for w in dlg.page_widgets)
+    # esporta: le pagine scelte col click, mai sovrascrivendo
+    uscita = os.path.join(au, "esportate")
+    os.makedirs(uscita)
+    dlg.seleziona(dlg.page_widgets[1])
+    dlg.seleziona(dlg.page_widgets[2])
+    scelte = [w.path for w in dlg.page_widgets if w.scelta]
+    assert len(scelte) == 2
+    dlg.esporta(scelte, uscita)
+    dlg.esporta(scelte[:1], uscita)
+    assert sorted(os.listdir(uscita)) == sorted([os.path.basename(scelte[0]), os.path.basename(scelte[1]),
+                                                 os.path.splitext(os.path.basename(scelte[0]))[0] + " (1).png"])
     dlg.reject()
 
     window_checks(app, work)

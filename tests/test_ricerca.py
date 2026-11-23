@@ -182,6 +182,52 @@ class TestComicsBoxSerie(unittest.TestCase):
         self.assertEqual([r["etichetta"] for r in risultati], ["ABSOLUTE BATMAN (Panini Comics)"])
 
 
+class TestGcdMetron(unittest.TestCase):
+
+    def test_gcd_numero_italiane_prima(self):
+        serie = {"results": [
+                {"name": "Dylan Dog", "country": "hr", "year_began": 2002,
+                 "issue_descriptors": ["100 - Noćni lov"], "active_issues": ["http://g/hr100"]},
+                {"name": "Dylan Dog", "country": "it", "year_began": 1986,
+                 "issue_descriptors": ["99", "100 - La storia di Dylan Dog", "100 [variante]"],
+                 "active_issues": ["http://g/99", "http://g/100", "http://g/100v"]}]}
+        with mock.patch.object(ricerca, "richiesta_json", return_value=serie) as rj:
+            risultati = ricerca.gcd_cerca("", "Dylan Dog 100 (1995)")
+        self.assertIn("series/name/dylan%20dog/", rj.call_args.args[0])
+        self.assertEqual([r["grezzo"]["url"] for r in risultati], ["http://g/100", "http://g/hr100"])
+        self.assertEqual(risultati[0]["campi"]["Title"], "La storia di Dylan Dog")
+        albo = {"series_name": "Dylan Dog (1986 series)", "number": "100", "key_date": "1995-01-00",
+                "indicia_publisher": "Sergio Bonelli Editore", "cover": "http://g/c.jpg", "story_set": [
+                    {"type": "cover", "pencils": "Angelo Stano (signed)"},
+                    {"type": "comic story", "title": "La storia di Dylan Dog", "script": "Tiziano Sclavi (credited)",
+                     "pencils": "Angelo Stano; ?", "characters": "Dylan Dog; Groucho [Marx]", "synopsis": "Trama."}]}
+        with mock.patch.object(ricerca, "richiesta_json", return_value=albo):
+            campi = ricerca.gcd_dettagli("", risultati[0])
+        self.assertEqual((campi["Series"], campi["Year"], campi["Writer"], campi["Penciller"], campi["Characters"]),
+                         ("Dylan Dog", "1995", "Tiziano Sclavi", "Angelo Stano", "Dylan Dog, Groucho"))
+        self.assertEqual(risultati[0]["copertina"], "http://g/c.jpg")
+
+    def test_metron_accesso_e_campi(self):
+        elenco = {"results": [{"id": 7, "issue": "Batman (2016) #1", "number": "1", "cover_date": "2016-08-01",
+                               "image": "http://m/c.jpg", "series": {"name": "Batman", "volume": 3}}]}
+        with mock.patch.object(ricerca, "richiesta_json", return_value=elenco) as rj:
+            risultati = ricerca.mt_cerca("io:segreta", "Batman #001")
+        url, intestazioni = rj.call_args.args
+        self.assertIn("series_name=batman", url)
+        self.assertIn("number=1", url)
+        self.assertEqual(intestazioni["Authorization"], "Basic aW86c2VncmV0YQ==")
+        self.assertEqual(ricerca._mt_intestazioni("tok")["Authorization"], "Bearer tok")
+        self.assertEqual(risultati[0]["campi"], {"Series": "Batman", "Number": "1", "Volume": "3", "Year": "2016"})
+        albo = {"title": "", "name": ["I Am Gotham, Part One"], "publisher": {"name": "DC Comics"}, "desc": "Trama",
+                "credits": [{"creator": "Tom King", "role": [{"name": "Writer"}]},
+                            {"creator": "David Finch", "role": [{"name": "Penciller"}, {"name": "Cover"}]}],
+                "characters": [{"name": "Batman"}], "teams": [], "arcs": [{"name": "I Am Gotham"}]}
+        with mock.patch.object(ricerca, "richiesta_json", return_value=albo):
+            campi = ricerca.mt_dettagli("io:segreta", risultati[0])
+        self.assertEqual((campi["Title"], campi["Writer"], campi["Penciller"], campi["StoryArc"]),
+                         ("I Am Gotham, Part One", "Tom King", "David Finch", "I Am Gotham"))
+
+
 class TestAniList(unittest.TestCase):
 
     VOCE = {

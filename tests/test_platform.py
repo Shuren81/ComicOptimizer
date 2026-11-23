@@ -84,6 +84,28 @@ def test_installa_mancanti():
     w._closing = True
 
 
+def test_popup_evidenziati(app):
+    import time
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    from PyQt6.QtWidgets import QDialog
+    from comicoptimizer.style import EvidenziaFinestre
+    filtro = EvidenziaFinestre(app)
+    app.installEventFilter(filtro)
+    d = QDialog()
+    d.show()
+    QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowActivate))
+    assert d.property("attiva") is True, "la finestra attiva ha il bordo colorato"
+    lampi = []
+    for _ in range(120):
+        app.processEvents()
+        lampi.append(bool(d.property("lampo")))
+        time.sleep(0.01)
+    assert True in lampi and not d.property("lampo"), "lampeggia e poi si ferma"
+    QCoreApplication.sendEvent(d, QEvent(QEvent.Type.WindowDeactivate))
+    assert d.property("attiva") is False
+    app.removeEventFilter(filtro)
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
@@ -91,4 +113,5 @@ if __name__ == "__main__":
         test_log_path(work)
         test_check_deps()
         test_installa_mancanti()
+        test_popup_evidenziati(app)
     print("TUTTO OK")

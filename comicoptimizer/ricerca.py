@@ -682,6 +682,114 @@ def cb_dettagli(_chiave, risultato):
     return {"Series": titolo, "Count": numeri.group(1) if numeri else "", "Summary": url}
 
 
+# ---------------------------------------------------------------- Grand Comics Database
+GCD_API = "https://www.comics.org/api/"
+
+
+def _gcd_nomi(testo):
+    """"Scott Snyder (credited); Nick Dragotta [as DRAGoTTA]" → ["Scott Snyder", "Nick Dragotta"]."""
+    nomi = (re.sub(r"\s*[(\[].*?[)\]]", "", n).strip(" ?") for n in (testo or "").split(";"))
+    return [n for n in nomi if n and n.lower() != "none"]
+
+
+def gcd_cerca(_chiave, query):
+    """API aperte (comics.org/api): le serie col nome cercato, anche le edizioni italiane (prima).
+    Con un numero, di ogni serie l'albo con quel numero (la prima copertina, non le varianti)."""
+    testo, numero = separa_numero(re.sub(r"\(.*?\)", " ", query).replace("#", " ").strip())
+    dati = richiesta_json(f"{GCD_API}series/name/{urllib.parse.quote(testo)}/?format=json")
+    serie, albi = [], []
+    for s in dati.get("results") or []:
+        luogo = f"{s.get('year_began') or '?'}, {s.get('country', '').upper()}"
+        serie.append({"etichetta": f"{s['name']} ({luogo})", "copertina": None, "note": [],
+                      "campi": {"Series": s["name"], "Year": str(s.get("year_began") or "")},
+                      "grezzo": {"italiana": s.get("country") == "it"}})
+        for descrittore, url in zip(s.get("issue_descriptors") or [], s.get("active_issues") or []):
+            n = descrittore.split(" ")[0]
+            if numero and pulisci_numero(n) == pulisci_numero(numero):
+                albi.append({"etichetta": f"{s['name']} #{descrittore} ({luogo})", "copertina": None, "note": [],
+                             "campi": {"Series": s["name"], "Number": n,
+                                       "Title": descrittore.partition(" - ")[2].split(" [")[0]},
+                             "grezzo": {"url": url, "italiana": s.get("country") == "it"}})
+                break
+    return sorted(ordina_per_parole(albi or serie, testo), key=lambda r: not r["grezzo"]["italiana"])
+
+
+def gcd_dettagli(_chiave, risultato):
+    url = risultato["grezzo"].get("url")
+    if not url:
+        return {}
+    albo = richiesta_json(url)
+    risultato["copertina"] = albo.get("cover") or None
+    storie = albo.get("story_set") or []
+    # le storie a fumetti, non copertina, pubblicità e anteprime di altri albi
+    racconti = [st for st in storie if st.get("type") == "comic story"] or storie
+    data = (albo.get("key_date") or "").split("-")
+    return {
+            "Series": re.sub(r"\s*\(\d{4} series\)$", "", albo.get("series_name") or ""),
+            "Number": albo.get("number") or "",
+            "Title": albo.get("title") or next((st["title"] for st in racconti if st.get("title")), ""),
+            "Year": data[0] if data and data[0] != "0000" else "",
+            "Publisher": albo.get("indicia_publisher") or "",
+            "Writer": ", ".join(unici(n for st in racconti for n in _gcd_nomi(st.get("script"))))[:500],
+            "Penciller": ", ".join(unici(n for st in racconti for n in _gcd_nomi(st.get("pencils"))))[:500],
+            "Characters": ", ".join(unici(n for st in racconti for n in _gcd_nomi(st.get("characters")))[:25]),
+            "Summary": "\n\n".join(st["synopsis"] for st in racconti if st.get("synopsis")),
+    }
+
+
+# ---------------------------------------------------------------- Metron
+METRON_API = "https://metron.cloud/api/"
+
+
+def _mt_intestazioni(chiave):
+    """"utente:password" (account gratuito su metron.cloud) oppure un token dell'API."""
+    if ":" in chiave:
+        import base64
+        return {"Authorization": "Basic " + base64.b64encode(chiave.encode()).decode()}
+    return {"Authorization": f"Bearer {chiave}"}
+
+
+def mt_cerca(chiave, query):
+    testo, numero = separa_numero(re.sub(r"\(.*?\)", " ", query).replace("#", " ").strip())
+    parametri = {"series_name": testo, **({"number": pulisci_numero(numero)} if numero else {})}
+    dati = richiesta_json(f"{METRON_API}issue/?{urllib.parse.urlencode(parametri)}", _mt_intestazioni(chiave))
+    risultati = []
+    for albo in dati.get("results") or []:
+        serie = albo.get("series") or {}
+        anno = (albo.get("cover_date") or "")[:4]
+        risultati.append({
+                "etichetta": albo.get("issue") or f"{serie.get('name', '')} #{albo.get('number', '')}",
+                "copertina": albo.get("image") or None,
+                "note": [],
+                "campi": {"Series": serie.get("name") or "", "Number": str(albo.get("number") or ""),
+                          "Volume": str(serie.get("volume") or ""), "Year": anno},
+                "grezzo": {"id": albo.get("id")},
+        })
+    return ordina_per_parole(risultati, query)
+
+
+def mt_dettagli(chiave, risultato):
+    albo = richiesta_json(f"{METRON_API}issue/{risultato['grezzo']['id']}/", _mt_intestazioni(chiave))
+    risultato["copertina"] = albo.get("image") or risultato.get("copertina")
+    ruoli = {"Writer": [], "Penciller": []}
+    for credito in albo.get("credits") or []:
+        nomi_ruoli = " ".join((r.get("name") or "").lower() for r in credito.get("role") or [])
+        if "writer" in nomi_ruoli or "script" in nomi_ruoli or "story" in nomi_ruoli:
+            ruoli["Writer"].append(credito.get("creator") or "")
+        if "pencil" in nomi_ruoli or "artist" in nomi_ruoli:
+            ruoli["Penciller"].append(credito.get("creator") or "")
+    return {
+            "Title": albo.get("title") or ", ".join(albo.get("name") or []),
+            "Publisher": (albo.get("publisher") or {}).get("name") or "",
+            "Summary": albo.get("desc") or "",
+            "Writer": ", ".join(unici(ruoli["Writer"])),
+            "Penciller": ", ".join(unici(ruoli["Penciller"])),
+            "Characters": ", ".join(unici([c.get("name") for c in albo.get("characters") or []])[:25]),
+            "Teams": ", ".join(unici([t.get("name") for t in albo.get("teams") or []])[:15]),
+            "StoryArc": ", ".join(unici([a.get("name") for a in albo.get("arcs") or []])),
+    }
+
+
 # ---------------------------------------------------------------- elenco delle fonti
 FONTI_RICERCA = {
         "ComicVine": {
@@ -724,6 +832,26 @@ FONTI_RICERCA = {
                 "query_iniziale": lambda serie, numero: f"{serie} {numero}".strip(),
                 "formatta_titoli": False,
                 "memoria": cb_memoria,
+        },
+        "Metron": {
+                "chiave_config": "metron_accesso",
+                "etichetta_chiave": "Metron (utente:password):",
+                "aiuto": "Account gratuito su metron.cloud: scrivi utente:password (o un token)",
+                "url_aiuto": "https://metron.cloud/accounts/signup/",
+                "cerca": mt_cerca,
+                "dettagli": mt_dettagli,
+                "query_iniziale": lambda serie, numero: f"{serie} {numero}".strip(),
+                "formatta_titoli": True,
+        },
+        "Grand Comics Database": {
+                "chiave_config": None,
+                "etichetta_chiave": "Chiave (non serve):",
+                "aiuto": "Database internazionale (anche edizioni italiane): comics.org",
+                "url_aiuto": "https://www.comics.org",
+                "cerca": gcd_cerca,
+                "dettagli": gcd_dettagli,
+                "query_iniziale": lambda serie, numero: f"{serie} {numero}".strip(),
+                "formatta_titoli": False,
         },
 }
 FONTE_PREDEFINITA = "ComicVine"
