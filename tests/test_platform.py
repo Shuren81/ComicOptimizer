@@ -109,35 +109,20 @@ def test_installa_mancanti():
 
 
 def test_popup_evidenziati(app):
-    import gc
-    import time
-    from PyQt6.QtCore import QPropertyAnimation, QTimer
+    from PyQt6.QtCore import QPropertyAnimation
     from PyQt6.QtWidgets import QDialog, QMessageBox
-    from comicoptimizer.style import EvidenziaFinestre
+    from comicoptimizer.style import STYLESHEET, EvidenziaFinestre
     filtro = EvidenziaFinestre(app)
     app.installEventFilter(filtro)
-
-    def gira(n):
-        for _ in range(n):
-            app.processEvents()
-            gc.collect()                              # la pulizia della memoria non deve rompere niente
-            time.sleep(0.01)
-    d = QMessageBox()
+    app.setStyleSheet(STYLESHEET)
+    d, f = QMessageBox(), QDialog()
     d.show()
-    assert d.findChildren(QPropertyAnimation), "l'avviso sfuma"
-    gira(100)
-    assert not d.findChildren(QPropertyAnimation) and d.windowOpacity() == 1.0, "e poi torna normale"
-    # avviso statico (creato da Qt, come «Spostati N fumetti») chiuso mentre lampeggia: nessun crash
-    t = QTimer()
-    t.setSingleShot(True)
-    t.timeout.connect(lambda: app.activeModalWidget() and app.activeModalWidget().accept())
-    t.start(250)
-    QMessageBox.information(None, "Spostamento", "Spostati 3 fumetti.")
-    gira(60)
-    # le altre finestre (Info e rinomina, Opzioni…) non lampeggiano
-    f = QDialog()
     f.show()
-    assert not f.findChildren(QPropertyAnimation), "solo gli avvisi lampeggiano"
+    app.processEvents()
+    assert not d.findChildren(QPropertyAnimation), "niente lampeggi"
+    sfondo = lambda w: w.grab().toImage().pixelColor(w.width() // 2, 5).name()
+    assert sfondo(d) == "#1a2a3a" and sfondo(f) == "#1e1e1e", (sfondo(d), sfondo(f))
+    app.setStyleSheet("")
     app.removeEventFilter(filtro)
 
 

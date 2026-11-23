@@ -1,6 +1,6 @@
 """Foglio di stile (QSS) e piccoli aiuti grafici."""
 
-from PyQt6.QtCore import QEvent, QObject, QPropertyAnimation, QTimer
+from PyQt6.QtCore import QEvent, QObject, QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 # --- STILE ---
@@ -70,7 +70,7 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QMessageBox, QDialog { background: #1e1e1e; }
-QMessageBox { border: 2px solid #00bcd4; }
+QMessageBox { background: #1a2a3a; border: 2px solid #00bcd4; }
 """
 
 def set_variant(widget, variant):
@@ -98,20 +98,12 @@ class _VisibilityWatcher(QObject):
 
 
 class EvidenziaFinestre(QObject):
-    """Le finestre di avviso (QMessageBox) hanno il bordo colorato (foglio di stile) e, quando compaiono,
-    sfumano tre volte: i popup non passano inosservati. La barra delle applicazioni lampeggia (alert)
-    se il popup arriva da dietro."""
-    DURATA = 700                                      # 3 sfumature in circa 2/3 di secondo
+    """Le finestre di avviso (QMessageBox) hanno sfondo blu notte e bordo colorato (foglio di stile):
+    non si confondono con le altre. Quando compaiono, la barra delle applicazioni lampeggia (alert)
+    se il popup arriva da dietro. Niente lampeggi sulla finestra: con timer Python crashava, e
+    la sfumatura era brutta."""
 
     def eventFilter(self, obj, ev):
         if ev.type() == QEvent.Type.Show and isinstance(obj, QMessageBox) and obj.isWindow():
             QApplication.alert(obj, 1500)
-            # tutto in Qt, nessun codice Python durante il lampeggio: con timer e funzioni Python il
-            # programma crashava (pulizia della memoria di Python mentre la libreria salvava l'indice).
-            # L'animazione è figlia dell'avviso e si cancella da sola alla fine.
-            anim = QPropertyAnimation(obj, b"windowOpacity", obj)
-            anim.setDuration(self.DURATA)
-            for i in range(7):
-                anim.setKeyValueAt(i / 6, 1.0 if i % 2 == 0 else 0.35)
-            anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
         return False

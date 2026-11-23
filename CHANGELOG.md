@@ -2,7 +2,8 @@
 
 ## [3.12.4] — 2026-11-23
 
-- **Corretto:** il crash dopo gli spostamenti, all'avviso «Spostati N fumetti», continuava: il lampeggio degli avvisi ora è una sfumatura gestita tutta da Qt, senza codice Python mentre lampeggia.
+- **Corretto:** il crash dopo gli spostamenti, all'avviso «Spostati N fumetti», continuava: era il lampeggio degli avvisi, che è stato tolto.
+- **Cambiato:** le finestre di avviso hanno lo sfondo **blu notte** e il bordo azzurro, diverse dalle finestre del programma: non si confondono.
 
 ## [3.12.3] — 2026-11-23
 
