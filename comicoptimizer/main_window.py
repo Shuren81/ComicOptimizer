@@ -1447,13 +1447,20 @@ class MainWindow(QMainWindow):
                 if len(pairs) > 1:                        # fra due dischi è una copia: si vede che lavora
                     self.set_working(True, f"{verbo}: {i}/{len(pairs)} — {os.path.basename(old)}", i - 1, len(pairs))
                     QApplication.processEvents()
+                c_era = os.path.exists(new)
                 try:
                     # ricontrollo: su Linux os.rename sovrascriverebbe in silenzio
-                    if os.path.exists(new) and not os.path.samefile(old, new):
+                    if c_era and not os.path.samefile(old, new):
                         raise FileExistsError("esiste già un file con questo nome")
                     os.makedirs(os.path.dirname(new), exist_ok=True)   # spostamento nella libreria
                     shutil.move(old, new)                 # come os.rename, ma anche verso un altro disco
                 except OSError as e:
+                    # fra due dischi è una copia: interrotta (disco pieno, staccato) lascia il nuovo a metà
+                    if not c_era and os.path.exists(old) and os.path.lexists(new):
+                        try:
+                            shutil.rmtree(new) if os.path.isdir(new) else os.remove(new)
+                        except OSError as e2:
+                            log.warning(f"Copia a metà non tolta '{new}': {e2}")
                     log.error(f"Rinomina fallita: '{os.path.basename(old)}': {e}")
                     errors.append(f"{os.path.basename(old)}: {e}")
                     continue

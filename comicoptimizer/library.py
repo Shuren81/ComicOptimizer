@@ -111,17 +111,30 @@ def cartella_da_schema(schema, valori):
     return os.path.join(*[p for p in pezzi if p]) if any(pezzi) else ""
 
 
+def cartelle_di_sistema():
+    """Home, Scrivania, Scaricati, Documenti, Immagini: mai nel cestino, anche se restano vuote."""
+    L = QStandardPaths.StandardLocation
+    return [QStandardPaths.writableLocation(t) for t in (L.HomeLocation, L.DesktopLocation,
+            L.DownloadLocation, L.DocumentsLocation, L.PicturesLocation)]
+
+
+def _chiave(c):
+    return os.path.normcase(os.path.normpath(c))   # Windows: «C:\Fumetti» e «c:/fumetti» sono la stessa
+
+
 def cartelle_vuote(cartelle, radici):
     """Le cartelle rimaste vuote dopo uno spostamento, da cestinare. Dentro una libreria si sale
     finché il genitore è vuoto (DC Comics/Batman → DC Comics), mai la libreria stessa; fuori solo
-    la cartella del fumetto, mai i genitori (Download)."""
-    radici = [os.path.normpath(r) for r in radici if r]
+    la cartella del fumetto, mai i genitori, le cartelle di sistema (un fumetto da solo in
+    Scaricati la lascerebbe vuota) né la radice di un disco."""
+    radici = [_chiave(r) for r in radici if r]
+    mai = set(radici) | {_chiave(c) for c in cartelle_di_sistema() if c}
     vuote = []
     for c in dict.fromkeys(os.path.normpath(c) for c in cartelle):
-        while (c not in radici and c not in vuote and os.path.isdir(c)
+        while (_chiave(c) not in mai and os.path.dirname(c) != c and c not in vuote and os.path.isdir(c)
                and all(os.path.join(c, f) in vuote for f in os.listdir(c))):
             vuote.append(c)
-            if not any(c.startswith(r + os.sep) for r in radici):
+            if not any(_chiave(c).startswith(r.rstrip(os.sep) + os.sep) for r in radici):
                 break
             c = os.path.dirname(c)
     # "DC Comics" si cestina con dentro "Batman": basta la più esterna
@@ -337,6 +350,7 @@ class LibraryView(QWidget):
         self.dupe_of = {}                             # doppione → il file che si tiene
         self.scanner = None
         self._queue = deque()
+        self._elementi = {}
         self._running = set()
 
         l = QVBoxLayout(self)
@@ -592,6 +606,7 @@ class LibraryView(QWidget):
         self.paths = paths
         self._queue.clear()
         self.list.clear()
+        self._elementi = {}                            # percorso → elemento, per le miniature
         sfondo = {p: n % 2 for n, v in enumerate(gruppi.values()) for p in v}   # gruppi a colori alterni
         for p in paths:
             item = QListWidgetItem(os.path.basename(p))
@@ -606,6 +621,7 @@ class LibraryView(QWidget):
                 item.setForeground(QBrush(QColor(colore)))
             item.setIcon(icona_fissa(self._cached_thumb(p) or self._placeholder))
             self.list.addItem(item)
+            self._elementi[p] = item
         # niente da mostrare (non per un filtro o una ricerca): il disegno e due righe su cosa fare
         self.griglia.setCurrentWidget(self.vuota if not (paths or stati or parole) else self.list)
         self._next_thumbs()
@@ -638,11 +654,9 @@ class LibraryView(QWidget):
         pix = save_thumb(p, data)
         if pix is None:
             return
-        for i in range(self.list.count()):
-            item = self.list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == p:
-                item.setIcon(icona_fissa(pix))
-                break
+        item = self._elementi.get(p)
+        if item is not None:
+            item.setIcon(icona_fissa(pix))
 
     # --- controllo della libreria ---
 

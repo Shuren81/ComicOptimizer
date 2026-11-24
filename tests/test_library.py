@@ -55,6 +55,17 @@ def test_vista(app, lib):
     v.chk_sub.setChecked(False)
     v.show_folder(os.path.join(lib, "Batman"))
     assert v.paths == [a, b] and v.list.count() == 2
+    from PyQt6.QtCore import QBuffer
+    from PyQt6.QtGui import QImage
+    img, buf = QImage(40, 60, QImage.Format.Format_RGB32), QBuffer()
+    img.fill(0xff0000)
+    buf.open(QBuffer.OpenModeFlag.WriteOnly)
+    img.save(buf, "PNG")
+    prima = [v.list.item(i).icon().cacheKey() for i in range(2)]
+    v._thumb_done(b, bytes(buf.data()))
+    v._thumb_done(os.path.join(lib, "Altro.cbz"), bytes(buf.data()))   # non in griglia: niente
+    dopo = [v.list.item(i).icon().cacheKey() for i in range(2)]
+    assert dopo[0] == prima[0] and dopo[1] != prima[1], "la miniatura va solo sul suo fumetto"
     v.go_root()
     assert v.folder == lib and v.paths == [], "⌂ torna alla cartella principale"
     from PyQt6.QtCore import Qt
@@ -193,7 +204,6 @@ def test_vista(app, lib):
     # tasto destro su una card non selezionata: la seleziona e mostra il menu
     from PyQt6.QtCore import QPoint
     from PyQt6.QtGui import QContextMenuEvent
-    from PyQt6.QtWidgets import QMenu
     menu_aperti = []
     vero_exec, QMenu.exec = QMenu.exec, lambda self, *a: menu_aperti.append([x.text() for x in self.actions()])
     try:
@@ -447,6 +457,16 @@ def test_cartelle_vuote(app, work):
         "in libreria sale fino a DC (mai la libreria), fuori solo la cartella del fumetto, mai una piena"
     os.makedirs(os.path.join(dc, "Superman"))
     assert cartelle_vuote([batman], [lib]) == [batman], "in DC c'è altro (Superman): DC resta"
+    from comicoptimizer import library
+    scaricati = os.path.join(work, "vuote", "Scaricati")      # il fumetto stava da solo in Scaricati
+    os.makedirs(scaricati)
+    vero, library.cartelle_di_sistema = library.cartelle_di_sistema, lambda: [scaricati + os.sep]
+    try:
+        assert cartelle_vuote([scaricati], [lib]) == [], "le cartelle di sistema non vanno mai nel cestino"
+    finally:
+        library.cartelle_di_sistema = vero
+    assert cartelle_vuote([os.path.abspath(os.sep)], []) == [], "mai la radice di un disco"
+    assert all(vero()), "le cartelle di sistema si trovano"
 
 
 def test_sposta(app, work):

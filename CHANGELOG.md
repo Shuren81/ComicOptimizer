@@ -3,6 +3,10 @@
 ## [3.12.6] — 2026-11-24
 
 - **Corretto:** il programma poteva chiudersi di colpo a fine lavoro (per esempio dopo aver tolto una pagina) o dopo gli spostamenti, mentre la Libreria si ricontrollava: la pulizia della memoria di Python partiva nel thread della Libreria e distruggeva lì pezzi dell'interfaccia. Ora la fa solo l'interfaccia.
+- **Corretto:** spostando l'ultimo fumetto rimasto in Scaricati, Scrivania, Documenti, Immagini o nella cartella home, quella cartella finiva nel cestino. Ora le cartelle di sistema e la radice di un disco restano sempre (anche su Windows, dove le maiuscole nei percorsi non contano).
+- **Corretto:** riparando un archivio rovinato preparato apposta, una pagina con un nome come «../file» poteva far cancellare un file fuori dalla cartella temporanea.
+- **Corretto:** uno spostamento verso un altro disco interrotto a metà (disco pieno o staccato) lasciava nella libreria una copia rotta: ora si toglie, e l'originale resta dov'era.
+- **Più veloce:** la Libreria non rallenta più mentre arrivano le copertine nuove (prima, con migliaia di fumetti, ogni copertina scorreva tutta la griglia).
 
 ## [3.12.5] — 2026-11-23
 

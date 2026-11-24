@@ -283,6 +283,19 @@ def main(work):
         f.seek(seconda.header_offset + 30 + len(seconda.filename) + seconda.compress_size // 2)
         f.write(b"\0" * 64)
     assert workers.prepare_comic(rotto) == [], "senza recupero il fumetto rovinato si salta"
+    # un nome «../vittima.txt» rovinato non fa cancellare un file fuori dalla cartella temporanea
+    from comicoptimizer import archives
+    trappola, vittima = os.path.join(rd, "Trappola.cbz"), os.path.join(rd, "vittima.txt")
+    open(vittima, "w").write("mio")
+    with zipfile.ZipFile(trappola, "w") as z:
+        z.writestr("../vittima.txt", b"x" * 100)
+    with open(trappola, "r+b") as f:                  # CRC sbagliato: l'estrazione fallisce
+        f.seek(30 + len("../vittima.txt") + 50)
+        f.write(b"y")
+    dest = os.path.join(rd, "dest")
+    os.makedirs(dest)
+    archives._recupera(trappola, dest)
+    assert open(vittima).read() == "mio", "il file fuori da dest resta"
     task = workers.prepare_comic(rotto, recupera=True)
     assert task and task[0]["recuperato"] == "2/3 pagine", task
     pw = workers.ProcessingWorker(task, to_webp=False)

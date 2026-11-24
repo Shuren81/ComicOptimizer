@@ -336,8 +336,13 @@ def _recupera(path, dest):
                     z.extract(info, dest)
                 except Exception as e:
                     log.warning(f"  recupero: '{info.filename}' rovinata, saltata ({e})")
-                    rotta = os.path.join(dest, info.filename)
-                    if os.path.isfile(rotta):
+                    # il nome viene dall'archivio («../x», «C:\x»): si cancella solo dentro dest
+                    rotta, base = os.path.realpath(os.path.join(dest, info.filename)), os.path.realpath(dest)
+                    try:
+                        dentro = os.path.commonpath([rotta, base]) == base
+                    except ValueError:                # Windows: un altro disco
+                        dentro = False
+                    if dentro and os.path.isfile(rotta):
                         os.remove(rotta)
     except zipfile.BadZipFile:
         try:

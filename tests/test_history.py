@@ -133,6 +133,27 @@ def test_log_rotation():
     assert h and h[0].maxBytes == 2_000_000 and h[0].backupCount == 3
 
 
+def test_spostamento_interrotto(work):
+    """Copia fra due dischi interrotta (disco pieno): il file a metà si toglie, l'originale resta."""
+    import shutil
+    import comicoptimizer.main_window as mw
+    from PyQt6.QtWidgets import QMessageBox
+    old, new = touch(work, "Intero.cbz"), os.path.join(work, "altro disco", "Intero.cbz")
+
+    def a_meta(da, a):
+        open(a, "wb").write(b"mez")
+        raise OSError(28, "No space left on device")
+    w = mw.MainWindow()
+    vero_move, shutil.move = shutil.move, a_meta
+    vero_warn, QMessageBox.warning = QMessageBox.warning, staticmethod(lambda *a: None)
+    try:
+        assert w._do_renames([(old, new)]) == []
+    finally:
+        shutil.move, QMessageBox.warning = vero_move, vero_warn
+    assert os.path.exists(old) and not os.path.exists(new), "niente copia a metà, originale al suo posto"
+    w._closing = True
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
@@ -141,5 +162,6 @@ if __name__ == "__main__":
         test_registry(work)
         test_after_restart(work)
         test_dialog(work)
+        test_spostamento_interrotto(work)
         test_log_rotation()
     print("TUTTO OK")
