@@ -1,12 +1,13 @@
 """Avvio dell'applicazione."""
 
 import faulthandler
+import gc
 import os
 import platform
 import sys
 import threading
 
-from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR, QEvent, QObject, QThread, Qt, qInstallMessageHandler
+from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR, QEvent, QObject, QThread, Qt, QTimer, qInstallMessageHandler
 from PyQt6.QtGui import QColor, QIcon, QPalette
 from PyQt6.QtWidgets import QAbstractButton, QApplication, QMenu, QMessageBox
 
@@ -66,6 +67,22 @@ class TracciaAzioni(QObject):
         return False
 
 
+def raccolta_nel_thread_principale(app):
+    """Il garbage collector di Python parte nel thread che sta allocando: se è quello della Libreria,
+    distrugge lì oggetti Qt (finestre, timer, thread) mentre l'interfaccia li usa, e la memoria si
+    corrompe (crash dopo spostamenti e lavori). Si raccoglie solo qui, nel thread dell'interfaccia."""
+    gc.disable()
+
+    def raccogli():
+        (c0, c1, c2), (t0, t1, t2) = gc.get_count(), gc.get_threshold()
+        if c0 > t0:
+            gc.collect(2 if c2 > t2 else 1 if c1 > t1 else 0)
+    timer = QTimer(app)
+    timer.timeout.connect(raccogli)
+    timer.start(500)
+    return timer
+
+
 def main():
     sys.excepthook = _on_unexpected_error
     # errori nei thread (scansione della libreria, ricerche…): nel log invece che persi su stderr
@@ -77,6 +94,7 @@ def main():
     config.CRASH_LOG = open(LOG_PATH, "a", encoding="utf-8")
     faulthandler.enable(config.CRASH_LOG)
     app = QApplication(sys.argv)
+    raccolta_nel_thread_principale(app)
     app.setApplicationName("ComicOptimizer")
     app.setApplicationVersion(APP_VERSION)
     cleanup_stale_temp()

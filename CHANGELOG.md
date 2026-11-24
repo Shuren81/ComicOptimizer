@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.12.6] — 2026-11-24
+
+- **Corretto:** il programma poteva chiudersi di colpo a fine lavoro (per esempio dopo aver tolto una pagina) o dopo gli spostamenti, mentre la Libreria si ricontrollava: la pulizia della memoria di Python partiva nel thread della Libreria e distruggeva lì pezzi dell'interfaccia. Ora la fa solo l'interfaccia.
+
 ## [3.12.5] — 2026-11-23
 
 - **Cambiato: selezione classica** nella Libreria, nella lista di lavoro e in Pagine: un click sceglie solo quello cliccato (sul vuoto toglie la selezione), **Ctrl+click** aggiunge o toglie, **Shift+click** seleziona un intervallo, trascinando si fa un riquadro (con Ctrl si aggiunge alla selezione).

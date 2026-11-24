@@ -159,6 +159,34 @@ def test_log_dettagliato(app):
     log.removeHandler(h)
 
 
+def test_raccolta_nel_thread_principale(app):
+    import gc
+    import weakref
+    from PyQt6.QtCore import QEventLoop, QTimer
+    from comicoptimizer.app import raccolta_nel_thread_principale
+
+    class Ciclo:
+        pass
+    timer = raccolta_nel_thread_principale(app)
+    try:
+        assert not gc.isenabled(), "nessuna raccolta automatica nei thread"
+        c = Ciclo()
+        c.io = c
+        morto = weakref.ref(c)
+        del c
+        for _ in range(gc.get_threshold()[0] + 10):   # abbastanza oggetti da far scattare la raccolta
+            x = Ciclo()
+            x.io = x
+        del x
+        loop = QEventLoop()
+        QTimer.singleShot(700, loop.quit)
+        loop.exec()
+        assert morto() is None, "il timer raccoglie nel thread dell'interfaccia"
+    finally:
+        timer.stop()
+        gc.enable()
+
+
 if __name__ == "__main__":
     app = QApplication([])
     with tempfile.TemporaryDirectory() as work:
@@ -170,4 +198,5 @@ if __name__ == "__main__":
         test_installa_mancanti()
         test_popup_evidenziati(app)
         test_log_dettagliato(app)
+        test_raccolta_nel_thread_principale(app)
     print("TUTTO OK")
